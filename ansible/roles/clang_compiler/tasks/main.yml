@@ -1,0 +1,9 @@
+- homebrew:
+    name: llvm@21
+    state: present
+  name: Install Clang via Homebrew
+- lineinfile:
+    create: true
+    line: export PATH=/opt/homebrew/opt/llvm@21/bin:$PATH
+    path: '{{ ansible_env.HOME }}/.zshrc'
+  name: Add LLVM to PATH

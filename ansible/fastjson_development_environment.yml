@@ -1,0 +1,59 @@
+name: FastestJSONInTheWest Development Environment Setup
+hosts: all
+become: true
+gather_facts: true
+vars:
+  project_name: FastestJSONInTheWest
+  cpp_standard: c++23
+  clang_version: '21'
+  cmake_min_version: '3.28'
+  build_type: Release
+pre_tasks:
+- name: Update package cache
+  package:
+    update_cache: true
+  when: ansible_os_family == 'Debian'
+- name: Install basic development tools
+  package:
+    name:
+    - build-essential
+    - wget
+    - curl
+    - git
+    - python3
+    - python3-pip
+    state: present
+  when: ansible_os_family == 'Debian'
+roles:
+- role: clang_compiler
+  tags:
+  - compiler
+- role: cmake_build
+  tags:
+  - build
+- role: openmpi_parallel
+  tags:
+  - parallel
+- role: zeromq_messaging
+  tags:
+  - messaging
+- role: development_tools
+  tags:
+  - tools
+- role: validation
+  tags:
+  - validate
+post_tasks:
+- name: Validate installation
+  command: '{{ item.command }}'
+  register: validation_results
+  failed_when: validation_results.rc != 0
+  loop:
+  - command: clang++-21 --version
+    name: Clang compiler
+  - command: cmake --version
+    name: CMake
+  - command: mpirun --version
+    name: OpenMPI
+  - command: pkg-config --modversion libzmq
+    name: ZeroMQ
