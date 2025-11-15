@@ -1,0 +1,384 @@
+---
+# FastestJSONInTheWest Complete Development Environment Setup
+# Multi-platform Ansible playbook for Clang 21, OpenMPI, ZeroMQ, and development tools
+
+- name: FastestJSONInTheWest Development Environment Setup
+  hosts: all
+  become: true
+  gather_facts: true
+  
+  vars:
+    project_name: FastestJSONInTheWest
+    cpp_standard: c++23
+    clang_version: 21
+    cmake_version: "3.28.0"
+    openmpi_version: "5.0"
+    zeromq_version: "4.3.5"
+    
+  tasks:
+    # ============================================================================
+    # PLATFORM DETECTION AND BASIC SETUP
+    # ============================================================================
+    
+    - name: Display system information
+      debug:
+        msg: |
+          System: {{ ansible_system }}
+          Distribution: {{ ansible_distribution | default('Unknown') }}
+          Version: {{ ansible_distribution_version | default('Unknown') }}
+          Architecture: {{ ansible_architecture }}
+    
+    # ============================================================================
+    # UBUNTU/DEBIAN SETUP
+    # ============================================================================
+    
+    - name: Update package cache (Debian/Ubuntu)
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+      when: ansible_os_family == 'Debian'
+    
+    - name: Install basic development tools (Debian/Ubuntu)
+      apt:
+        name:
+          - build-essential
+          - wget
+          - curl
+          - git
+          - python3
+          - python3-pip
+          - software-properties-common
+          - apt-transport-https
+          - ca-certificates
+          - gnupg
+          - lsb-release
+        state: present
+      when: ansible_os_family == 'Debian'
+    
+    - name: Add LLVM APT repository key (Debian/Ubuntu)
+      apt_key:
+        url: https://apt.llvm.org/llvm-snapshot.gpg.key
+        state: present
+      when: ansible_os_family == 'Debian'
+    
+    - name: Add LLVM APT repository (Debian/Ubuntu)
+      apt_repository:
+        repo: "deb http://apt.llvm.org/{{ ansible_distribution_release }}/ llvm-toolchain-{{ ansible_distribution_release }}-{{ clang_version }} main"
+        state: present
+        update_cache: yes
+      when: ansible_os_family == 'Debian'
+    
+    - name: Install Clang {{ clang_version }} and tools (Debian/Ubuntu)
+      apt:
+        name:
+          - "clang-{{ clang_version }}"
+          - "clang++-{{ clang_version }}"
+          - "clang-tools-{{ clang_version }}"
+          - "clang-tidy-{{ clang_version }}"
+          - "clang-format-{{ clang_version }}"
+          - "libc++-{{ clang_version }}-dev"
+          - "libc++abi-{{ clang_version }}-dev"
+          - "lld-{{ clang_version }}"
+          - "lldb-{{ clang_version }}"
+        state: present
+      when: ansible_os_family == 'Debian'
+    
+    - name: Install OpenMPI (Debian/Ubuntu)
+      apt:
+        name:
+          - libopenmpi-dev
+          - openmpi-bin
+          - openmpi-common
+          - openmpi-doc
+        state: present
+      when: ansible_os_family == 'Debian'
+    
+    - name: Install ZeroMQ (Debian/Ubuntu)
+      apt:
+        name:
+          - libzmq3-dev
+          - libcppzmq-dev
+          - pkg-config
+        state: present
+      when: ansible_os_family == 'Debian'
+    
+    - name: Install additional development tools (Debian/Ubuntu)
+      apt:
+        name:
+          - libgtest-dev
+          - libgmock-dev
+          - valgrind
+          - gdb
+          - ninja-build
+          - ccache
+          - libfmt-dev
+          - libbenchmark-dev
+        state: present
+      when: ansible_os_family == 'Debian'
+    
+    # ============================================================================
+    # CENTOS/RHEL/FEDORA SETUP
+    # ============================================================================
+    
+    - name: Install EPEL repository (CentOS/RHEL)
+      yum:
+        name: epel-release
+        state: present
+      when: ansible_distribution in ['CentOS', 'RedHat'] and ansible_distribution_major_version == '7'
+    
+    - name: Install development tools (CentOS/RHEL/Fedora)
+      package:
+        name:
+          - "@development-tools"
+          - gcc-c++
+          - cmake
+          - git
+          - wget
+          - curl
+          - python3
+          - python3-pip
+        state: present
+      when: ansible_os_family == 'RedHat'
+    
+    - name: Install Clang (CentOS/RHEL/Fedora)
+      package:
+        name:
+          - clang
+          - clang-tools-extra
+          - llvm
+          - llvm-devel
+        state: present
+      when: ansible_os_family == 'RedHat'
+    
+    - name: Install OpenMPI (CentOS/RHEL/Fedora)
+      package:
+        name:
+          - openmpi
+          - openmpi-devel
+        state: present
+      when: ansible_os_family == 'RedHat'
+    
+    - name: Install ZeroMQ (CentOS/RHEL/Fedora)
+      package:
+        name:
+          - zeromq-devel
+          - cppzmq-devel
+          - pkgconfig
+        state: present
+      when: ansible_os_family == 'RedHat'
+    
+    # ============================================================================
+    # MACOS SETUP (using Homebrew)
+    # ============================================================================
+    
+    - name: Check if Homebrew is installed (macOS)
+      command: which brew
+      register: homebrew_check
+      failed_when: false
+      changed_when: false
+      when: ansible_os_family == 'Darwin'
+    
+    - name: Install Homebrew (macOS)
+      shell: /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+      become: false
+      when: ansible_os_family == 'Darwin' and homebrew_check.rc != 0
+    
+    - name: Install development tools via Homebrew (macOS)
+      homebrew:
+        name:
+          - "llvm@{{ clang_version }}"
+          - cmake
+          - open-mpi
+          - zmq
+          - cppzmq
+          - googletest
+          - valgrind
+          - ninja
+          - ccache
+          - fmt
+          - benchmark
+        state: present
+      become: false
+      when: ansible_os_family == 'Darwin'
+    
+    - name: Add LLVM to PATH (macOS)
+      lineinfile:
+        path: "{{ ansible_env.HOME }}/.zshrc"
+        line: "export PATH=/opt/homebrew/opt/llvm@{{ clang_version }}/bin:$PATH"
+        create: true
+      become: false
+      when: ansible_os_family == 'Darwin'
+    
+    - name: Add LLVM to PATH for bash (macOS)
+      lineinfile:
+        path: "{{ ansible_env.HOME }}/.bash_profile"
+        line: "export PATH=/opt/homebrew/opt/llvm@{{ clang_version }}/bin:$PATH"
+        create: true
+      become: false
+      when: ansible_os_family == 'Darwin'
+    
+    # ============================================================================
+    # CMAKE INSTALLATION (from source for latest version)
+    # ============================================================================
+    
+    - name: Check current CMake version
+      command: cmake --version
+      register: cmake_version_check
+      failed_when: false
+      changed_when: false
+    
+    - name: Download CMake {{ cmake_version }} source
+      get_url:
+        url: "https://github.com/Kitware/CMake/releases/download/v{{ cmake_version }}/cmake-{{ cmake_version }}.tar.gz"
+        dest: "/tmp/cmake-{{ cmake_version }}.tar.gz"
+        mode: '0644'
+      when: cmake_version_check.rc != 0 or cmake_version not in cmake_version_check.stdout
+    
+    - name: Extract CMake source
+      unarchive:
+        src: "/tmp/cmake-{{ cmake_version }}.tar.gz"
+        dest: "/tmp/"
+        remote_src: true
+      when: cmake_version_check.rc != 0 or cmake_version not in cmake_version_check.stdout
+    
+    - name: Configure CMake build
+      command: "./bootstrap --prefix=/usr/local --parallel={{ ansible_processor_vcpus }}"
+      args:
+        chdir: "/tmp/cmake-{{ cmake_version }}"
+      when: cmake_version_check.rc != 0 or cmake_version not in cmake_version_check.stdout
+    
+    - name: Build CMake
+      command: "make -j{{ ansible_processor_vcpus }}"
+      args:
+        chdir: "/tmp/cmake-{{ cmake_version }}"
+      when: cmake_version_check.rc != 0 or cmake_version not in cmake_version_check.stdout
+    
+    - name: Install CMake
+      command: "make install"
+      args:
+        chdir: "/tmp/cmake-{{ cmake_version }}"
+      when: cmake_version_check.rc != 0 or cmake_version not in cmake_version_check.stdout
+    
+    # ============================================================================
+    # COMPILER ALTERNATIVES SETUP
+    # ============================================================================
+    
+    - name: Set Clang as default compiler (Debian/Ubuntu)
+      alternatives:
+        name: "{{ item.name }}"
+        link: "{{ item.link }}"
+        path: "{{ item.path }}"
+        priority: 100
+      loop:
+        - { name: 'cc', link: '/usr/bin/cc', path: "/usr/bin/clang-{{ clang_version }}" }
+        - { name: 'c++', link: '/usr/bin/c++', path: "/usr/bin/clang++-{{ clang_version }}" }
+        - { name: 'clang', link: '/usr/bin/clang', path: "/usr/bin/clang-{{ clang_version }}" }
+        - { name: 'clang++', link: '/usr/bin/clang++', path: "/usr/bin/clang++-{{ clang_version }}" }
+        - { name: 'clang-tidy', link: '/usr/bin/clang-tidy', path: "/usr/bin/clang-tidy-{{ clang_version }}" }
+        - { name: 'clang-format', link: '/usr/bin/clang-format', path: "/usr/bin/clang-format-{{ clang_version }}" }
+      when: ansible_os_family == 'Debian'
+    
+    # ============================================================================
+    # ENVIRONMENT CONFIGURATION
+    # ============================================================================
+    
+    - name: Create environment configuration script
+      copy:
+        dest: /etc/profile.d/fastjson-dev.sh
+        mode: '0755'
+        content: |
+          # FastestJSONInTheWest Development Environment
+          export CC=clang-{{ clang_version }}
+          export CXX=clang++-{{ clang_version }}
+          export OMPI_CC=clang-{{ clang_version }}
+          export OMPI_CXX=clang++-{{ clang_version }}
+          export CMAKE_C_COMPILER=clang-{{ clang_version }}
+          export CMAKE_CXX_COMPILER=clang++-{{ clang_version }}
+          export CMAKE_BUILD_TYPE=Release
+          export CMAKE_CXX_STANDARD=23
+      when: ansible_os_family in ['Debian', 'RedHat']
+    
+    # ============================================================================
+    # PYTHON DEPENDENCIES
+    # ============================================================================
+    
+    - name: Install Python development packages
+      pip:
+        name:
+          - conan
+          - vcpkg
+          - ninja
+          - cmake
+          - pyyaml
+          - jinja2
+        executable: pip3
+        state: present
+    
+    # ============================================================================
+    # VALIDATION
+    # ============================================================================
+    
+    - name: Validate Clang installation
+      command: "clang++-{{ clang_version }} --version"
+      register: clang_validation
+      changed_when: false
+    
+    - name: Validate CMake installation
+      command: cmake --version
+      register: cmake_validation
+      changed_when: false
+    
+    - name: Validate OpenMPI installation
+      command: mpirun --version
+      register: mpi_validation
+      changed_when: false
+    
+    - name: Validate ZeroMQ installation
+      command: pkg-config --modversion libzmq
+      register: zmq_validation
+      changed_when: false
+      failed_when: false
+    
+    - name: Display validation results
+      debug:
+        msg: |
+          ✅ Clang {{ clang_version }}: {{ 'PASS' if clang_validation.rc == 0 else 'FAIL' }}
+          ✅ CMake: {{ 'PASS' if cmake_validation.rc == 0 else 'FAIL' }}
+          ✅ OpenMPI: {{ 'PASS' if mpi_validation.rc == 0 else 'FAIL' }}
+          ✅ ZeroMQ: {{ 'PASS' if zmq_validation.rc == 0 else 'FAIL' }}
+          
+          Clang Version: {{ clang_validation.stdout_lines[0] if clang_validation.rc == 0 else 'Not found' }}
+          CMake Version: {{ cmake_validation.stdout_lines[0] if cmake_validation.rc == 0 else 'Not found' }}
+    
+    - name: Create development environment summary
+      copy:
+        dest: "{{ ansible_env.HOME }}/fastjson_environment_info.txt"
+        content: |
+          FastestJSONInTheWest Development Environment Setup Complete
+          ===========================================================
+          
+          System Information:
+          - OS: {{ ansible_distribution }} {{ ansible_distribution_version }}
+          - Architecture: {{ ansible_architecture }}
+          - Kernel: {{ ansible_kernel }}
+          
+          Installed Components:
+          - Clang {{ clang_version }}: {{ clang_validation.stdout_lines[0] if clang_validation.rc == 0 else 'Installation failed' }}
+          - CMake: {{ cmake_validation.stdout_lines[0] if cmake_validation.rc == 0 else 'Installation failed' }}
+          - OpenMPI: {{ mpi_validation.stdout_lines[0] if mpi_validation.rc == 0 else 'Installation failed' }}
+          - ZeroMQ: {{ zmq_validation.stdout if zmq_validation.rc == 0 else 'Installation may have issues' }}
+          
+          Environment Variables:
+          - CC=clang-{{ clang_version }}
+          - CXX=clang++-{{ clang_version }}
+          - CMAKE_C_COMPILER=clang-{{ clang_version }}
+          - CMAKE_CXX_COMPILER=clang++-{{ clang_version }}
+          
+          Next Steps:
+          1. Source environment: source /etc/profile.d/fastjson-dev.sh
+          2. Clone project: git clone <repository>
+          3. Build project: mkdir build && cd build && cmake .. && make -j$(nproc)
+          
+          Generated: {{ ansible_date_time.iso8601 }}
+        mode: '0644'
+      become: false
