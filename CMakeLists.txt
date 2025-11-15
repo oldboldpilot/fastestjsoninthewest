@@ -1,0 +1,429 @@
+# FastestJSONInTheWest - High-Performance C++23 JSON Library
+cmake_minimum_required(VERSION 3.25)
+
+project(FastestJSONInTheWest 
+    VERSION 1.0.0
+    LANGUAGES CXX
+    DESCRIPTION "High-Performance C++23 JSON Library with SIMD optimization"
+    HOMEPAGE_URL "https://github.com/yourusername/FastestJSONInTheWest"
+)
+
+# =============================================================================
+# Project Configuration
+# =============================================================================
+
+# C++23 requirement
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+# Module support
+set(CMAKE_CXX_SCAN_FOR_MODULES ON)
+
+# Build type
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+
+# =============================================================================
+# Compiler Detection and Configuration
+# =============================================================================
+
+# Compiler version checks
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
+    if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS "13.0")
+        message(FATAL_ERROR "GCC 13 or later required for C++23 modules support")
+    endif()
+    message(STATUS "Using GCC ${CMAKE_CXX_COMPILER_VERSION}")
+elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS "16.0")
+        message(FATAL_ERROR "Clang 16 or later required for C++23 modules support")
+    endif()
+    message(STATUS "Using Clang ${CMAKE_CXX_COMPILER_VERSION}")
+elseif(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
+    if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS "19.34")
+        message(FATAL_ERROR "MSVC 19.34 (Visual Studio 2022 17.4) or later required")
+    endif()
+    message(STATUS "Using MSVC ${CMAKE_CXX_COMPILER_VERSION}")
+else()
+    message(WARNING "Untested compiler: ${CMAKE_CXX_COMPILER_ID}")
+endif()
+
+# =============================================================================
+# Compiler-specific Flags
+# =============================================================================
+
+# GCC-specific flags
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fcoroutines -fmodules-ts")
+    set(CMAKE_CXX_FLAGS_RELEASE "-O3 -march=native -mtune=native -flto -DNDEBUG")
+    set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g3 -fsanitize=address -fsanitize=undefined")
+endif()
+
+# Clang-specific flags
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++ -fmodules")
+    set(CMAKE_CXX_FLAGS_RELEASE "-O3 -march=native -flto -DNDEBUG")
+    set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g3 -fsanitize=address -fsanitize=undefined")
+endif()
+
+# MSVC-specific flags
+if(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /std:c++23 /experimental:module")
+    set(CMAKE_CXX_FLAGS_RELEASE "/O2 /GL /DNDEBUG")
+    set(CMAKE_CXX_FLAGS_DEBUG "/Od /Zi /RTC1")
+endif()
+
+# =============================================================================
+# Feature Detection
+# =============================================================================
+
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/FeatureDetection.cmake)
+
+# Detect SIMD capabilities
+detect_simd_features()
+
+# Detect C++23 features
+detect_cxx23_features()
+
+# =============================================================================
+# Dependencies
+# =============================================================================
+
+# Find required packages
+find_package(Threads REQUIRED)
+
+# Optional dependencies
+find_package(OpenMP QUIET)
+find_package(CUDA QUIET)
+find_package(OpenCL QUIET)
+
+# Testing framework
+if(BUILD_TESTING)
+    find_package(GTest QUIET)
+    find_package(benchmark QUIET)
+endif()
+
+# GUI framework for simulator
+find_package(imgui QUIET)
+find_package(glfw3 QUIET)
+find_package(OpenGL QUIET)
+
+# =============================================================================
+# Project Options
+# =============================================================================
+
+option(FASTJSON_BUILD_TESTS "Build test suite" ON)
+option(FASTJSON_BUILD_BENCHMARKS "Build benchmark suite" ON)
+option(FASTJSON_BUILD_EXAMPLES "Build examples" ON)
+option(FASTJSON_BUILD_DOCS "Build documentation" OFF)
+option(FASTJSON_ENABLE_SIMD "Enable SIMD optimizations" ON)
+option(FASTJSON_ENABLE_GPU "Enable GPU acceleration" ${CUDA_FOUND})
+option(FASTJSON_ENABLE_OPENMP "Enable OpenMP support" ${OpenMP_CXX_FOUND})
+option(FASTJSON_ENABLE_SIMULATOR "Enable GUI simulator" ${imgui_FOUND})
+option(FASTJSON_STATIC_ANALYSIS "Enable static analysis" OFF)
+
+# =============================================================================
+# Configure Features Header
+# =============================================================================
+
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/config.h.in"
+    "${CMAKE_BINARY_DIR}/include/fastjson/config.h"
+)
+
+# =============================================================================
+# Main Library Target
+# =============================================================================
+
+add_library(fastjson)
+
+# Set target properties
+set_target_properties(fastjson PROPERTIES
+    CXX_STANDARD 23
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF
+    VERSION ${PROJECT_VERSION}
+    SOVERSION ${PROJECT_VERSION_MAJOR}
+    EXPORT_NAME FastestJSON
+)
+
+# Enable link-time optimization for release builds
+set_target_properties(fastjson PROPERTIES
+    INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE
+    INTERPROCEDURAL_OPTIMIZATION_RELWITHDEBINFO TRUE
+)
+
+# =============================================================================
+# Source Files
+# =============================================================================
+
+# Core modules
+target_sources(fastjson
+    PUBLIC
+        FILE_SET CXX_MODULES FILES
+            src/modules/fastjson.core.cppm
+            src/modules/fastjson.parser.cppm
+            src/modules/fastjson.serializer.cppm
+            src/modules/fastjson.query.cppm
+            src/modules/fastjson.reflection.cppm
+            src/modules/fastjson.logger.cppm
+            src/modules/fastjson.memory.cppm
+            src/modules/fastjson.threading.cppm
+            src/modules/fastjson.io.cppm
+)
+
+# SIMD modules (conditional)
+if(FASTJSON_ENABLE_SIMD)
+    target_sources(fastjson
+        PUBLIC
+            FILE_SET CXX_MODULES FILES
+                src/modules/fastjson.simd.cppm
+    )
+endif()
+
+# GPU modules (conditional)
+if(FASTJSON_ENABLE_GPU)
+    target_sources(fastjson
+        PUBLIC
+            FILE_SET CXX_MODULES FILES
+                src/modules/fastjson.gpu.cppm
+    )
+endif()
+
+# Simulator module (conditional)
+if(FASTJSON_ENABLE_SIMULATOR)
+    target_sources(fastjson
+        PUBLIC
+            FILE_SET CXX_MODULES FILES
+                src/modules/fastjson.simulator.cppm
+    )
+endif()
+
+# =============================================================================
+# Include Directories
+# =============================================================================
+
+target_include_directories(fastjson
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<BUILD_INTERFACE:${CMAKE_BINARY_DIR}/include>
+        $<INSTALL_INTERFACE:include>
+    PRIVATE
+        src
+)
+
+# =============================================================================
+# Compiler Definitions
+# =============================================================================
+
+target_compile_definitions(fastjson PRIVATE
+    $<$<CONFIG:Debug>:FASTJSON_DEBUG>
+    $<$<CONFIG:Release>:FASTJSON_RELEASE>
+)
+
+# Feature-based definitions
+if(FASTJSON_ENABLE_SIMD AND FASTJSON_HAVE_AVX2)
+    target_compile_definitions(fastjson PRIVATE FASTJSON_HAVE_AVX2)
+endif()
+
+if(FASTJSON_ENABLE_SIMD AND FASTJSON_HAVE_NEON)
+    target_compile_definitions(fastjson PRIVATE FASTJSON_HAVE_NEON)
+endif()
+
+if(FASTJSON_ENABLE_GPU AND CUDA_FOUND)
+    target_compile_definitions(fastjson PRIVATE FASTJSON_HAVE_CUDA)
+endif()
+
+if(FASTJSON_ENABLE_OPENMP AND OpenMP_CXX_FOUND)
+    target_compile_definitions(fastjson PRIVATE FASTJSON_HAVE_OPENMP)
+endif()
+
+if(FASTJSON_ENABLE_SIMULATOR AND imgui_FOUND)
+    target_compile_definitions(fastjson PRIVATE FASTJSON_HAVE_IMGUI)
+endif()
+
+# =============================================================================
+# Link Libraries
+# =============================================================================
+
+target_link_libraries(fastjson
+    PUBLIC
+        Threads::Threads
+)
+
+# Optional libraries
+if(FASTJSON_ENABLE_OPENMP AND OpenMP_CXX_FOUND)
+    target_link_libraries(fastjson PRIVATE OpenMP::OpenMP_CXX)
+endif()
+
+if(FASTJSON_ENABLE_GPU AND CUDA_FOUND)
+    enable_language(CUDA)
+    target_link_libraries(fastjson PRIVATE ${CUDA_LIBRARIES})
+endif()
+
+if(FASTJSON_ENABLE_SIMULATOR AND imgui_FOUND AND glfw3_FOUND AND OpenGL_FOUND)
+    target_link_libraries(fastjson PRIVATE 
+        imgui::imgui 
+        glfw 
+        ${OPENGL_LIBRARIES}
+    )
+endif()
+
+# =============================================================================
+# Static Analysis
+# =============================================================================
+
+if(FASTJSON_STATIC_ANALYSIS)
+    # Clang-Tidy
+    find_program(CLANG_TIDY_COMMAND clang-tidy)
+    if(CLANG_TIDY_COMMAND)
+        set_target_properties(fastjson PROPERTIES
+            CXX_CLANG_TIDY "${CLANG_TIDY_COMMAND};-config-file=${CMAKE_CURRENT_SOURCE_DIR}/.clang-tidy"
+        )
+    endif()
+
+    # Clang-Format
+    find_program(CLANG_FORMAT_COMMAND clang-format)
+    if(CLANG_FORMAT_COMMAND)
+        file(GLOB_RECURSE CLANG_FORMAT_FILES 
+            "src/*.cpp" "src/*.cppm" "src/*.hpp" 
+            "tests/*.cpp" "examples/*.cpp"
+        )
+        add_custom_target(format
+            COMMAND ${CLANG_FORMAT_COMMAND} -i ${CLANG_FORMAT_FILES}
+            COMMENT "Formatting code with clang-format"
+        )
+    endif()
+endif()
+
+# =============================================================================
+# Subdirectories
+# =============================================================================
+
+# Tests
+if(FASTJSON_BUILD_TESTS AND BUILD_TESTING)
+    enable_testing()
+    add_subdirectory(tests)
+endif()
+
+# Benchmarks
+if(FASTJSON_BUILD_BENCHMARKS)
+    add_subdirectory(benchmarks)
+endif()
+
+# Examples
+if(FASTJSON_BUILD_EXAMPLES)
+    add_subdirectory(examples)
+endif()
+
+# Documentation
+if(FASTJSON_BUILD_DOCS)
+    find_package(Doxygen)
+    if(Doxygen_FOUND)
+        add_subdirectory(docs)
+    endif()
+endif()
+
+# =============================================================================
+# Installation
+# =============================================================================
+
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
+
+# Install targets
+install(TARGETS fastjson
+    EXPORT FastestJSONTargets
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    FILE_SET CXX_MODULES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/modules
+)
+
+# Install headers
+install(DIRECTORY include/ 
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+)
+
+install(FILES ${CMAKE_BINARY_DIR}/include/fastjson/config.h
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/fastjson
+)
+
+# Generate and install package config files
+write_basic_package_version_file(
+    "${CMAKE_CURRENT_BINARY_DIR}/FastestJSONConfigVersion.cmake"
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY SameMajorVersion
+)
+
+configure_package_config_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/FastestJSONConfig.cmake.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/FastestJSONConfig.cmake"
+    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/FastestJSON
+)
+
+install(FILES
+    "${CMAKE_CURRENT_BINARY_DIR}/FastestJSONConfig.cmake"
+    "${CMAKE_CURRENT_BINARY_DIR}/FastestJSONConfigVersion.cmake"
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/FastestJSON
+)
+
+install(EXPORT FastestJSONTargets
+    FILE FastestJSONTargets.cmake
+    NAMESPACE FastestJSON::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/FastestJSON
+)
+
+# =============================================================================
+# Package Configuration
+# =============================================================================
+
+set(CPACK_PACKAGE_NAME "FastestJSONInTheWest")
+set(CPACK_PACKAGE_VENDOR "FastestJSON Project")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "High-Performance C++23 JSON Library")
+set(CPACK_PACKAGE_VERSION ${PROJECT_VERSION})
+set(CPACK_PACKAGE_INSTALL_DIRECTORY "FastestJSON")
+set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE")
+set(CPACK_RESOURCE_FILE_README "${CMAKE_CURRENT_SOURCE_DIR}/README.md")
+
+if(WIN32)
+    set(CPACK_GENERATOR "NSIS")
+elseif(APPLE)
+    set(CPACK_GENERATOR "DragNDrop")
+else()
+    set(CPACK_GENERATOR "DEB;RPM")
+    set(CPACK_DEBIAN_PACKAGE_MAINTAINER "FastestJSON Project")
+    set(CPACK_RPM_PACKAGE_LICENSE "MIT")
+endif()
+
+include(CPack)
+
+# =============================================================================
+# Status Summary
+# =============================================================================
+
+message(STATUS "")
+message(STATUS "FastestJSONInTheWest Configuration Summary:")
+message(STATUS "  Version: ${PROJECT_VERSION}")
+message(STATUS "  Build Type: ${CMAKE_BUILD_TYPE}")
+message(STATUS "  Compiler: ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")
+message(STATUS "  C++ Standard: C++${CMAKE_CXX_STANDARD}")
+message(STATUS "")
+message(STATUS "Features:")
+message(STATUS "  SIMD Support: ${FASTJSON_ENABLE_SIMD}")
+if(FASTJSON_ENABLE_SIMD)
+    message(STATUS "    AVX2: ${FASTJSON_HAVE_AVX2}")
+    message(STATUS "    NEON: ${FASTJSON_HAVE_NEON}")
+endif()
+message(STATUS "  GPU Acceleration: ${FASTJSON_ENABLE_GPU}")
+message(STATUS "  OpenMP Support: ${FASTJSON_ENABLE_OPENMP}")
+message(STATUS "  GUI Simulator: ${FASTJSON_ENABLE_SIMULATOR}")
+message(STATUS "")
+message(STATUS "Build Options:")
+message(STATUS "  Tests: ${FASTJSON_BUILD_TESTS}")
+message(STATUS "  Benchmarks: ${FASTJSON_BUILD_BENCHMARKS}")
+message(STATUS "  Examples: ${FASTJSON_BUILD_EXAMPLES}")
+message(STATUS "  Documentation: ${FASTJSON_BUILD_DOCS}")
+message(STATUS "  Static Analysis: ${FASTJSON_STATIC_ANALYSIS}")
+message(STATUS "")
