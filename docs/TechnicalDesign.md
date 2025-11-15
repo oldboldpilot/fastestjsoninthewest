@@ -1132,7 +1132,47 @@ export namespace fastjson::simulation {
 
 ## 9. Build System and Tooling
 
-### 9.1 CMake Configuration
+### 9.1 Development Environment
+
+#### Primary Development Toolchain (Linux)
+```bash
+# Primary Compiler: Clang 21
+export CC=clang-21
+export CXX=clang++-21
+export CMAKE_CXX_COMPILER=clang++-21
+export CMAKE_C_COMPILER=clang-21
+
+# Standard library configuration
+export CXXFLAGS="-stdlib=libc++"
+export LDFLAGS="-stdlib=libc++"
+
+# OpenMP support with Clang
+export OpenMP_ROOT=/usr/lib/llvm-21
+export OpenMP_CXX_FLAGS=-fopenmp
+export OpenMP_CXX_LIB_NAMES=omp
+```
+
+#### Secondary Development Environment (Windows)
+```cmd
+REM Secondary Compiler: MSVC 2022
+set CC=cl
+set CXX=cl
+set CMAKE_GENERATOR="Visual Studio 17 2022"
+set CMAKE_GENERATOR_PLATFORM=x64
+```
+
+#### Code Quality Tools
+```bash
+# Static Analysis (required)
+clang-tidy-21 --version    # Must be 21.0+
+clang-format-21 --version  # Must be 21.0+
+
+# Configuration files
+# .clang-tidy      - Static analysis rules
+# .clang-format    - Code formatting rules (LLVM style)
+```
+
+### 9.2 CMake Configuration
 
 ```cmake
 # CMakeLists.txt for FastestJSONInTheWest
@@ -1151,20 +1191,27 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # Module support
 set(CMAKE_CXX_SCAN_FOR_MODULES ON)
 
-# Compiler-specific options
-if(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-    if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS "13.0")
-        message(FATAL_ERROR "GCC 13 or later required for C++23 modules")
-    endif()
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fcoroutines -fmodules-ts")
-elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS "16.0")
-        message(FATAL_ERROR "Clang 16 or later required for C++23 modules")
+# Compiler-specific options (prioritize Clang 21)
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS "21.0")
+        message(FATAL_ERROR "Clang 21 or later required (primary toolchain)")
     endif()
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++ -fmodules")
+    
+    # Enable Clang static analysis tools
+    set(CMAKE_CXX_CLANG_TIDY clang-tidy-21)
+    set(CMAKE_CXX_INCLUDE_WHAT_YOU_USE include-what-you-use)
+    
+elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
+    if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS "13.0")
+        message(FATAL_ERROR "GCC 13 or later required (fallback compiler)")
+    endif()
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fcoroutines -fmodules-ts")
+    message(WARNING "Using GCC fallback - Clang 21 recommended for primary development")
+    
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
     if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS "19.34")
-        message(FATAL_ERROR "MSVC 19.34 or later required for C++23 modules")
+        message(FATAL_ERROR "MSVC 19.34 or later required (Windows secondary)")
     endif()
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /std:c++23 /experimental:module")
 endif()
@@ -1262,10 +1309,42 @@ if(CUDA_FOUND)
     target_compile_definitions(fastjson PRIVATE FASTJSON_HAVE_CUDA)
 endif()
 
-# OpenMP support
+# OpenMP support (Clang primary)
 if(OpenMP_CXX_FOUND)
     target_link_libraries(fastjson PRIVATE OpenMP::OpenMP_CXX)
     target_compile_definitions(fastjson PRIVATE FASTJSON_HAVE_OPENMP)
+    
+    # Clang-specific OpenMP configuration
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        target_compile_options(fastjson PRIVATE -fopenmp)
+        target_link_libraries(fastjson PRIVATE omp)
+    endif()
+endif()
+
+# Distributed Computing Dependencies
+# Primary: OpenMPI
+find_package(MPI)
+if(MPI_CXX_FOUND)
+    target_link_libraries(fastjson PRIVATE MPI::MPI_CXX)
+    target_compile_definitions(fastjson PRIVATE FASTJSON_HAVE_MPI)
+endif()
+
+# Secondary: gRPC
+find_package(PkgConfig)
+if(PkgConfig_FOUND)
+    pkg_check_modules(GRPC grpc++)
+    if(GRPC_FOUND)
+        target_link_libraries(fastjson PRIVATE ${GRPC_LIBRARIES})
+        target_include_directories(fastjson PRIVATE ${GRPC_INCLUDE_DIRS})
+        target_compile_definitions(fastjson PRIVATE FASTJSON_HAVE_GRPC)
+    endif()
+endif()
+
+# Kafka (librdkafka)
+find_package(RdKafka)
+if(RdKafka_FOUND)
+    target_link_libraries(fastjson PRIVATE RdKafka::rdkafka++)
+    target_compile_definitions(fastjson PRIVATE FASTJSON_HAVE_KAFKA)
 endif()
 
 # ImGui for simulator
@@ -1320,5 +1399,146 @@ if(Doxygen_FOUND)
     add_subdirectory(docs)
 endif()
 ```
+
+---
+
+## 10. Distributed Computing Architecture
+
+### 10.1 Primary Framework: OpenMPI
+
+The library prioritizes OpenMPI as the primary distributed computing framework for large-scale JSON processing across compute clusters.
+
+```cpp
+export module fastjson.distributed;
+
+import fastjson.core;
+import <mpi.h>;
+
+export namespace fastjson::distributed {
+    class MPICoordinator {
+        int rank_;
+        int size_;
+        MPI_Comm communicator_;
+        
+    public:
+        MPICoordinator(MPI_Comm comm = MPI_COMM_WORLD);
+        ~MPICoordinator();
+        
+        // Distributed parsing operations
+        Result<JsonDocument> parse_distributed_file(
+            std::string_view filename,
+            std::size_t chunk_size = 64 * 1024 * 1024) noexcept;
+            
+        Result<std::vector<JsonDocument>> parse_multiple_files(
+            std::span<const std::string_view> filenames) noexcept;
+            
+        // Collective operations
+        Result<void> broadcast_configuration(const JsonParsingConfig& config) noexcept;
+        Result<std::vector<JsonDocument>> gather_results() noexcept;
+        Result<JsonDocument> reduce_documents(
+            const JsonDocument& local_doc,
+            DocumentReduceOp operation) noexcept;
+            
+        // Cluster information
+        int rank() const noexcept { return rank_; }
+        int size() const noexcept { return size_; }
+        bool is_master() const noexcept { return rank_ == 0; }
+    };
+}
+```
+
+### 10.2 Secondary Framework: gRPC
+
+For service-oriented architectures and hybrid cloud deployments, gRPC provides high-performance RPC communication.
+
+```cpp
+export module fastjson.grpc;
+
+import fastjson.core;
+import <grpcpp/grpcpp.h>;
+
+export namespace fastjson::grpc {
+    class JsonProcessingService {
+    public:
+        // Service interface for distributed JSON processing
+        grpc::Status ParseJson(grpc::ServerContext* context,
+                              const JsonRequest* request,
+                              JsonResponse* response);
+                              
+        grpc::Status StreamParseJson(grpc::ServerContext* context,
+                                   grpc::ServerReader<JsonChunk>* reader,
+                                   JsonResponse* response);
+                                   
+        grpc::Status QueryJson(grpc::ServerContext* context,
+                             const QueryRequest* request,
+                             QueryResponse* response);
+    };
+    
+    class DistributedJsonClient {
+        std::unique_ptr<JsonProcessing::Stub> stub_;
+        
+    public:
+        explicit DistributedJsonClient(std::shared_ptr<grpc::Channel> channel);
+        
+        Result<JsonDocument> remote_parse(
+            const std::string& server_address,
+            std::span<const char> json_data) noexcept;
+            
+        Result<JsonQueryResult> remote_query(
+            const std::string& server_address,
+            const JsonQuery& query) noexcept;
+    };
+}
+```
+
+### 10.3 Stream Processing: Apache Kafka
+
+For real-time JSON stream processing and message queuing in distributed environments.
+
+```cpp
+export module fastjson.kafka;
+
+import fastjson.core;
+import <librdkafka/rdkafkacpp.h>;
+
+export namespace fastjson::kafka {
+    class JsonStreamProcessor {
+        std::unique_ptr<RdKafka::Consumer> consumer_;
+        std::unique_ptr<RdKafka::Producer> producer_;
+        
+    public:
+        JsonStreamProcessor(const std::string& brokers,
+                          const std::string& group_id);
+        ~JsonStreamProcessor();
+        
+        // Stream consumption
+        Result<void> subscribe_to_topics(
+            const std::vector<std::string>& topics) noexcept;
+            
+        Result<JsonDocument> consume_next_json(
+            std::chrono::milliseconds timeout = std::chrono::milliseconds(1000)) noexcept;
+            
+        // Stream production  
+        Result<void> produce_json(
+            const std::string& topic,
+            const JsonDocument& document,
+            const std::string& key = "") noexcept;
+            
+        // Batch processing
+        Result<std::vector<JsonDocument>> consume_batch(
+            std::size_t batch_size,
+            std::chrono::milliseconds timeout) noexcept;
+    };
+    
+    class JsonStreamAggregator {
+        // Real-time JSON aggregation over streams
+        Result<JsonDocument> aggregate_windowed(
+            std::chrono::milliseconds window_size,
+            AggregationFunction func) noexcept;
+    };
+}
+```
+
+---
 
 This technical design document provides a comprehensive foundation for implementing the FastestJSONInTheWest library with all the advanced features specified in the requirements while adhering to the coding standards.
