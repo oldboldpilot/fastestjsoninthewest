@@ -65,7 +65,7 @@ class EnvironmentAgent(Agent):
         self.dependencies = self._get_dependencies_spec()
     
     def _detect_platform(self) -> Dict[str, str]:
-        """Detect current platform and distribution."""
+        """Detect current platform and distribution including WSL and Unix variants."""
         info = {
             "system": platform.system(),
             "machine": platform.machine(),
@@ -74,6 +74,16 @@ class EnvironmentAgent(Agent):
         }
         
         if platform.system() == "Linux":
+            # Check if running under WSL
+            try:
+                with open("/proc/version", "r") as f:
+                    proc_version = f.read().lower()
+                    if "microsoft" in proc_version or "wsl" in proc_version:
+                        info["wsl"] = True
+                        info["wsl_version"] = "2" if "wsl2" in proc_version else "1"
+            except FileNotFoundError:
+                info["wsl"] = False
+            
             try:
                 # Try to detect Linux distribution
                 with open("/etc/os-release", "r") as f:
@@ -84,8 +94,48 @@ class EnvironmentAgent(Agent):
                         info["distro"] = line.split('=')[1].strip('"')
                     elif line.startswith('VERSION_ID='):
                         info["distro_version"] = line.split('=')[1].strip('"')
+                    elif line.startswith('ID_LIKE='):
+                        info["distro_like"] = line.split('=')[1].strip('"')
+                        
             except FileNotFoundError:
-                info["distro"] = "unknown"
+                # Try alternative methods for older systems
+                try:
+                    with open("/etc/redhat-release", "r") as f:
+                        redhat_release = f.read().strip()
+                        if "red hat" in redhat_release.lower():
+                            info["distro"] = "rhel"
+                        elif "centos" in redhat_release.lower():
+                            info["distro"] = "centos"
+                        elif "fedora" in redhat_release.lower():
+                            info["distro"] = "fedora"
+                except FileNotFoundError:
+                    pass
+                
+                try:
+                    with open("/etc/debian_version", "r") as f:
+                        info["distro"] = "debian"
+                        info["distro_version"] = f.read().strip()
+                except FileNotFoundError:
+                    pass
+                
+                if "distro" not in info:
+                    info["distro"] = "unknown"
+        
+        elif platform.system() == "Windows":
+            info["windows_version"] = platform.version()
+            # Check if we can use WSL
+            try:
+                result = subprocess.run(["wsl", "--status"], capture_output=True, text=True)
+                if result.returncode == 0:
+                    info["wsl_available"] = True
+            except FileNotFoundError:
+                info["wsl_available"] = False
+        
+        # Detect Unix variants
+        elif platform.system() in ["FreeBSD", "OpenBSD", "NetBSD", "SunOS", "AIX"]:
+            info["unix_variant"] = platform.system()
+            if platform.system() == "SunOS":
+                info["solaris"] = True
         
         return info
     
