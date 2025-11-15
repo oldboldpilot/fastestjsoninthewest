@@ -1,0 +1,196 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+
+# nyc test coverage
+.nyc_output
+
+# Compiled binary addons
+build/
+dist/
+out/
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+_deps/
+
+# Build directories
+build*/
+Debug/
+Release/
+RelWithDebInfo/
+MinSizeRel/
+
+# Generated files
+*.generated.*
+*_generated.*
+
+# Temporary files
+*.tmp
+*.temp
+*~
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/settings.json
+.vscode/launch.json
+.vscode/tasks.json
+.vscode/.ropeproject
+*.sublime-project
+*.sublime-workspace
+.idea/
+*.iml
+*.iws
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# C++ compiled files
+*.o
+*.obj
+*.exe
+*.dll
+*.so
+*.dylib
+*.a
+*.lib
+*.pdb
+*.ilk
+*.exp
+
+# Profiling data
+*.gprof
+perf.data*
+*.prof
+
+# Test results
+test_results/
+test_output/
+*.xml
+*.json.test
+
+# Benchmark results
+benchmark_results/
+*.benchmark
+
+# Documentation generated files
+docs/html/
+docs/latex/
+docs/doxygen_warnings.txt
+
+# Package managers
+node_modules/
+.npm
+.pnpm-store/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+.python-version
+
+# Rust
+target/
+Cargo.lock
+
+# Go
+vendor/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Credentials and secrets
+.env
+.env.local
+.env.*.local
+credentials.json
+*.key
+*.pem
+*.p12
+
+# Backup files
+*.bak
+*.backup
+*.old
+*.orig
+
+# Patch files
+*.patch
+*.diff
+
+# Archive files
+*.zip
+*.tar
+*.tar.gz
+*.tar.bz2
+*.rar
+*.7z
+
+# Cache directories
+.cache/
+*.cache/
+
+# Static analysis
+.clang-tidy-cache/
+.clang-format-cache/
+
+# Memory debugging
+valgrind-*.log
+*.asan
+*.tsan
+*.msan
+
+# GPU debugging
+*.nsys-rep
+*.ncu-rep
+*.nvprof
+
+# Large test files
+*.large.json
+test_data/large/
+
+# Conan
+conaninfo.txt
+conanfile.lock
+conanbuildinfo.*
+.conan/
+
+# vcpkg
+vcpkg_installed/
+.vcpkg-root
+
+# Hunter
+_builds/
+_install/
+
+# FetchContent
+_deps/
