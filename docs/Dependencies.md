@@ -250,8 +250,76 @@ Apache Kafka:
   priority: "medium"
   use_case: "Real-time JSON stream processing"
 
-Network Libraries:
-  purpose: "Network streaming and cluster communication"
+ZeroMQ:
+  version: "4.3+"
+  cpp_bindings: "cppzmq"
+  purpose: "High-performance asynchronous messaging"
+  detection: "zmq headers and libraries"
+  cmake_package: "libzmq-static OR PkgConfig::libzmq"
+  priority: "medium"
+  use_case: "Low-latency distributed communication"
+
+Raw Sockets:
+  purpose: "Low-level network communication"
+  requirements:
+    - "Platform-specific socket APIs"
+    - "Root/administrator privileges for some operations"
+    - "Network interface access"
+  platforms:
+    - "Linux: sys/socket.h, netinet/in.h"
+    - "Windows: winsock2.h, ws2tcpip.h"
+    - "macOS: sys/socket.h, netinet/in.h"
+  priority: "low"
+  use_case: "Custom protocol implementation"
+
+### 3.4 Network Librariesand Orchestration Dependencies
+
+```yaml
+Kubernetes:
+  version: "1.25+"
+  purpose: "Container orchestration for distributed deployment"
+  components:
+    - "kubectl CLI tool"
+    - "Kubernetes client libraries (optional)"
+    - "Helm charts for deployment"
+  optional: true
+  use_case: "Scalable distributed JSON processing clusters"
+
+Docker:
+  version: "20.10+"
+  purpose: "Containerization platform"
+  components:
+    - "Docker Engine"
+    - "Docker Compose for multi-container applications"
+  optional: true
+  use_case: "Portable deployment and development environments"
+
+OpenShift:
+  version: "4.10+"
+  purpose: "Enterprise Kubernetes platform"
+  compatibility: "Kubernetes API compatible"
+  optional: true
+  use_case: "Enterprise container orchestration"
+
+Virtualization:
+  platforms:
+    - "KVM (Kernel Virtual Machine)"
+    - "VMware vSphere"
+    - "Hyper-V"
+  purpose: "Virtual machine deployment support"
+  optional: true
+  use_case: "Legacy infrastructure integration"
+
+Ansible:
+  version: "2.13+"
+  purpose: "Cluster setup and configuration automation"
+  components:
+    - "Ansible Core"
+    - "Ansible Playbooks"
+    - "Inventory management"
+  optional: true
+  use_case: "Automated cluster provisioning and management"
+```
   options:
     - name: "std::networking (C++26)"
       status: "future"

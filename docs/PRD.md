@@ -145,9 +145,14 @@ To create the ultimate JSON processing library that combines extreme performance
   - OpenMPI integration (primary framework)
   - gRPC services (secondary framework)  
   - Kafka stream processing
+  - ZeroMQ high-performance messaging
+  - Raw socket support for custom protocols
+  - Kubernetes cluster compatibility
+  - Container orchestration support (OpenShift, KVM, etc.)
   - Network streaming capabilities
   - Load balancing algorithms
   - Fault tolerance mechanisms
+  - Ansible automation for cluster setup
 
 ### 3.4 Platform Support
 
