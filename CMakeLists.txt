@@ -29,24 +29,33 @@ endif()
 # Compiler Detection and Configuration
 # =============================================================================
 
-# Compiler version checks
-if(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
+# Compiler version checks (Primary: Clang 21, Secondary: GCC 13+, MSVC 19.34+)
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS "21.0")
+        if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS "16.0")
+            message(FATAL_ERROR "Clang 21+ recommended (primary toolchain), minimum 16.0 required")
+        else()
+            message(WARNING "Clang ${CMAKE_CXX_COMPILER_VERSION} detected. Clang 21+ recommended for primary development")
+        endif()
+    endif()
+    if(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL "21.0")
+        message(STATUS "Using Clang ${CMAKE_CXX_COMPILER_VERSION} (PRIMARY TOOLCHAIN)")
+    else()
+        message(STATUS "Using Clang ${CMAKE_CXX_COMPILER_VERSION} (FALLBACK)")
+    endif()
+elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
     if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS "13.0")
         message(FATAL_ERROR "GCC 13 or later required for C++23 modules support")
     endif()
-    message(STATUS "Using GCC ${CMAKE_CXX_COMPILER_VERSION}")
-elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS "16.0")
-        message(FATAL_ERROR "Clang 16 or later required for C++23 modules support")
-    endif()
-    message(STATUS "Using Clang ${CMAKE_CXX_COMPILER_VERSION}")
+    message(STATUS "Using GCC ${CMAKE_CXX_COMPILER_VERSION} (SECONDARY COMPILER)")
+    message(WARNING "GCC is secondary compiler - Clang 21+ recommended for primary development")
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
     if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS "19.34")
         message(FATAL_ERROR "MSVC 19.34 (Visual Studio 2022 17.4) or later required")
     endif()
-    message(STATUS "Using MSVC ${CMAKE_CXX_COMPILER_VERSION}")
+    message(STATUS "Using MSVC ${CMAKE_CXX_COMPILER_VERSION} (WINDOWS SECONDARY)")
 else()
-    message(WARNING "Untested compiler: ${CMAKE_CXX_COMPILER_ID}")
+    message(WARNING "Untested compiler: ${CMAKE_CXX_COMPILER_ID} - Clang 21+ recommended")
 endif()
 
 # =============================================================================
@@ -98,6 +107,14 @@ find_package(OpenMP QUIET)
 find_package(CUDA QUIET)
 find_package(OpenCL QUIET)
 
+# Distributed Computing Dependencies (Primary Development Focus)
+find_package(MPI QUIET)  # Primary: OpenMPI
+find_package(PkgConfig QUIET)
+if(PkgConfig_FOUND)
+    pkg_check_modules(GRPC grpc++ QUIET)  # Secondary: gRPC
+    pkg_check_modules(RDKAFKA rdkafka++ QUIET)  # Stream processing: Kafka
+endif()
+
 # Testing framework
 if(BUILD_TESTING)
     find_package(GTest QUIET)
@@ -120,6 +137,9 @@ option(FASTJSON_BUILD_DOCS "Build documentation" OFF)
 option(FASTJSON_ENABLE_SIMD "Enable SIMD optimizations" ON)
 option(FASTJSON_ENABLE_GPU "Enable GPU acceleration" ${CUDA_FOUND})
 option(FASTJSON_ENABLE_OPENMP "Enable OpenMP support" ${OpenMP_CXX_FOUND})
+option(FASTJSON_ENABLE_MPI "Enable MPI distributed computing" ${MPI_CXX_FOUND})
+option(FASTJSON_ENABLE_GRPC "Enable gRPC distributed services" ${GRPC_FOUND})
+option(FASTJSON_ENABLE_KAFKA "Enable Kafka stream processing" ${RDKAFKA_FOUND})
 option(FASTJSON_ENABLE_SIMULATOR "Enable GUI simulator" ${imgui_FOUND})
 option(FASTJSON_STATIC_ANALYSIS "Enable static analysis" OFF)
 
@@ -239,6 +259,18 @@ if(FASTJSON_ENABLE_OPENMP AND OpenMP_CXX_FOUND)
     target_compile_definitions(fastjson PRIVATE FASTJSON_HAVE_OPENMP)
 endif()
 
+if(FASTJSON_ENABLE_MPI AND MPI_CXX_FOUND)
+    target_compile_definitions(fastjson PRIVATE FASTJSON_HAVE_MPI)
+endif()
+
+if(FASTJSON_ENABLE_GRPC AND GRPC_FOUND)
+    target_compile_definitions(fastjson PRIVATE FASTJSON_HAVE_GRPC)
+endif()
+
+if(FASTJSON_ENABLE_KAFKA AND RDKAFKA_FOUND)
+    target_compile_definitions(fastjson PRIVATE FASTJSON_HAVE_KAFKA)
+endif()
+
 if(FASTJSON_ENABLE_SIMULATOR AND imgui_FOUND)
     target_compile_definitions(fastjson PRIVATE FASTJSON_HAVE_IMGUI)
 endif()
@@ -255,6 +287,29 @@ target_link_libraries(fastjson
 # Optional libraries
 if(FASTJSON_ENABLE_OPENMP AND OpenMP_CXX_FOUND)
     target_link_libraries(fastjson PRIVATE OpenMP::OpenMP_CXX)
+    # Clang-specific OpenMP configuration
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        target_compile_options(fastjson PRIVATE -fopenmp)
+        target_link_libraries(fastjson PRIVATE omp)
+    endif()
+endif()
+
+# Distributed Computing Libraries (Primary Development Focus)
+if(FASTJSON_ENABLE_MPI AND MPI_CXX_FOUND)
+    target_link_libraries(fastjson PRIVATE MPI::MPI_CXX)
+    message(STATUS "MPI support enabled: ${MPI_CXX_VERSION}")
+endif()
+
+if(FASTJSON_ENABLE_GRPC AND GRPC_FOUND)
+    target_link_libraries(fastjson PRIVATE ${GRPC_LIBRARIES})
+    target_include_directories(fastjson PRIVATE ${GRPC_INCLUDE_DIRS})
+    message(STATUS "gRPC support enabled")
+endif()
+
+if(FASTJSON_ENABLE_KAFKA AND RDKAFKA_FOUND)
+    target_link_libraries(fastjson PRIVATE ${RDKAFKA_LIBRARIES})
+    target_include_directories(fastjson PRIVATE ${RDKAFKA_INCLUDE_DIRS})
+    message(STATUS "Kafka support enabled")
 endif()
 
 if(FASTJSON_ENABLE_GPU AND CUDA_FOUND)

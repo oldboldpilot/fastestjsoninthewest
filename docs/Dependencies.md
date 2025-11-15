@@ -16,9 +16,17 @@
 #### Compiler Requirements
 | Compiler | Minimum Version | Required Features | Notes |
 |----------|----------------|-------------------|--------|
-| **GCC** | 13.0+ | C++23 modules, coroutines | Best Linux compatibility |
-| **Clang** | 16.0+ | C++23 modules, libc++ | Cross-platform support |
-| **MSVC** | 19.34+ (VS 2022 17.4+) | C++23 modules | Windows primary compiler |
+| **Clang** | 21.0+ | C++23 modules, libc++ | **Primary development compiler** |
+| **GCC** | 13.0+ | C++23 modules, coroutines | Secondary Linux compatibility |
+| **MSVC** | 19.34+ (VS 2022 17.4+) | C++23 modules | **Secondary Windows compiler** |
+
+#### Development Toolchain (Primary Environment)
+| Tool | Version | Purpose | Configuration |
+|------|---------|---------|---------------|
+| **Clang++** | 21.0+ | Primary compiler | `-std=c++23 -stdlib=libc++` |
+| **clang-tidy** | 21.0+ | Static analysis | Custom `.clang-tidy` config |
+| **clang-format** | 21.0+ | Code formatting | LLVM style with customizations |
+| **OpenMP (Clang)** | 5.0+ | Parallelization | `-fopenmp` with libomp |
 
 #### Build System Dependencies
 ```yaml
@@ -192,15 +200,32 @@ OpenCL:
 
 ```yaml
 MPI:
-  versions:
-    - "OpenMPI 4.0+"
+  primary: "OpenMPI 4.0+"
+  alternatives:
     - "MPICH 3.4+"
     - "Intel MPI 2021+"
-  purpose: "Distributed processing across compute nodes"
+  purpose: "**Primary** distributed processing framework"
   detection: "MPI headers and runtime"
   cmake_package: "MPI"
-  optional: true
+  priority: "high"
   use_case: "Multi-node processing of terabyte datasets"
+
+gRPC:
+  version: "1.50+"
+  purpose: "**Secondary** distributed communication"
+  detection: "gRPC C++ libraries"
+  cmake_package: "gRPC::grpc++"
+  priority: "medium"
+  use_case: "Service-oriented distributed architecture"
+
+Apache Kafka:
+  version: "2.8+"
+  cpp_client: "librdkafka 2.0+"
+  purpose: "Stream processing and message queuing"
+  detection: "librdkafka headers"
+  cmake_package: "RdKafka::rdkafka++"
+  priority: "medium"
+  use_case: "Real-time JSON stream processing"
 
 Network Libraries:
   purpose: "Network streaming and cluster communication"
@@ -262,8 +287,8 @@ Google Benchmark:
 
 ```yaml
 Clang-Tidy:
-  version: "16.0+"
-  purpose: "Static code analysis and linting"
+  version: "21.0+"
+  purpose: "**Primary** static code analysis and linting"
   configuration: ".clang-tidy file"
   checks:
     - "modernize-*"
@@ -271,13 +296,15 @@ Clang-Tidy:
     - "readability-*"
     - "cppcoreguidelines-*"
   integration: "CMake CXX_CLANG_TIDY property"
+  priority: "required"
 
 Clang-Format:
-  version: "16.0+"
-  purpose: "Code formatting"
+  version: "21.0+"
+  purpose: "**Primary** code formatting"
   configuration: ".clang-format file"
-  style: "Google with C++23 adaptations"
+  style: "LLVM with C++23 adaptations"
   integration: "IDE plugins and pre-commit hooks"
+  priority: "required"
 
 AddressSanitizer:
   purpose: "Memory error detection"

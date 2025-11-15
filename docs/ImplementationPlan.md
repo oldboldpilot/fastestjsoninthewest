@@ -59,32 +59,64 @@ gantt
 
 ### 2.1 Project Setup and Infrastructure (Weeks 1-2)
 
-#### 2.1.1 Repository and Build System Setup
+#### 2.1.1 Development Environment and Toolchain Setup
+
+**Primary Development Environment:**
 ```bash
-# Week 1 Tasks
+# Week 1 Tasks - Development Toolchain Setup
+- [x] Set up Clang 21+ as primary compiler (Linux)
+- [x] Configure clang-tidy 21+ for static analysis  
+- [x] Configure clang-format 21+ with LLVM style
+- [x] Install Clang OpenMP support (libomp)
+- [ ] Verify C++23 module compilation with Clang 21
+- [ ] Set up secondary MSVC 2022 environment (Windows)
+
+# Development Environment Configuration
+export CC=clang-21
+export CXX=clang++-21
+export CXXFLAGS="-stdlib=libc++"
+export LDFLAGS="-stdlib=libc++"
+```
+
+**Distributed Computing Environment:**
+```bash
+# Week 1-2 Tasks - Distributed System Setup  
+- [ ] Install OpenMPI 4.0+ (primary distributed framework)
+- [ ] Configure gRPC 1.50+ (secondary service framework)
+- [ ] Set up librdkafka 2.0+ (stream processing)
+- [ ] Test MPI compilation and runtime environment
+- [ ] Verify cluster communication protocols
+```
+
+#### 2.1.2 Repository and Build System Setup
+```bash
+# Week 2 Tasks
 - [x] Initialize Git repository structure
-- [ ] Create CMakeLists.txt with C++23 module support
-- [ ] Set up GitHub Actions CI/CD pipeline
-- [ ] Configure static analysis tools (clang-tidy, clang-format)
-- [ ] Create initial documentation structure
+- [x] Create CMakeLists.txt with Clang 21 + C++23 module support
+- [ ] Set up GitHub Actions CI/CD pipeline (Clang 21 primary)
+- [x] Configure static analysis tools (clang-tidy-21, clang-format-21)
+- [x] Create initial documentation structure
 
 # Week 2 Tasks  
 - [ ] Set up package manager integration (vcpkg, Conan)
-- [ ] Configure cross-platform build scripts
-- [ ] Set up automated dependency detection
+- [ ] Configure cross-platform build scripts (prioritize Clang)
+- [ ] Set up automated dependency detection (MPI, gRPC, Kafka)
 - [ ] Create development container (Docker) configurations
 - [ ] Establish code review and contribution guidelines
 ```
 
 **Deliverables:**
+- Clang 21 development environment configured
+- OpenMPI + gRPC + Kafka distributed computing setup
 - Working CMake build system with C++23 module support
 - CI/CD pipeline running on multiple platforms
 - Development documentation and contribution guidelines
 
 **Success Criteria:**
-- Builds successfully on GCC 13+, Clang 16+, MSVC 19.34+
-- CI pipeline passes on Linux, Windows, macOS
-- Static analysis runs without errors
+- Builds successfully with Clang 21+ (primary), GCC 13+ (fallback), MSVC 19.34+ (Windows)
+- CI pipeline passes on Linux (Clang 21 primary), Windows (MSVC), macOS
+- Static analysis runs without errors using clang-tidy-21
+- MPI communication tests pass across multiple nodes
 
 #### 2.1.2 Core Module Framework (Weeks 3-6)
 
@@ -770,20 +802,57 @@ class DataDistributor {
 };
 ```
 
-#### 4.4.2 Network Communication (Week 40)
+#### 4.4.2 Multi-Framework Network Communication (Week 40)
 
 ```cpp
-// High-performance networking
-class NetworkLayer {
-    - TCP/UDP protocol support
-    - RDMA integration where available
-    - Message compression
-    - Flow control and congestion management
+// Primary: OpenMPI Communication Layer
+class MPINetworkLayer {
+    - Standard MPI-3.1 compliance
+    - Non-blocking communication primitives
+    - RDMA optimization where supported
+    - Collective operation optimization
     
-    // Streaming data transfer
-    Result<void> stream_json_data(
-        string_view destination,
-        span<const char> data) const;
+    Result<void> mpi_broadcast_json(
+        const JsonDocument& doc,
+        int root_rank) const;
+        
+    Result<JsonDocument> mpi_reduce_json(
+        const JsonDocument& local_doc,
+        MPI_Op operation) const;
+};
+
+// Secondary: gRPC Service Layer  
+class GRPCServiceLayer {
+    - HTTP/2 based communication
+    - Streaming and unary RPCs
+    - Load balancing and service discovery
+    - Cross-language compatibility
+    
+    Result<JsonDocument> grpc_remote_parse(
+        const string& service_address,
+        span<const char> json_data) const;
+        
+    Result<void> grpc_stream_process(
+        const string& service_address,
+        JsonStreamProcessor& processor) const;
+};
+
+// Kafka Stream Integration
+class KafkaIntegration {
+    - Real-time JSON stream processing
+    - Producer/consumer pattern implementation
+    - Topic-based data distribution
+    - Exactly-once semantics
+    
+    Result<void> kafka_produce_json(
+        const string& topic,
+        const JsonDocument& doc,
+        const string& key = "") const;
+        
+    Result<JsonDocument> kafka_consume_json(
+        const string& topic,
+        chrono::milliseconds timeout) const;
+};
         
     // Distributed file system integration
     Result<MemoryMappedFile> open_distributed_file(
