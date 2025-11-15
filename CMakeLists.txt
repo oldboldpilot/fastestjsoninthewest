@@ -179,18 +179,27 @@ set_target_properties(fastjson PROPERTIES
 # =============================================================================
 
 # Core modules
+# Main library modules
+add_library(fastjson)
 target_sources(fastjson
     PUBLIC
         FILE_SET CXX_MODULES FILES
             src/modules/fastjson.core.cppm
             src/modules/fastjson.parser.cppm
             src/modules/fastjson.serializer.cppm
+            src/modules/fastjson.simd.cppm
+            src/modules/fastjson.threading.cppm
+            src/modules/fastjson.mapreduce.cppm
+            src/modules/fastjson.performance.cppm
+            src/modules/fastjson.memory.cppm
             src/modules/fastjson.query.cppm
             src/modules/fastjson.reflection.cppm
             src/modules/fastjson.logger.cppm
-            src/modules/fastjson.memory.cppm
-            src/modules/fastjson.threading.cppm
+            src/modules/fastjson.simulator.cppm
             src/modules/fastjson.io.cppm
+            src/modules/fastjson.distributed.cppm
+            src/modules/fastjson.grpc.cppm
+            src/modules/fastjson.kafka.cppm
 )
 
 # SIMD modules (conditional)
@@ -323,6 +332,85 @@ if(FASTJSON_ENABLE_SIMULATOR AND imgui_FOUND AND glfw3_FOUND AND OpenGL_FOUND)
         glfw 
         ${OPENGL_LIBRARIES}
     )
+    target_compile_definitions(fastjson PRIVATE FASTJSON_HAVE_IMGUI)
+    message(STATUS "ImGui visual simulator support enabled")
+else()
+    message(STATUS "ImGui visual simulator disabled - missing dependencies")
+endif()
+
+# Development debugging tools (Clang primary)
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    # Sanitizers for Clang
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        option(FASTJSON_ENABLE_ASAN "Enable AddressSanitizer" ON)
+        option(FASTJSON_ENABLE_TSAN "Enable ThreadSanitizer" OFF)
+        option(FASTJSON_ENABLE_UBSAN "Enable UBSan" ON)
+        
+        if(FASTJSON_ENABLE_ASAN AND NOT FASTJSON_ENABLE_TSAN)
+            target_compile_options(fastjson PRIVATE -fsanitize=address -g)
+            target_link_options(fastjson PRIVATE -fsanitize=address)
+            message(STATUS "AddressSanitizer enabled")
+        endif()
+        
+        if(FASTJSON_ENABLE_TSAN AND NOT FASTJSON_ENABLE_ASAN)
+            target_compile_options(fastjson PRIVATE -fsanitize=thread -g)
+            target_link_options(fastjson PRIVATE -fsanitize=thread)
+            message(STATUS "ThreadSanitizer enabled")
+        endif()
+        
+        if(FASTJSON_ENABLE_UBSAN)
+            target_compile_options(fastjson PRIVATE -fsanitize=undefined -g)
+            target_link_options(fastjson PRIVATE -fsanitize=undefined)
+            message(STATUS "UBSan enabled")
+        endif()
+    endif()
+    
+    # Valgrind support
+    find_program(VALGRIND_PROGRAM valgrind)
+    if(VALGRIND_PROGRAM)
+        message(STATUS "Valgrind found: ${VALGRIND_PROGRAM}")
+        target_compile_definitions(fastjson PRIVATE FASTJSON_HAVE_VALGRIND)
+    endif()
+endif() 
+        imgui::imgui 
+        glfw 
+        ${OPENGL_LIBRARIES}
+    )
+endif()
+
+# Development debugging tools (Clang primary)
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    # Sanitizers for Clang
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        option(FASTJSON_ENABLE_ASAN "Enable AddressSanitizer" ON)
+        option(FASTJSON_ENABLE_TSAN "Enable ThreadSanitizer" OFF)
+        option(FASTJSON_ENABLE_UBSAN "Enable UBSan" ON)
+        
+        if(FASTJSON_ENABLE_ASAN AND NOT FASTJSON_ENABLE_TSAN)
+            target_compile_options(fastjson PRIVATE -fsanitize=address -g)
+            target_link_options(fastjson PRIVATE -fsanitize=address)
+            message(STATUS "AddressSanitizer enabled")
+        endif()
+        
+        if(FASTJSON_ENABLE_TSAN AND NOT FASTJSON_ENABLE_ASAN)
+            target_compile_options(fastjson PRIVATE -fsanitize=thread -g)
+            target_link_options(fastjson PRIVATE -fsanitize=thread)
+            message(STATUS "ThreadSanitizer enabled")
+        endif()
+        
+        if(FASTJSON_ENABLE_UBSAN)
+            target_compile_options(fastjson PRIVATE -fsanitize=undefined -g)
+            target_link_options(fastjson PRIVATE -fsanitize=undefined)
+            message(STATUS "UBSan enabled")
+        endif()
+    endif()
+    
+    # Valgrind support
+    find_program(VALGRIND_PROGRAM valgrind)
+    if(VALGRIND_PROGRAM)
+        message(STATUS "Valgrind found: ${VALGRIND_PROGRAM}")
+        target_compile_definitions(fastjson PRIVATE FASTJSON_HAVE_VALGRIND)
+    endif()
 endif()
 
 # =============================================================================

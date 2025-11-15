@@ -118,7 +118,7 @@ export LDFLAGS="-stdlib=libc++"
 - Static analysis runs without errors using clang-tidy-21
 - MPI communication tests pass across multiple nodes
 
-#### 2.1.2 Core Module Framework (Weeks 3-6)
+#### 2.1.3 Core Module Framework (Weeks 3-6)
 
 ```cpp
 // Week 3-4: fastjson.core module
@@ -130,6 +130,21 @@ export module fastjson.core;
 - Memory management abstractions
 - Basic JSON value types (JsonValue, JsonDocument)
 - RAII resource management
+
+// Week 5: Advanced performance modules
+export module fastjson.performance;
+- Copy-on-Write implementation
+- Perfect forwarding utilities  
+- Lock-free data structures
+- Zero-cost abstractions and concepts
+
+// Week 6: Map-reduce and document operations
+export module fastjson.mapreduce;
+- Fluent API for document combination: Combine(doc1).With(doc2).Into()
+- Document splitting with criteria-based partitioning
+- Standard map-reduce style functions for distributed processing
+- Performance-optimized batch operations
+```
 
 // Week 5-6: Base infrastructure
 - Logging framework with simulator integration

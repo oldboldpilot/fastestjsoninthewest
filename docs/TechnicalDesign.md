@@ -270,6 +270,171 @@ export namespace fastjson::threading {
 }
 ```
 
+### 2.5 fastjson.mapreduce Module
+
+Advanced document processing with fluent API and map-reduce operations.
+
+```cpp
+export module fastjson.mapreduce;
+
+import fastjson.core;
+import <concepts>;
+import <functional>;
+import <ranges>;
+
+export namespace fastjson::mapreduce {
+    // Fluent API for document combination
+    class DocumentCombiner {
+        std::vector<JsonDocument> documents_;
+        
+    public:
+        DocumentCombiner& Combine(const JsonDocument& doc) {
+            documents_.push_back(doc);
+            return *this;
+        }
+        
+        DocumentCombiner& With(const JsonDocument& doc) {
+            documents_.push_back(doc);
+            return *this;
+        }
+        
+        DocumentCombiner& And(const JsonDocument& doc) {
+            documents_.push_back(doc);
+            return *this;
+        }
+        
+        Result<JsonDocument> Into() const noexcept;
+    };
+    
+    // Fluent API for document splitting
+    template<typename SplitCriteria>
+    class DocumentSplitter {
+        const JsonDocument& source_;
+        SplitCriteria criteria_;
+        
+    public:
+        DocumentSplitter(const JsonDocument& doc, SplitCriteria criteria)
+            : source_(doc), criteria_(std::move(criteria)) {}
+            
+        Result<std::vector<JsonDocument>> Into() const noexcept;
+    };
+    
+    // Map-Reduce operations
+    template<std::invocable<JsonDocument> MapFunc>
+    class DocumentMapper {
+        MapFunc map_func_;
+        
+    public:
+        explicit DocumentMapper(MapFunc func) : map_func_(std::move(func)) {}
+        
+        template<typename SplitCriteria>
+        DocumentSplitter<SplitCriteria> SplitBy(SplitCriteria criteria) const {
+            return DocumentSplitter<SplitCriteria>{source_doc_, std::move(criteria)};
+        }
+    };
+    
+    // Factory functions
+    DocumentCombiner Combine(const JsonDocument& doc);
+    
+    template<typename SplitCriteria>
+    DocumentSplitter<SplitCriteria> Map(const JsonDocument& doc);
+    
+    // Standard map-reduce style functions
+    template<typename MapFunc, typename ReduceFunc>
+    Result<JsonDocument> map_reduce(
+        std::span<const JsonDocument> documents,
+        MapFunc mapper,
+        ReduceFunc reducer) noexcept;
+}
+```
+
+### 2.6 fastjson.performance Module
+
+Advanced C++ performance primitives and zero-cost abstractions.
+
+```cpp
+export module fastjson.performance;
+
+import fastjson.core;
+import <memory>;
+import <atomic>;
+import <concepts>;
+
+export namespace fastjson::performance {
+    // Copy-on-Write implementation
+    template<typename T>
+    class CopyOnWrite {
+        std::shared_ptr<T> data_;
+        
+    public:
+        explicit CopyOnWrite(T value) 
+            : data_(std::make_shared<T>(std::move(value))) {}
+            
+        const T& read() const noexcept { return *data_; }
+        
+        T& write() {
+            if (data_.use_count() > 1) {
+                data_ = std::make_shared<T>(*data_);
+            }
+            return *data_;
+        }
+    };
+    
+    // Perfect forwarding utilities
+    template<typename F, typename... Args>
+    constexpr decltype(auto) perfect_invoke(F&& f, Args&&... args) 
+        noexcept(std::is_nothrow_invocable_v<F, Args...>) {
+        return std::invoke(std::forward<F>(f), std::forward<Args>(args)...);
+    }
+    
+    // Lock-free data structures
+    template<typename T>
+    class LockFreeStack {
+        struct Node {
+            T data;
+            std::atomic<Node*> next;
+            
+            template<typename... Args>
+            Node(Args&&... args) : data(std::forward<Args>(args)...), next(nullptr) {}
+        };
+        
+        std::atomic<Node*> head_{nullptr};
+        
+    public:
+        void push(T item) {
+            auto new_node = std::make_unique<Node>(std::move(item));
+            auto* new_node_ptr = new_node.release();
+            
+            auto current_head = head_.load();
+            do {
+                new_node_ptr->next = current_head;
+            } while (!head_.compare_exchange_weak(current_head, new_node_ptr));
+        }
+        
+        std::optional<T> pop() {
+            auto current_head = head_.load();
+            while (current_head && !head_.compare_exchange_weak(
+                current_head, current_head->next)) {
+                // Retry
+            }
+            
+            if (!current_head) return std::nullopt;
+            
+            auto result = std::move(current_head->data);
+            delete current_head;
+            return result;
+        }
+    };
+    
+    // Zero-cost abstractions
+    template<typename T>
+    concept JsonSerializable = requires(T t) {
+        { t.to_json() } -> std::same_as<JsonDocument>;
+        { T::from_json(std::declval<JsonDocument>()) } -> std::same_as<T>;
+    };
+}
+```
+
 ---
 
 ## 3. SIMD Implementation Strategy
@@ -1014,25 +1179,99 @@ export namespace fastjson::logging {
     };
     
     // Macro for easy logging
-    #define FASTJSON_LOG(level, logger, ...) \
-        (logger).log(fastjson::logging::LogLevel::level, __VA_ARGS__)
+    #define FASTJSON_LOG(level, logger, ...) \\\n        (logger).log(fastjson::logging::LogLevel::level, __VA_ARGS__)
 }
 ```
 
-### 8.2 Simulator Module
+### 8.2 ImGui Visual Simulator
+
+Interactive GUI for visualizing JSON processing flow and performance metrics.
 
 ```cpp
 export module fastjson.simulator;
 
-import fastjson.logger;
 import fastjson.core;
+import fastjson.logger;
+import <imgui.h>;
+import <vector>;
+import <chrono>;
+import <memory>;
 
-export namespace fastjson::simulation {
-    struct ComponentState {
-        std::string name;
-        std::string status;
-        std::chrono::system_clock::time_point last_update;
-        std::unordered_map<std::string, std::string> properties;
+export namespace fastjson::simulator {
+    struct LogEntry {
+        std::chrono::system_clock::time_point timestamp;
+        LogLevel level;
+        std::string component;
+        std::string message;
+        std::optional<JsonDocument> data;
+    };
+    
+    class VisualFlowNode {
+        std::string name_;
+        ImVec2 position_;
+        std::vector<std::unique_ptr<VisualFlowNode>> children_;
+        
+    public:
+        explicit VisualFlowNode(std::string name, ImVec2 pos = {0, 0})
+            : name_(std::move(name)), position_(pos) {}
+            
+        void add_child(std::unique_ptr<VisualFlowNode> child);
+        void render(ImDrawList* draw_list) const;
+        void update_position(ImVec2 new_pos) { position_ = new_pos; }
+    };
+    
+    class GuiSimulator {
+        std::vector<LogEntry> log_entries_;
+        std::unique_ptr<VisualFlowNode> flow_root_;
+        bool show_logs_window_{true};
+        bool show_flow_window_{true};
+        bool show_metrics_window_{true};
+        
+        // Performance metrics
+        std::chrono::high_resolution_clock::time_point last_update_;
+        std::vector<float> parse_times_;
+        std::vector<float> memory_usage_;
+        
+    public:
+        GuiSimulator();
+        ~GuiSimulator();
+        
+        // Logger integration
+        void log_message(LogLevel level, const std::string& component, 
+                        const std::string& message, 
+                        const JsonDocument* data = nullptr);
+        
+        // Flow visualization
+        void add_flow_node(const std::string& name, 
+                          const std::string& parent = \"\");
+        void update_flow_data(const std::string& node_name, 
+                             const JsonDocument& data);
+        
+        // GUI rendering
+        void render();
+        void render_logs_window();
+        void render_flow_window();
+        void render_metrics_window();
+        
+        // Performance tracking
+        void record_parse_time(std::chrono::nanoseconds duration);
+        void record_memory_usage(std::size_t bytes);
+        
+        // Window controls
+        void show_logs(bool show) { show_logs_window_ = show; }
+        void show_flow(bool show) { show_flow_window_ = show; }
+        void show_metrics(bool show) { show_metrics_window_ = show; }
+    };
+    
+    // Global simulator instance
+    GuiSimulator& get_simulator();
+    
+    // Convenience macros for logging to simulator
+    #define FASTJSON_SIM_LOG(level, component, message) \\\n        fastjson::simulator::get_simulator().log_message(\\\n            LogLevel::level, component, message)
+            
+    #define FASTJSON_SIM_LOG_DATA(level, component, message, data) \\\n        fastjson::simulator::get_simulator().log_message(\\\n            LogLevel::level, component, message, &data)
+}
+```
     };
     
     struct DataFlow {
@@ -1128,9 +1367,99 @@ export namespace fastjson::simulation {
 }
 ```
 
----
+### 8.2 ImGui Visual Simulator
 
-## 9. Build System and Tooling
+Interactive GUI for visualizing JSON processing flow and performance metrics.
+
+```cpp
+export module fastjson.simulator;
+
+import fastjson.core;
+import fastjson.logger;
+import <imgui.h>;
+import <vector>;
+import <chrono>;
+import <memory>;
+
+export namespace fastjson::simulator {
+    struct LogEntry {
+        std::chrono::system_clock::time_point timestamp;
+        LogLevel level;
+        std::string component;
+        std::string message;
+        std::optional<JsonDocument> data;
+    };
+    
+    class VisualFlowNode {
+        std::string name_;
+        ImVec2 position_;
+        std::vector<std::unique_ptr<VisualFlowNode>> children_;
+        
+    public:
+        explicit VisualFlowNode(std::string name, ImVec2 pos = {0, 0})
+            : name_(std::move(name)), position_(pos) {}
+            
+        void add_child(std::unique_ptr<VisualFlowNode> child);
+        void render(ImDrawList* draw_list) const;
+        void update_position(ImVec2 new_pos) { position_ = new_pos; }
+    };
+    
+    class GuiSimulator {
+        std::vector<LogEntry> log_entries_;
+        std::unique_ptr<VisualFlowNode> flow_root_;
+        bool show_logs_window_{true};
+        bool show_flow_window_{true};
+        bool show_metrics_window_{true};
+        
+        // Performance metrics
+        std::chrono::high_resolution_clock::time_point last_update_;
+        std::vector<float> parse_times_;
+        std::vector<float> memory_usage_;
+        
+    public:
+        GuiSimulator();
+        ~GuiSimulator();
+        
+        // Logger integration
+        void log_message(LogLevel level, const std::string& component, 
+                        const std::string& message, 
+                        const JsonDocument* data = nullptr);
+        
+        // Flow visualization
+        void add_flow_node(const std::string& name, 
+                          const std::string& parent = "");
+        void update_flow_data(const std::string& node_name, 
+                             const JsonDocument& data);
+        
+        // GUI rendering
+        void render();
+        void render_logs_window();
+        void render_flow_window();
+        void render_metrics_window();
+        
+        // Performance tracking
+        void record_parse_time(std::chrono::nanoseconds duration);
+        void record_memory_usage(std::size_t bytes);
+        
+        // Window controls
+        void show_logs(bool show) { show_logs_window_ = show; }
+        void show_flow(bool show) { show_flow_window_ = show; }
+        void show_metrics(bool show) { show_metrics_window_ = show; }
+    };
+    
+    // Global simulator instance
+    GuiSimulator& get_simulator();
+    
+    // Convenience macros for logging to simulator
+    #define FASTJSON_SIM_LOG(level, component, message) \
+        fastjson::simulator::get_simulator().log_message(\
+            LogLevel::level, component, message)
+            
+    #define FASTJSON_SIM_LOG_DATA(level, component, message, data) \
+        fastjson::simulator::get_simulator().log_message(\
+            LogLevel::level, component, message, &data)
+}
+```
 
 ### 9.1 Development Environment
 
@@ -1347,10 +1676,49 @@ if(RdKafka_FOUND)
     target_compile_definitions(fastjson PRIVATE FASTJSON_HAVE_KAFKA)
 endif()
 
-# ImGui for simulator
-if(imgui_FOUND)
-    target_link_libraries(fastjson PRIVATE imgui::imgui)
+# ImGui for visual simulator
+if(imgui_FOUND AND glfw3_FOUND AND OpenGL_FOUND)
+    target_link_libraries(fastjson PRIVATE 
+        imgui::imgui 
+        glfw 
+        ${OPENGL_LIBRARIES}
+    )
     target_compile_definitions(fastjson PRIVATE FASTJSON_HAVE_IMGUI)
+    message(STATUS "ImGui simulator support enabled")
+else()
+    message(STATUS "ImGui simulator disabled - missing dependencies")
+endif()
+
+# Development debugging tools
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    # Sanitizers for Clang
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        option(FASTJSON_ENABLE_ASAN "Enable AddressSanitizer" ON)
+        option(FASTJSON_ENABLE_TSAN "Enable ThreadSanitizer" OFF)
+        option(FASTJSON_ENABLE_UBSAN "Enable UBSan" ON)
+        
+        if(FASTJSON_ENABLE_ASAN AND NOT FASTJSON_ENABLE_TSAN)
+            target_compile_options(fastjson PRIVATE -fsanitize=address -g)
+            target_link_options(fastjson PRIVATE -fsanitize=address)
+        endif()
+        
+        if(FASTJSON_ENABLE_TSAN AND NOT FASTJSON_ENABLE_ASAN)
+            target_compile_options(fastjson PRIVATE -fsanitize=thread -g)
+            target_link_options(fastjson PRIVATE -fsanitize=thread)
+        endif()
+        
+        if(FASTJSON_ENABLE_UBSAN)
+            target_compile_options(fastjson PRIVATE -fsanitize=undefined -g)
+            target_link_options(fastjson PRIVATE -fsanitize=undefined)
+        endif()
+    endif()
+    
+    # Valgrind support
+    find_program(VALGRIND_PROGRAM valgrind)
+    if(VALGRIND_PROGRAM)
+        message(STATUS "Valgrind found: ${VALGRIND_PROGRAM}")
+        target_compile_definitions(fastjson PRIVATE FASTJSON_HAVE_VALGRIND)
+    endif()
 endif()
 
 # Include directories
