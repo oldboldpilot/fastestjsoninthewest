@@ -1909,4 +1909,97 @@ export namespace fastjson::kafka {
 
 ---
 
+#### Kubernetes Deployment
+```yaml
+# kubernetes/fastjson-cluster.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fastjson-worker
+spec:
+  replicas: 10
+  selector:
+    matchLabels:
+      app: fastjson-worker
+  template:
+    metadata:
+      labels:
+        app: fastjson-worker
+    spec:
+      containers:
+      - name: fastjson-worker
+        image: fastjson:latest
+        resources:
+          limits:
+            memory: "4Gi"
+            cpu: "2"
+          requests:
+            memory: "2Gi"
+            cpu: "1"
+        env:
+        - name: MPI_RANKS
+          value: "10"
+        - name: GRPC_ENDPOINT
+          value: "fastjson-coordinator:50051"
+        volumeMounts:
+        - name: shared-storage
+          mountPath: /data
+      volumes:
+      - name: shared-storage
+        persistentVolumeClaim:
+          claimName: fastjson-storage
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fastjson-coordinator
+spec:
+  selector:
+    app: fastjson-coordinator
+  ports:
+  - port: 50051
+    targetPort: 50051
+    name: grpc
+  - port: 5555
+    targetPort: 5555
+    name: zeromq
+```
+
 This technical design document provides a comprehensive foundation for implementing the FastestJSONInTheWest library with all the advanced features specified in the requirements while adhering to the coding standards.
+
+#### Docker Integration
+```dockerfile
+# Multi-stage Dockerfile for FastestJSONInTheWest
+FROM ubuntu:22.04 AS builder
+
+# Install Clang 21 and dependencies
+RUN apt-get update && apt-get install -y \
+    clang-21 \
+    libc++-21-dev \
+    cmake \
+    ninja-build \
+    libmpi-dev \
+    libzmq3-dev \
+    librdkafka-dev
+
+# Build configuration
+ENV CC=clang-21
+ENV CXX=clang++-21
+ENV CXXFLAGS="-stdlib=libc++"
+
+COPY . /src
+WORKDIR /src/build
+RUN cmake -GNinja -DCMAKE_BUILD_TYPE=Release .. && \
+    ninja
+
+# Runtime image
+FROM ubuntu:22.04 AS runtime
+RUN apt-get update && apt-get install -y \
+    libc++1 \
+    libmpi12 \
+    libzmq5 \
+    librdkafka1
+
+COPY --from=builder /src/build/libfastjson.so /usr/local/lib/
+COPY --from=builder /src/build/examples/ /usr/local/bin/
+```

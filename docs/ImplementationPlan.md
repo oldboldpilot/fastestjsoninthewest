@@ -84,8 +84,13 @@ export LDFLAGS="-stdlib=libc++"
 - [ ] Install OpenMPI 4.0+ (primary distributed framework)
 - [ ] Configure gRPC 1.50+ (secondary service framework)
 - [ ] Set up librdkafka 2.0+ (stream processing)
+- [ ] Install ZeroMQ 4.3+ (high-performance messaging)
+- [ ] Configure raw socket support for custom protocols
 - [ ] Test MPI compilation and runtime environment
 - [ ] Verify cluster communication protocols
+- [ ] Set up Kubernetes development environment
+- [ ] Configure container orchestration tools (Docker, OpenShift)
+- [ ] Install Ansible for cluster automation
 ```
 
 #### 2.1.2 Repository and Build System Setup
@@ -117,6 +122,9 @@ export LDFLAGS="-stdlib=libc++"
 - CI pipeline passes on Linux (Clang 21 primary), Windows (MSVC), macOS
 - Static analysis runs without errors using clang-tidy-21
 - MPI communication tests pass across multiple nodes
+- Container deployment succeeds in Kubernetes clusters
+- ZeroMQ messaging achieves sub-millisecond latency
+- Raw socket communication works across platforms
 
 #### 2.1.3 Core Module Framework (Weeks 3-6)
 

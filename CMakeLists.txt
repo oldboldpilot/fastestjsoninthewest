@@ -113,6 +113,7 @@ find_package(PkgConfig QUIET)
 if(PkgConfig_FOUND)
     pkg_check_modules(GRPC grpc++ QUIET)  # Secondary: gRPC
     pkg_check_modules(RDKAFKA rdkafka++ QUIET)  # Stream processing: Kafka
+    pkg_check_modules(ZMQ libzmq QUIET)  # High-performance messaging: ZeroMQ
 endif()
 
 # Testing framework
@@ -140,6 +141,7 @@ option(FASTJSON_ENABLE_OPENMP "Enable OpenMP support" ${OpenMP_CXX_FOUND})
 option(FASTJSON_ENABLE_MPI "Enable MPI distributed computing" ${MPI_CXX_FOUND})
 option(FASTJSON_ENABLE_GRPC "Enable gRPC distributed services" ${GRPC_FOUND})
 option(FASTJSON_ENABLE_KAFKA "Enable Kafka stream processing" ${RDKAFKA_FOUND})
+option(FASTJSON_ENABLE_ZEROMQ "Enable ZeroMQ high-performance messaging" ${ZMQ_FOUND})
 option(FASTJSON_ENABLE_SIMULATOR "Enable GUI simulator" ${imgui_FOUND})
 option(FASTJSON_STATIC_ANALYSIS "Enable static analysis" OFF)
 
@@ -200,6 +202,7 @@ target_sources(fastjson
             src/modules/fastjson.distributed.cppm
             src/modules/fastjson.grpc.cppm
             src/modules/fastjson.kafka.cppm
+            src/modules/fastjson.zeromq.cppm
 )
 
 # SIMD modules (conditional)
@@ -321,6 +324,13 @@ if(FASTJSON_ENABLE_KAFKA AND RDKAFKA_FOUND)
     message(STATUS "Kafka support enabled")
 endif()
 
+if(FASTJSON_ENABLE_ZEROMQ AND ZMQ_FOUND)
+    target_link_libraries(fastjson PRIVATE ${ZMQ_LIBRARIES})
+    target_include_directories(fastjson PRIVATE ${ZMQ_INCLUDE_DIRS})
+    target_compile_definitions(fastjson PRIVATE FASTJSON_HAVE_ZEROMQ)
+    message(STATUS "ZeroMQ support enabled")
+endif()
+
 if(FASTJSON_ENABLE_GPU AND CUDA_FOUND)
     enable_language(CUDA)
     target_link_libraries(fastjson PRIVATE ${CUDA_LIBRARIES})
@@ -371,11 +381,6 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
         message(STATUS "Valgrind found: ${VALGRIND_PROGRAM}")
         target_compile_definitions(fastjson PRIVATE FASTJSON_HAVE_VALGRIND)
     endif()
-endif() 
-        imgui::imgui 
-        glfw 
-        ${OPENGL_LIBRARIES}
-    )
 endif()
 
 # Development debugging tools (Clang primary)
