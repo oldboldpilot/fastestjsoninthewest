@@ -121,25 +121,54 @@ To create the ultimate JSON processing library that combines extreme performance
   - Support for inheritance hierarchies
   - Enum and custom type handling
 
-#### FR-9: Distributed Computing
+#### FR-9: Document Operations and Map-Reduce
+- **Description**: Advanced document manipulation with fluent API
+- **Acceptance Criteria**:
+  - Document combination: `Combine(doc1).With(doc2).And(doc3).Into(merged)`
+  - Document splitting with criteria-based partitioning
+  - Map-reduce style operations for distributed processing
+  - Standard functional programming patterns
+  - Performance-optimized batch operations
+
+#### FR-10: Visual Development Tools
+- **Description**: ImGui-based simulator for debugging and visualization
+- **Acceptance Criteria**:
+  - Real-time data flow visualization
+  - Performance metrics dashboard
+  - Interactive component state monitoring
+  - Log integration with GUI display
+  - Visual representation of JSON processing pipeline
+
+#### FR-11: Distributed Computing
 - **Description**: Support for cluster-based JSON processing
 - **Acceptance Criteria**:
-  - MPI integration for distributed workloads
+  - OpenMPI integration (primary framework)
+  - gRPC services (secondary framework)  
+  - Kafka stream processing
   - Network streaming capabilities
   - Load balancing algorithms
   - Fault tolerance mechanisms
 
 ### 3.4 Platform Support
 
-#### FR-10: Cross-Platform Compatibility
+#### FR-12: Cross-Platform Compatibility
 - **Description**: Support all major platforms and architectures
 - **Acceptance Criteria**:
   - Windows, Linux, macOS support
   - x86_64, ARM64, RISC-V architecture support
   - Embedded systems compatibility
-  - Different compiler support (GCC, Clang, MSVC)
+  - Different compiler support (Clang 21+ primary, GCC 13+, MSVC 19.34+)
 
-#### FR-11: File System Integration
+#### FR-13: Development and Debugging Tools
+- **Description**: Comprehensive debugging and analysis capabilities
+- **Acceptance Criteria**:
+  - Valgrind integration for memory leak detection
+  - Sanitizers support (AddressSanitizer, ThreadSanitizer, UBSan)
+  - Static analysis with clang-tidy-21
+  - Code formatting with clang-format-21
+  - CMake build system with cross-platform support
+
+#### FR-14: File System Integration
 - **Description**: Support various file systems and data sources
 - **Acceptance Criteria**:
   - Local file system support

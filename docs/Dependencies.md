@@ -37,6 +37,7 @@ CMake:
     - INTERPROCEDURAL_OPTIMIZATION
     - FILE_SET CXX_MODULES
   reason: "C++23 module support requires CMake 3.25+"
+  priority: "required"
 
 Ninja: 
   minimum_version: "1.11"
@@ -47,6 +48,28 @@ Make:
   minimum_version: "4.0"
   optional: true
   reason: "Fallback build system"
+```
+
+#### Development and Debugging Tools
+```yaml
+Valgrind:
+  version: "3.18+"
+  purpose: "Memory leak detection and debugging"
+  tools:
+    - "memcheck": "Memory error detection"
+    - "helgrind": "Thread error detection"
+    - "cachegrind": "Cache profiling"
+  priority: "required for development"
+
+Sanitizers:
+  purpose: "Runtime error detection during development"
+  types:
+    - "AddressSanitizer (-fsanitize=address)"
+    - "ThreadSanitizer (-fsanitize=thread)"
+    - "UBSan (-fsanitize=undefined)"
+    - "MemorySanitizer (-fsanitize=memory)"
+  compiler_support: "Clang 21+, GCC 13+"
+  priority: "required for development"
 ```
 
 #### Operating System Requirements
@@ -283,7 +306,39 @@ Google Benchmark:
     make && sudo make install
 ```
 
-### 4.2 Static Analysis Tools
+### 4.4 Static Analysis Tools Dependencies
+
+```yaml
+ImGui:
+  version: "1.89+"
+  purpose: "GUI framework for visual simulator and logging"
+  detection: "imgui headers and libraries"
+  cmake_package: "imgui"
+  components:
+    - "Core ImGui library"
+    - "OpenGL3 renderer backend"
+    - "GLFW platform backend"
+  optional: true
+  performance_impact: "Visual debugging and data flow representation"
+
+GLFW:
+  version: "3.3+"
+  purpose: "Window and input management for ImGui"
+  detection: "glfw3 package"
+  cmake_package: "glfw3"
+  requirements:
+    - "OpenGL 3.3+ support"
+  dependency_of: "ImGui simulator"
+
+OpenGL:
+  version: "3.3+"
+  purpose: "Graphics rendering for ImGui"
+  detection: "OpenGL headers and libraries"
+  cmake_package: "OpenGL"
+  requirements:
+    - "Graphics driver with OpenGL 3.3+ support"
+  dependency_of: "ImGui simulator"
+```
 
 ```yaml
 Clang-Tidy:
