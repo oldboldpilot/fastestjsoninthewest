@@ -1,0 +1,13 @@
+core
+include
+io
+logger
+memory
+modules
+parser
+query
+reflection
+serializer
+simd
+simulator
+threading

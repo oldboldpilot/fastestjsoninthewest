@@ -1,0 +1,77 @@
+---
+# Python bindings setup with uv and pybind11
+- name: Check if uv is installed
+  command: uv --version
+  register: uv_check
+  failed_when: false
+  changed_when: false
+
+- name: Install uv (Linux/macOS)
+  shell: curl -LsSf https://astral.sh/uv/install.sh | sh
+  when: uv_check.rc != 0
+  become: false
+
+- name: Ensure uv is in PATH
+  lineinfile:
+    path: "{{ ansible_env.HOME }}/.bashrc"
+    line: 'export PATH="$HOME/.cargo/bin:$PATH"'
+    create: true
+  become: false
+
+- name: Ensure uv is in PATH for zsh
+  lineinfile:
+    path: "{{ ansible_env.HOME }}/.zshrc"
+    line: 'export PATH="$HOME/.cargo/bin:$PATH"'
+    create: true
+  become: false
+  when: ansible_os_family == 'Darwin'
+
+- name: Create pyproject.toml if it doesn't exist
+  copy:
+    dest: "{{ playbook_dir }}/../pyproject.toml"
+    content: |
+      [project]
+      name = "fastestjsoninthewest"
+      version = "0.1.0"
+      description = "Fastest JSON parser in the west with Python bindings"
+      requires-python = ">=3.10"
+      dependencies = [
+          "pybind11>=2.11.0",
+      ]
+
+      [build-system]
+      requires = ["setuptools>=61.0", "pybind11>=2.11.0"]
+      build-backend = "setuptools.build_meta"
+
+      [tool.uv]
+      dev-dependencies = [
+          "pytest>=7.4.0",
+          "mypy>=1.5.0",
+          "ruff>=0.1.0",
+      ]
+    mode: '0644'
+    force: false
+  become: false
+
+- name: Install Python dependencies with uv
+  shell: |
+    source {{ ansible_env.HOME }}/.cargo/env 2>/dev/null || true
+    uv pip install pybind11 --system
+  args:
+    executable: /bin/bash
+  become: false
+  environment:
+    PATH: "{{ ansible_env.HOME }}/.cargo/bin:{{ ansible_env.PATH }}"
+
+- name: Validate pybind11 installation
+  shell: |
+    python3 -c "import pybind11; print(pybind11.get_include())"
+  register: pybind11_validation
+  changed_when: false
+  failed_when: pybind11_validation.rc != 0
+
+- name: Display pybind11 information
+  debug:
+    msg: |
+      ✅ pybind11 installed successfully
+      Include path: {{ pybind11_validation.stdout }}

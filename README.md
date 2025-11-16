@@ -6,6 +6,14 @@
 
 A blazingly fast, feature-rich JSON parsing and serialization library built with modern C++23, designed to be the fastest JSON library in the West (and everywhere else).
 
+## 📚 Documentation
+
+- **[Development Documentation](docs/development/)** - Implementation details, MVP results, and C++17 compatibility
+- **[Performance Results](docs/results/)** - Benchmark data and test results  
+- **[Toolchain Documentation](docs/toolchain/)** - LLVM/Clang build configuration and research
+- **[AI Development Tools](docs/ai-agents/)** - Development workflow and code standards
+- **[Project Requirements](docs/PRD.md)** - Complete product specification
+
 ## 🚀 Features
 
 - **Extreme Performance**: SIMD-optimized parsing with multi-architecture support (x86_64, ARM64)

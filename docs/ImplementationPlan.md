@@ -5,7 +5,7 @@
 - **Version**: 1.0
 - **Date**: November 14, 2025
 - **Status**: Draft
-- **Authors**: Development Team
+- **Authors**: Olumuyiwa Oluwasanmi
 
 ---
 

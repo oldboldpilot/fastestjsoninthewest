@@ -1,0 +1,169 @@
+// FastestJSONInTheWest Agent Service Definitions  
+// Author: Olumuyiwa Oluwasanmi
+// gRPC service for multi-agent communication and coordination
+
+syntax = "proto3";
+
+package fastjson.agents;
+
+// ============================================================================
+// Common Types and Enums
+// ============================================================================
+
+enum TaskStatus {
+    TASK_PENDING = 0;
+    TASK_RUNNING = 1;
+    TASK_COMPLETED = 2;
+    TASK_FAILED = 3;
+    TASK_CANCELLED = 4;
+}
+
+enum AgentType {
+    ORCHESTRATOR = 0;
+    CODE_GENERATOR = 1;
+    BUILD_AGENT = 2;
+    TEST_AGENT = 3;
+    DOCUMENTATION_AGENT = 4;
+    VALIDATION_AGENT = 5;
+}
+
+enum Priority {
+    LOW = 0;
+    MEDIUM = 1;
+    HIGH = 2;
+    CRITICAL = 3;
+}
+
+// ============================================================================
+// Task Management Messages
+// ============================================================================
+
+message TaskRequest {
+    string task_id = 1;
+    string agent_id = 2;
+    AgentType agent_type = 3;
+    string task_type = 4;
+    map<string, string> parameters = 5;
+    Priority priority = 6;
+    repeated string dependencies = 7;
+    int64 timeout_seconds = 8;
+    string description = 9;
+}
+
+message TaskResponse {
+    string task_id = 1;
+    string agent_id = 2;
+    TaskStatus status = 3;
+    string result = 4;
+    string error_message = 5;
+    map<string, string> metadata = 6;
+    int64 execution_time_ms = 7;
+    repeated string output_files = 8;
+}
+
+message TaskStatusRequest {
+    string task_id = 1;
+    string agent_id = 2;
+}
+
+message TaskUpdateRequest {
+    string task_id = 1;
+    string agent_id = 2;
+    TaskStatus new_status = 3;
+    string progress_message = 4;
+    int32 progress_percentage = 5;
+    map<string, string> metadata = 6;
+}
+
+// ============================================================================
+// Agent Registration and Management
+// ============================================================================
+
+message AgentRegistrationRequest {
+    string agent_id = 1;
+    AgentType agent_type = 2;
+    string host = 3;
+    int32 port = 4;
+    repeated string capabilities = 5;
+    map<string, string> configuration = 6;
+    string version = 7;
+}
+
+message AgentRegistrationResponse {
+    bool success = 1;
+    string message = 2;
+    string assigned_id = 3;
+    map<string, string> orchestrator_config = 4;
+}
+
+message AgentHealthRequest {
+    string agent_id = 1;
+}
+
+message AgentHealthResponse {
+    string agent_id = 1;
+    bool is_healthy = 2;
+    string status_message = 3;
+    int64 uptime_seconds = 4;
+    map<string, string> metrics = 5;
+}
+
+// ============================================================================
+// Coordination and Communication
+// ============================================================================
+
+message BroadcastMessage {
+    string sender_id = 1;
+    string message_type = 2;
+    string content = 3;
+    map<string, string> headers = 4;
+    int64 timestamp = 5;
+}
+
+message ResourceRequest {
+    string requesting_agent = 1;
+    string resource_type = 2;
+    string resource_name = 3;
+    int32 quantity = 4;
+    Priority priority = 5;
+    int64 duration_seconds = 6;
+}
+
+message ResourceResponse {
+    string resource_id = 1;
+    bool allocated = 2;
+    string message = 3;
+    int64 expires_at = 4;
+}
+
+// ============================================================================
+// Service Definitions
+// ============================================================================
+
+service AgentOrchestrator {
+    // Agent lifecycle management
+    rpc RegisterAgent(AgentRegistrationRequest) returns (AgentRegistrationResponse);
+    rpc CheckHealth(AgentHealthRequest) returns (AgentHealthResponse);
+    rpc UnregisterAgent(AgentHealthRequest) returns (AgentRegistrationResponse);
+    
+    // Task management
+    rpc SubmitTask(TaskRequest) returns (TaskResponse);
+    rpc GetTaskStatus(TaskStatusRequest) returns (TaskResponse);
+    rpc UpdateTaskStatus(TaskUpdateRequest) returns (TaskResponse);
+    rpc CancelTask(TaskStatusRequest) returns (TaskResponse);
+    
+    // Resource management
+    rpc RequestResource(ResourceRequest) returns (ResourceResponse);
+    rpc ReleaseResource(ResourceRequest) returns (ResourceResponse);
+    
+    // Communication
+    rpc Broadcast(BroadcastMessage) returns (TaskResponse);
+}
+
+service AgentWorker {
+    // Task execution
+    rpc ExecuteTask(TaskRequest) returns (TaskResponse);
+    rpc GetStatus(AgentHealthRequest) returns (AgentHealthResponse);
+    rpc UpdateProgress(TaskUpdateRequest) returns (TaskResponse);
+    rpc CancelExecution(TaskStatusRequest) returns (TaskResponse);
+}

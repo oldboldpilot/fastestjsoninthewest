@@ -1,6 +1,7 @@
 ---
 # FastestJSONInTheWest Complete Development Environment Setup
-# Multi-platform Ansible playbook for Clang 21, OpenMPI, ZeroMQ, and development tools
+# Author: Olumuyiwa Oluwasanmi  
+# Multi-platform Ansible playbook with source compilation and UV Python management
 
 - name: FastestJSONInTheWest Development Environment Setup
   hosts: all
@@ -9,11 +10,17 @@
   
   vars:
     project_name: FastestJSONInTheWest
+    author: Olumuyiwa Oluwasanmi
     cpp_standard: c++23
     clang_version: 21
-    cmake_version: "3.28.0"
-    openmpi_version: "5.0"
+    cmake_version: "4.1.0"  # Latest CMake 4.0+ requirement
+    openmpi_version: "5.0.6"
     zeromq_version: "4.3.5"
+    grpc_version: "1.60.0"
+    pybind11_version: "2.11.1"
+    python_version: "3.13"
+    install_prefix: "/usr/local"
+    source_build_dir: "/tmp/fastjson_build"
     
   tasks:
     # ============================================================================
@@ -23,10 +30,13 @@
     - name: Display system information
       debug:
         msg: |
+          FastestJSONInTheWest Environment Setup
+          Author: {{ author }}
           System: {{ ansible_system }}
           Distribution: {{ ansible_distribution | default('Unknown') }}
           Version: {{ ansible_distribution_version | default('Unknown') }}
           Architecture: {{ ansible_architecture }}
+          Install Prefix: {{ install_prefix }}
     
     # ============================================================================
     # UBUNTU/DEBIAN SETUP
@@ -55,31 +65,19 @@
         state: present
       when: ansible_os_family == 'Debian'
     
-    - name: Add LLVM APT repository key (Debian/Ubuntu)
-      apt_key:
-        url: https://apt.llvm.org/llvm-snapshot.gpg.key
-        state: present
-      when: ansible_os_family == 'Debian'
-    
-    - name: Add LLVM APT repository (Debian/Ubuntu)
-      apt_repository:
-        repo: "deb http://apt.llvm.org/{{ ansible_distribution_release }}/ llvm-toolchain-{{ ansible_distribution_release }}-{{ clang_version }} main"
-        state: present
-        update_cache: yes
-      when: ansible_os_family == 'Debian'
-    
-    - name: Install Clang {{ clang_version }} and tools (Debian/Ubuntu)
+    - name: Install LLVM build dependencies (Debian/Ubuntu)
       apt:
         name:
-          - "clang-{{ clang_version }}"
-          - "clang++-{{ clang_version }}"
-          - "clang-tools-{{ clang_version }}"
-          - "clang-tidy-{{ clang_version }}"
-          - "clang-format-{{ clang_version }}"
-          - "libc++-{{ clang_version }}-dev"
-          - "libc++abi-{{ clang_version }}-dev"
-          - "lld-{{ clang_version }}"
-          - "lldb-{{ clang_version }}"
+          - gcc
+          - g++
+          - make
+          - ninja-build
+          - python3-dev
+          - libxml2-dev
+          - libffi-dev
+          - libedit-dev
+          - swig
+          - zlib1g-dev
         state: present
       when: ansible_os_family == 'Debian'
     
@@ -171,54 +169,258 @@
     # MACOS SETUP (using Homebrew)
     # ============================================================================
     
-    - name: Check if Homebrew is installed (macOS)
+    # ============================================================================
+    # HOMEBREW AND UV SETUP (Cross-Platform)
+    # ============================================================================
+    
+    - name: Check if Homebrew is installed (Linux)
       command: which brew
       register: homebrew_check
       failed_when: false
-      changed_when: false
-      when: ansible_os_family == 'Darwin'
-    
+      when: ansible_system == "Linux"
+      
+    - name: Install Homebrew (Linux)
+      shell: /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+      when: ansible_system == "Linux" and homebrew_check.rc != 0
+      become: false
+      
+    - name: Install development tools via Homebrew (Linux)
+      command: brew install {{ item }}
+      loop:
+        - cmake
+        - ninja
+        - pkg-config
+        - git
+        - make
+        - uv
+      when: ansible_system == "Linux"
+      become: false
+      
+    - name: Check if Homebrew is installed (macOS) 
+      command: which brew
+      register: homebrew_check_macos
+      failed_when: false
+      when: ansible_system == "Darwin"
+      
     - name: Install Homebrew (macOS)
       shell: /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+      when: ansible_system == "Darwin" and homebrew_check_macos.rc != 0
       become: false
-      when: ansible_os_family == 'Darwin' and homebrew_check.rc != 0
-    
+      
     - name: Install development tools via Homebrew (macOS)
-      homebrew:
-        name:
-          - "llvm@{{ clang_version }}"
-          - cmake
-          - open-mpi
-          - zmq
-          - cppzmq
-          - googletest
-          - valgrind
-          - ninja
-          - ccache
-          - fmt
-          - benchmark
-        state: present
+      command: brew install {{ item }}
+      loop:
+        - cmake
+        - ninja
+        - pkg-config
+        - git
+        - make
+        - uv
+        - python@3.13
+      when: ansible_system == "Darwin"
       become: false
-      when: ansible_os_family == 'Darwin'
-    
-    - name: Add LLVM to PATH (macOS)
-      lineinfile:
-        path: "{{ ansible_env.HOME }}/.zshrc"
-        line: "export PATH=/opt/homebrew/opt/llvm@{{ clang_version }}/bin:$PATH"
-        create: true
+      
+    - name: Configure UV Python 3.13
+      shell: |
+        uv python install {{ python_version }}
+        cd {{ project_dir }}
+        uv venv --python {{ python_version }} .venv
+        source .venv/bin/activate
+        uv pip install pybind11=={{ pybind11_version }} numpy pytest
       become: false
-      when: ansible_os_family == 'Darwin'
-    
-    - name: Add LLVM to PATH for bash (macOS)
-      lineinfile:
-        path: "{{ ansible_env.HOME }}/.bash_profile"
-        line: "export PATH=/opt/homebrew/opt/llvm@{{ clang_version }}/bin:$PATH"
-        create: true
-      become: false
-      when: ansible_os_family == 'Darwin'
+      when: ansible_system in ["Linux", "Darwin"]
     
     # ============================================================================
-    # CMAKE INSTALLATION (from source for latest version)
+    # SOURCE COMPILATION - Ninja Build System (from source)
+    # ============================================================================
+    
+    - name: Download Ninja source
+      get_url:
+        url: "https://github.com/ninja-build/ninja/archive/refs/tags/v1.12.1.tar.gz"
+        dest: "{{ source_build_dir }}/ninja-1.12.1.tar.gz"
+        mode: '0644'
+        
+    - name: Extract Ninja source
+      unarchive:
+        src: "{{ source_build_dir }}/ninja-1.12.1.tar.gz"
+        dest: "{{ source_build_dir }}"
+        remote_src: true
+        creates: "{{ source_build_dir }}/ninja-1.12.1"
+        
+    - name: Build and install Ninja
+      shell: |
+        cd {{ source_build_dir }}/ninja-1.12.1
+        python3 configure.py --bootstrap
+        cp ninja {{ install_prefix }}/bin/
+        chmod +x {{ install_prefix }}/bin/ninja
+      args:
+        creates: "{{ install_prefix }}/bin/ninja"
+    
+    # ============================================================================
+    # SOURCE COMPILATION - LLVM/Clang/OpenMP (from source - Clang 21)
+    # ============================================================================
+    
+    - name: Download LLVM {{ clang_version }} source
+      get_url:
+        url: "https://github.com/llvm/llvm-project/releases/download/llvmorg-{{ clang_version }}.1.7/llvm-project-{{ clang_version }}.1.7.src.tar.xz"
+        dest: "{{ source_build_dir }}/llvm-project-{{ clang_version }}.1.7.src.tar.xz"
+        mode: '0644'
+        
+    - name: Extract LLVM source
+      unarchive:
+        src: "{{ source_build_dir }}/llvm-project-{{ clang_version }}.1.7.src.tar.xz"
+        dest: "{{ source_build_dir }}"
+        remote_src: true
+        creates: "{{ source_build_dir }}/llvm-project-{{ clang_version }}.1.7.src"
+        
+    - name: Create LLVM build directory
+      file:
+        path: "{{ source_build_dir }}/llvm-project-{{ clang_version }}.1.7.src/build"
+        state: directory
+        mode: '0755'
+        
+    - name: Configure LLVM/Clang/OpenMP build
+      command: >
+        cmake -G Ninja
+        -DCMAKE_BUILD_TYPE=Release
+        -DCMAKE_INSTALL_PREFIX={{ install_prefix }}
+        -DLLVM_ENABLE_PROJECTS="clang;clang-tools-extra;lld;openmp"
+        -DLLVM_ENABLE_RUNTIMES="libcxx;libcxxabi;libunwind;compiler-rt"
+        -DLLVM_TARGETS_TO_BUILD="X86;ARM;AArch64"
+        -DLLVM_OPTIMIZED_TABLEGEN=ON
+        -DLLVM_ENABLE_ASSERTIONS=OFF
+        -DLLVM_ENABLE_LTO=Thin
+        -DCLANG_DEFAULT_CXX_STDLIB=libc++
+        -DCLANG_DEFAULT_LINKER=lld
+        -DLLVM_BUILD_TESTS=OFF
+        -DLLVM_INCLUDE_TESTS=OFF
+        -DLLVM_BUILD_EXAMPLES=OFF
+        -DLLVM_INCLUDE_EXAMPLES=OFF
+        -DLLVM_ENABLE_LIBCXX=ON
+        -DLLVM_ENABLE_LLD=ON
+        ../llvm
+      args:
+        chdir: "{{ source_build_dir }}/llvm-project-{{ clang_version }}.1.7.src/build"
+        creates: "{{ source_build_dir }}/llvm-project-{{ clang_version }}.1.7.src/build/build.ninja"
+        
+    - name: Build LLVM/Clang/OpenMP (this will take a while - 30-60+ minutes)
+      command: ninja -j{{ ansible_processor_vcpus }}
+      args:
+        chdir: "{{ source_build_dir }}/llvm-project-{{ clang_version }}.1.7.src/build"
+      async: 7200
+      poll: 30
+      register: llvm_build
+      
+    - name: Install LLVM/Clang/OpenMP to {{ install_prefix }}
+      command: ninja install
+      args:
+        chdir: "{{ source_build_dir }}/llvm-project-{{ clang_version }}.1.7.src/build"
+      when: llvm_build is succeeded
+      
+    - name: Create symlinks for clang tools in /usr/local/bin
+      file:
+        src: "{{ install_prefix }}/bin/{{ item }}"
+        dest: "/usr/local/bin/{{ item }}"
+        state: link
+        force: true
+      loop:
+        - clang
+        - clang++
+        - clang-format
+        - clang-tidy
+        - clang-scan-deps
+        - lld
+        - ld.lld
+      failed_when: false
+    
+    # ============================================================================
+    # SOURCE COMPILATION - OpenMPI, gRPC, ZeroMQ (Enhanced)
+    # ============================================================================
+    
+    - name: Create source build directory
+      file:
+        path: "{{ source_build_dir }}"
+        state: directory
+        mode: '0755'
+        
+    - name: Download and compile OpenMPI {{ openmpi_version }}
+      shell: |
+        cd {{ source_build_dir }}
+        if [ ! -d "openmpi-{{ openmpi_version }}" ]; then
+          wget https://download.open-mpi.org/release/open-mpi/v{{ openmpi_version[0:3] }}/openmpi-{{ openmpi_version }}.tar.gz
+          tar -xzf openmpi-{{ openmpi_version }}.tar.gz
+        fi
+        cd openmpi-{{ openmpi_version }}
+        if [ ! -f Makefile ]; then
+          ./configure --prefix={{ install_prefix }} --enable-shared --enable-static \
+            --enable-mpi-cxx --disable-getpwuid \
+            CC={{ install_prefix }}/bin/clang CXX={{ install_prefix }}/bin/clang++ FC=gfortran
+          make -j$(nproc)
+          make install
+        fi
+      args:
+        creates: "{{ install_prefix }}/bin/mpirun"
+        
+    - name: Download and compile ZeroMQ {{ zeromq_version }}
+      shell: |
+        cd {{ source_build_dir }}
+        if [ ! -d "zeromq-{{ zeromq_version }}" ]; then
+          wget https://github.com/zeromq/libzmq/releases/download/v{{ zeromq_version }}/zeromq-{{ zeromq_version }}.tar.gz
+          tar -xzf zeromq-{{ zeromq_version }}.tar.gz
+        fi
+        cd zeromq-{{ zeromq_version }}
+        if [ ! -f Makefile ]; then
+          ./configure --prefix={{ install_prefix }} --enable-shared --enable-static \
+            CC={{ install_prefix }}/bin/clang CXX={{ install_prefix }}/bin/clang++
+          make -j$(nproc)
+          make install
+        fi
+      args:
+        creates: "{{ install_prefix }}/lib/libzmq.so"
+        
+    - name: Download and compile gRPC {{ grpc_version }}
+      shell: |
+        cd {{ source_build_dir }}
+        if [ ! -d "grpc" ]; then
+          git clone --recurse-submodules -b v{{ grpc_version }} --depth 1 --shallow-submodules https://github.com/grpc/grpc
+        fi
+        cd grpc
+        if [ ! -d "cmake/build" ]; then
+          mkdir -p cmake/build
+          cd cmake/build
+          cmake -DgRPC_INSTALL=ON \
+                -DgRPC_BUILD_TESTS=OFF \
+                -DCMAKE_INSTALL_PREFIX={{ install_prefix }} \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_C_COMPILER={{ install_prefix }}/bin/clang \
+                -DCMAKE_CXX_COMPILER={{ install_prefix }}/bin/clang++ \
+                ../..
+          make -j$(nproc)
+          make install
+        fi
+      args:
+        creates: "{{ install_prefix }}/bin/grpc_cpp_plugin"
+        
+    - name: Update library cache
+      command: ldconfig
+      when: ansible_system == "Linux"
+      
+    - name: Set environment variables for source-compiled libraries
+      blockinfile:
+        path: "{{ ansible_env.HOME }}/.bashrc"
+        block: |
+          # FastestJSONInTheWest Source-Compiled Libraries
+          # Author: {{ author }}
+          export PKG_CONFIG_PATH="{{ install_prefix }}/lib/pkgconfig:$PKG_CONFIG_PATH"
+          export LD_LIBRARY_PATH="{{ install_prefix }}/lib:$LD_LIBRARY_PATH"
+          export CMAKE_PREFIX_PATH="{{ install_prefix }}:$CMAKE_PREFIX_PATH"
+          export PATH="{{ install_prefix }}/bin:$PATH"
+        marker: "# {mark} FastestJSONInTheWest Environment"
+        create: true
+      become: false
+      
+    # ============================================================================
+    # CMAKE INSTALLATION (via Homebrew for consistency)
     # ============================================================================
     
     - name: Check current CMake version
@@ -264,19 +466,16 @@
     # ============================================================================
     
     - name: Set Clang as default compiler (Debian/Ubuntu)
-      alternatives:
-        name: "{{ item.name }}"
-        link: "{{ item.link }}"
-        path: "{{ item.path }}"
-        priority: 100
+      command: update-alternatives --install {{ item.link }} {{ item.name }} {{ item.path }} 100
       loop:
-        - { name: 'cc', link: '/usr/bin/cc', path: "/usr/bin/clang-{{ clang_version }}" }
-        - { name: 'c++', link: '/usr/bin/c++', path: "/usr/bin/clang++-{{ clang_version }}" }
-        - { name: 'clang', link: '/usr/bin/clang', path: "/usr/bin/clang-{{ clang_version }}" }
-        - { name: 'clang++', link: '/usr/bin/clang++', path: "/usr/bin/clang++-{{ clang_version }}" }
-        - { name: 'clang-tidy', link: '/usr/bin/clang-tidy', path: "/usr/bin/clang-tidy-{{ clang_version }}" }
-        - { name: 'clang-format', link: '/usr/bin/clang-format', path: "/usr/bin/clang-format-{{ clang_version }}" }
+        - { name: 'cc', link: '/usr/bin/cc', path: "{{ install_prefix }}/bin/clang" }
+        - { name: 'c++', link: '/usr/bin/c++', path: "{{ install_prefix }}/bin/clang++" }
+        - { name: 'clang', link: '/usr/bin/clang', path: "{{ install_prefix }}/bin/clang" }
+        - { name: 'clang++', link: '/usr/bin/clang++', path: "{{ install_prefix }}/bin/clang++" }
+        - { name: 'clang-tidy', link: '/usr/bin/clang-tidy', path: "{{ install_prefix }}/bin/clang-tidy" }
+        - { name: 'clang-format', link: '/usr/bin/clang-format', path: "{{ install_prefix }}/bin/clang-format" }
       when: ansible_os_family == 'Debian'
+      failed_when: false
     
     # ============================================================================
     # ENVIRONMENT CONFIGURATION
@@ -288,40 +487,78 @@
         mode: '0755'
         content: |
           # FastestJSONInTheWest Development Environment
-          export CC=clang-{{ clang_version }}
-          export CXX=clang++-{{ clang_version }}
-          export OMPI_CC=clang-{{ clang_version }}
-          export OMPI_CXX=clang++-{{ clang_version }}
-          export CMAKE_C_COMPILER=clang-{{ clang_version }}
-          export CMAKE_CXX_COMPILER=clang++-{{ clang_version }}
+          export CC={{ install_prefix }}/bin/clang
+          export CXX={{ install_prefix }}/bin/clang++
+          export OMPI_CC={{ install_prefix }}/bin/clang
+          export OMPI_CXX={{ install_prefix }}/bin/clang++
+          export CMAKE_C_COMPILER={{ install_prefix }}/bin/clang
+          export CMAKE_CXX_COMPILER={{ install_prefix }}/bin/clang++
           export CMAKE_BUILD_TYPE=Release
           export CMAKE_CXX_STANDARD=23
+          export PATH={{ install_prefix }}/bin:$PATH
+          export LD_LIBRARY_PATH={{ install_prefix }}/lib:$LD_LIBRARY_PATH
       when: ansible_os_family in ['Debian', 'RedHat']
     
     # ============================================================================
-    # PYTHON DEPENDENCIES
+    # PYTHON DEPENDENCIES AND BINDINGS
     # ============================================================================
     
-    - name: Install Python development packages
-      pip:
-        name:
-          - conan
-          - vcpkg
-          - ninja
-          - cmake
-          - pyyaml
-          - jinja2
-        executable: pip3
-        state: present
+    - name: Check if uv is installed
+      command: uv --version
+      register: uv_check
+      failed_when: false
+      changed_when: false
+      become: false
+    
+    - name: Install uv package manager
+      shell: curl -LsSf https://astral.sh/uv/install.sh | sh
+      when: uv_check.rc != 0
+      become: false
+    
+    - name: Ensure uv is in PATH
+      lineinfile:
+        path: "{{ ansible_env.HOME }}/.bashrc"
+        line: 'export PATH="$HOME/.cargo/bin:$PATH"'
+        create: true
+      become: false
+    
+    - name: Ensure uv is in PATH for zsh (macOS)
+      lineinfile:
+        path: "{{ ansible_env.HOME }}/.zshrc"
+        line: 'export PATH="$HOME/.cargo/bin:$PATH"'
+        create: true
+      become: false
+      when: ansible_os_family == 'Darwin'
+    
+    - name: Install pybind11 via uv
+      shell: |
+        source {{ ansible_env.HOME }}/.cargo/env 2>/dev/null || true
+        uv pip install pybind11 --system
+      args:
+        executable: /bin/bash
+      become: false
+      environment:
+        PATH: "{{ ansible_env.HOME }}/.cargo/bin:{{ ansible_env.PATH }}"
+    
+    - name: Install Python development packages via uv
+      shell: |
+        source {{ ansible_env.HOME }}/.cargo/env 2>/dev/null || true
+        uv pip install conan vcpkg ninja cmake pyyaml jinja2 --system
+      args:
+        executable: /bin/bash
+      become: false
+      environment:
+        PATH: "{{ ansible_env.HOME }}/.cargo/bin:{{ ansible_env.PATH }}"
     
     # ============================================================================
     # VALIDATION
     # ============================================================================
     
     - name: Validate Clang installation
-      command: "clang++-{{ clang_version }} --version"
+      command: "{{ install_prefix }}/bin/clang++ --version"
       register: clang_validation
       changed_when: false
+      failed_when: false
     
     - name: Validate CMake installation
       command: cmake --version
@@ -339,6 +576,13 @@
       changed_when: false
       failed_when: false
     
+    - name: Validate pybind11 installation
+      shell: python3 -c "import pybind11; print(pybind11.get_include())"
+      register: pybind11_validation
+      changed_when: false
+      failed_when: false
+      become: false
+    
     - name: Display validation results
       debug:
         msg: |
@@ -346,9 +590,11 @@
           ✅ CMake: {{ 'PASS' if cmake_validation.rc == 0 else 'FAIL' }}
           ✅ OpenMPI: {{ 'PASS' if mpi_validation.rc == 0 else 'FAIL' }}
           ✅ ZeroMQ: {{ 'PASS' if zmq_validation.rc == 0 else 'FAIL' }}
+          ✅ pybind11: {{ 'PASS' if pybind11_validation.rc == 0 else 'FAIL' }}
           
           Clang Version: {{ clang_validation.stdout_lines[0] if clang_validation.rc == 0 else 'Not found' }}
           CMake Version: {{ cmake_validation.stdout_lines[0] if cmake_validation.rc == 0 else 'Not found' }}
+          pybind11 Include: {{ pybind11_validation.stdout if pybind11_validation.rc == 0 else 'Not found' }}
     
     - name: Create development environment summary
       copy:
@@ -363,16 +609,18 @@
           - Kernel: {{ ansible_kernel }}
           
           Installed Components:
-          - Clang {{ clang_version }}: {{ clang_validation.stdout_lines[0] if clang_validation.rc == 0 else 'Installation failed' }}
+          - Clang {{ clang_version }} (from source): {{ clang_validation.stdout_lines[0] if clang_validation.rc == 0 else 'Installation failed' }}
           - CMake: {{ cmake_validation.stdout_lines[0] if cmake_validation.rc == 0 else 'Installation failed' }}
           - OpenMPI: {{ mpi_validation.stdout_lines[0] if mpi_validation.rc == 0 else 'Installation failed' }}
           - ZeroMQ: {{ zmq_validation.stdout if zmq_validation.rc == 0 else 'Installation may have issues' }}
           
+          Install Prefix: {{ install_prefix }}
+          
           Environment Variables:
-          - CC=clang-{{ clang_version }}
-          - CXX=clang++-{{ clang_version }}
-          - CMAKE_C_COMPILER=clang-{{ clang_version }}
-          - CMAKE_CXX_COMPILER=clang++-{{ clang_version }}
+          - CC={{ install_prefix }}/bin/clang
+          - CXX={{ install_prefix }}/bin/clang++
+          - CMAKE_C_COMPILER={{ install_prefix }}/bin/clang
+          - CMAKE_CXX_COMPILER={{ install_prefix }}/bin/clang++
           
           Next Steps:
           1. Source environment: source /etc/profile.d/fastjson-dev.sh
