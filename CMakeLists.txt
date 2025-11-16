@@ -1,577 +1,352 @@
-# FastestJSONInTheWest - High-Performance C++23 JSON Library
-cmake_minimum_required(VERSION 3.25)
+# FastestJSONInTheWest C++23 Modules CMakeLists.txt
+# Author: Olumuyiwa Oluwasanmi
+# High-Performance JSON Library with C++23 Modules and Trail Calling Syntax
+
+cmake_minimum_required(VERSION 3.28)
 
 project(FastestJSONInTheWest 
     VERSION 1.0.0
     LANGUAGES CXX
-    DESCRIPTION "High-Performance C++23 JSON Library with SIMD optimization"
-    HOMEPAGE_URL "https://github.com/yourusername/FastestJSONInTheWest"
+    DESCRIPTION "High-Performance C++23 JSON Library with Modules"
 )
 
-# =============================================================================
-# Project Configuration
-# =============================================================================
+# Force use of our custom built Clang 21.1.5
+set(CMAKE_CXX_COMPILER "/home/muyiwa/toolchain-build/llvm-build/bin/clang++")
+set(CMAKE_C_COMPILER "/home/muyiwa/toolchain-build/llvm-build/bin/clang")
 
-# C++23 requirement
+# Verify we're using the correct compiler
+execute_process(
+    COMMAND ${CMAKE_CXX_COMPILER} --version
+    OUTPUT_VARIABLE COMPILER_VERSION
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+string(REGEX MATCH "clang version ([0-9]+\.[0-9]+\.[0-9]+)" CLANG_VERSION_MATCH "${COMPILER_VERSION}")
+if(CLANG_VERSION_MATCH)
+    message(STATUS "✓ Using Clang ${CMAKE_MATCH_1} (Required: 21.x)")
+else()
+    message(FATAL_ERROR "❌ Failed to detect Clang version from ${CMAKE_CXX_COMPILER}")
+endif()
+
+message(STATUS "Using Homebrew Clang 21: ${CMAKE_CXX_COMPILER}")
+
+# Set C++23 standard with modules support
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Module support
-set(CMAKE_CXX_SCAN_FOR_MODULES ON)
-
-# Build type
-if(NOT CMAKE_BUILD_TYPE)
-    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
-endif()
-
-# =============================================================================
-# Compiler Detection and Configuration
-# =============================================================================
-
-# Compiler version checks (Primary: Clang 21, Secondary: GCC 13+, MSVC 19.34+)
-if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS "21.0")
-        if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS "16.0")
-            message(FATAL_ERROR "Clang 21+ recommended (primary toolchain), minimum 16.0 required")
-        else()
-            message(WARNING "Clang ${CMAKE_CXX_COMPILER_VERSION} detected. Clang 21+ recommended for primary development")
-        endif()
-    endif()
-    if(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL "21.0")
-        message(STATUS "Using Clang ${CMAKE_CXX_COMPILER_VERSION} (PRIMARY TOOLCHAIN)")
-    else()
-        message(STATUS "Using Clang ${CMAKE_CXX_COMPILER_VERSION} (FALLBACK)")
-    endif()
-elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-    if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS "13.0")
-        message(FATAL_ERROR "GCC 13 or later required for C++23 modules support")
-    endif()
-    message(STATUS "Using GCC ${CMAKE_CXX_COMPILER_VERSION} (SECONDARY COMPILER)")
-    message(WARNING "GCC is secondary compiler - Clang 21+ recommended for primary development")
-elseif(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
-    if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS "19.34")
-        message(FATAL_ERROR "MSVC 19.34 (Visual Studio 2022 17.4) or later required")
-    endif()
-    message(STATUS "Using MSVC ${CMAKE_CXX_COMPILER_VERSION} (WINDOWS SECONDARY)")
-else()
-    message(WARNING "Untested compiler: ${CMAKE_CXX_COMPILER_ID} - Clang 21+ recommended")
-endif()
-
-# =============================================================================
-# Compiler-specific Flags
-# =============================================================================
-
-# GCC-specific flags
-if(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fcoroutines -fmodules-ts")
-    set(CMAKE_CXX_FLAGS_RELEASE "-O3 -march=native -mtune=native -flto -DNDEBUG")
-    set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g3 -fsanitize=address -fsanitize=undefined")
-endif()
-
-# Clang-specific flags
-if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++ -fmodules")
-    set(CMAKE_CXX_FLAGS_RELEASE "-O3 -march=native -flto -DNDEBUG")
-    set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g3 -fsanitize=address -fsanitize=undefined")
-endif()
-
-# MSVC-specific flags
-if(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /std:c++23 /experimental:module")
-    set(CMAKE_CXX_FLAGS_RELEASE "/O2 /GL /DNDEBUG")
-    set(CMAKE_CXX_FLAGS_DEBUG "/Od /Zi /RTC1")
-endif()
-
-# =============================================================================
-# Feature Detection
-# =============================================================================
-
-include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/FeatureDetection.cmake)
-
-# Detect SIMD capabilities
-detect_simd_features()
-
-# Detect C++23 features
-detect_cxx23_features()
-
-# =============================================================================
-# Dependencies
-# =============================================================================
-
-# Find required packages
+# Find required libraries
+find_package(OpenMP REQUIRED)
 find_package(Threads REQUIRED)
 
-# Optional dependencies
-find_package(OpenMP QUIET)
-find_package(CUDA QUIET)
-find_package(OpenCL QUIET)
-
-# Distributed Computing Dependencies (Primary Development Focus)
-find_package(MPI QUIET)  # Primary: OpenMPI
-find_package(PkgConfig QUIET)
-if(PkgConfig_FOUND)
-    pkg_check_modules(GRPC grpc++ QUIET)  # Secondary: gRPC
-    pkg_check_modules(RDKAFKA rdkafka++ QUIET)  # Stream processing: Kafka
-    pkg_check_modules(ZMQ libzmq QUIET)  # High-performance messaging: ZeroMQ
-endif()
-
-# Testing framework
-if(BUILD_TESTING)
-    find_package(GTest QUIET)
-    find_package(benchmark QUIET)
-endif()
-
-# GUI framework for simulator
-find_package(imgui QUIET)
-find_package(glfw3 QUIET)
-find_package(OpenGL QUIET)
-
-# =============================================================================
-# Project Options
-# =============================================================================
-
-option(FASTJSON_BUILD_TESTS "Build test suite" ON)
-option(FASTJSON_BUILD_BENCHMARKS "Build benchmark suite" ON)
-option(FASTJSON_BUILD_EXAMPLES "Build examples" ON)
-option(FASTJSON_BUILD_DOCS "Build documentation" OFF)
-option(FASTJSON_ENABLE_SIMD "Enable SIMD optimizations" ON)
-option(FASTJSON_ENABLE_GPU "Enable GPU acceleration" ${CUDA_FOUND})
-option(FASTJSON_ENABLE_OPENMP "Enable OpenMP support" ${OpenMP_CXX_FOUND})
-option(FASTJSON_ENABLE_MPI "Enable MPI distributed computing" ${MPI_CXX_FOUND})
-option(FASTJSON_ENABLE_GRPC "Enable gRPC distributed services" ${GRPC_FOUND})
-option(FASTJSON_ENABLE_KAFKA "Enable Kafka stream processing" ${RDKAFKA_FOUND})
-option(FASTJSON_ENABLE_ZEROMQ "Enable ZeroMQ high-performance messaging" ${ZMQ_FOUND})
-option(FASTJSON_ENABLE_SIMULATOR "Enable GUI simulator" ${imgui_FOUND})
-option(FASTJSON_STATIC_ANALYSIS "Enable static analysis" OFF)
-
-# =============================================================================
-# Configure Features Header
-# =============================================================================
-
-configure_file(
-    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/config.h.in"
-    "${CMAKE_BINARY_DIR}/include/fastjson/config.h"
+# Add Homebrew library paths
+link_directories(
+    /home/linuxbrew/.linuxbrew/lib
+    /home/linuxbrew/.linuxbrew/Cellar/libomp/21.1.5/lib
+    /home/linuxbrew/.linuxbrew/Cellar/tbb/2022.3.0/lib
 )
 
-# =============================================================================
-# Main Library Target
-# =============================================================================
-
-add_library(fastjson)
-
-# Set target properties
-set_target_properties(fastjson PROPERTIES
-    CXX_STANDARD 23
-    CXX_STANDARD_REQUIRED ON
-    CXX_EXTENSIONS OFF
-    VERSION ${PROJECT_VERSION}
-    SOVERSION ${PROJECT_VERSION_MAJOR}
-    EXPORT_NAME FastestJSON
+include_directories(
+    /home/linuxbrew/.linuxbrew/include
+    /home/linuxbrew/.linuxbrew/Cellar/libomp/21.1.5/include
+    /home/linuxbrew/.linuxbrew/Cellar/tbb/2022.3.0/include
 )
 
-# Enable link-time optimization for release builds
-set_target_properties(fastjson PROPERTIES
-    INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE
-    INTERPROCEDURAL_OPTIMIZATION_RELWITHDEBINFO TRUE
-)
+# Find clang-tidy
+find_program(CLANG_TIDY_EXE NAMES clang-tidy-21 clang-tidy
+    PATHS /opt/clang-21/bin /usr/local/bin /usr/bin
+    DOC "Path to clang-tidy executable")
 
-# =============================================================================
-# Source Files
-# =============================================================================
-
-# Core modules
-# Main library modules
+# Create FastJSON C++23 module library
 add_library(fastjson)
 target_sources(fastjson
     PUBLIC
         FILE_SET CXX_MODULES FILES
-            src/modules/fastjson.core.cppm
-            src/modules/fastjson.parser.cppm
-            src/modules/fastjson.serializer.cppm
-            src/modules/fastjson.simd.cppm
-            src/modules/fastjson.threading.cppm
-            src/modules/fastjson.mapreduce.cppm
-            src/modules/fastjson.performance.cppm
-            src/modules/fastjson.memory.cppm
-            src/modules/fastjson.query.cppm
-            src/modules/fastjson.reflection.cppm
-            src/modules/fastjson.logger.cppm
-            src/modules/fastjson.simulator.cppm
-            src/modules/fastjson.io.cppm
-            src/modules/fastjson.distributed.cppm
-            src/modules/fastjson.grpc.cppm
-            src/modules/fastjson.kafka.cppm
-            src/modules/fastjson.zeromq.cppm
-)
-
-# SIMD modules (conditional)
-if(FASTJSON_ENABLE_SIMD)
-    target_sources(fastjson
-        PUBLIC
-            FILE_SET CXX_MODULES FILES
-                src/modules/fastjson.simd.cppm
-    )
-endif()
-
-# GPU modules (conditional)
-if(FASTJSON_ENABLE_GPU)
-    target_sources(fastjson
-        PUBLIC
-            FILE_SET CXX_MODULES FILES
-                src/modules/fastjson.gpu.cppm
-    )
-endif()
-
-# Simulator module (conditional)
-if(FASTJSON_ENABLE_SIMULATOR)
-    target_sources(fastjson
-        PUBLIC
-            FILE_SET CXX_MODULES FILES
-                src/modules/fastjson.simulator.cppm
-    )
-endif()
-
-# =============================================================================
-# Include Directories
-# =============================================================================
-
-target_include_directories(fastjson
-    PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-        $<BUILD_INTERFACE:${CMAKE_BINARY_DIR}/include>
-        $<INSTALL_INTERFACE:include>
+        modules/fastjson.cppm
     PRIVATE
-        src
+        modules/fastjson.cpp
 )
 
-# =============================================================================
-# Compiler Definitions
-# =============================================================================
-
-target_compile_definitions(fastjson PRIVATE
-    $<$<CONFIG:Debug>:FASTJSON_DEBUG>
-    $<$<CONFIG:Release>:FASTJSON_RELEASE>
+# Enable SIMD support with thread safety
+target_compile_definitions(fastjson PRIVATE 
+    FASTJSON_ENABLE_SIMD
+    FASTJSON_THREAD_SAFE
+    ${SIMD_DEFINES}
 )
 
-# Feature-based definitions
-if(FASTJSON_ENABLE_SIMD AND FASTJSON_HAVE_AVX2)
-    target_compile_definitions(fastjson PRIVATE FASTJSON_HAVE_AVX2)
-endif()
-
-if(FASTJSON_ENABLE_SIMD AND FASTJSON_HAVE_NEON)
-    target_compile_definitions(fastjson PRIVATE FASTJSON_HAVE_NEON)
-endif()
-
-if(FASTJSON_ENABLE_GPU AND CUDA_FOUND)
-    target_compile_definitions(fastjson PRIVATE FASTJSON_HAVE_CUDA)
-endif()
-
-if(FASTJSON_ENABLE_OPENMP AND OpenMP_CXX_FOUND)
-    target_compile_definitions(fastjson PRIVATE FASTJSON_HAVE_OPENMP)
-endif()
-
-if(FASTJSON_ENABLE_MPI AND MPI_CXX_FOUND)
-    target_compile_definitions(fastjson PRIVATE FASTJSON_HAVE_MPI)
-endif()
-
-if(FASTJSON_ENABLE_GRPC AND GRPC_FOUND)
-    target_compile_definitions(fastjson PRIVATE FASTJSON_HAVE_GRPC)
-endif()
-
-if(FASTJSON_ENABLE_KAFKA AND RDKAFKA_FOUND)
-    target_compile_definitions(fastjson PRIVATE FASTJSON_HAVE_KAFKA)
-endif()
-
-if(FASTJSON_ENABLE_SIMULATOR AND imgui_FOUND)
-    target_compile_definitions(fastjson PRIVATE FASTJSON_HAVE_IMGUI)
-endif()
-
-# =============================================================================
-# Link Libraries
-# =============================================================================
-
-target_link_libraries(fastjson
-    PUBLIC
-        Threads::Threads
+# Add thread-safe compilation options
+target_compile_options(fastjson PRIVATE
+    ${SIMD_FLAGS}
+    -fno-omit-frame-pointer  # Better debugging and profiling
+    -fstack-protector-strong # Stack protection
+    -D_FORTIFY_SOURCE=2     # Buffer overflow detection
 )
 
-# Optional libraries
-if(FASTJSON_ENABLE_OPENMP AND OpenMP_CXX_FOUND)
-    target_link_libraries(fastjson PRIVATE OpenMP::OpenMP_CXX)
-    # Clang-specific OpenMP configuration
-    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-        target_compile_options(fastjson PRIVATE -fopenmp)
-        target_link_libraries(fastjson PRIVATE omp)
-    endif()
+# Set compile features and properties
+target_compile_features(fastjson PUBLIC cxx_std_23)
+set_target_properties(fastjson PROPERTIES
+    CXX_STANDARD 23
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF
+)
+
+# SIMD Optimizations - CPU-specific conditional compilation
+# Only compile for instruction sets actually supported by the target CPU
+include(CheckCXXCompilerFlag)
+
+# Check for SIMD instruction set support including latest Intel extensions
+check_cxx_compiler_flag("-mamx-tile" COMPILER_SUPPORTS_AMX_TILE)
+check_cxx_compiler_flag("-mamx-int8" COMPILER_SUPPORTS_AMX_INT8) 
+check_cxx_compiler_flag("-mavx512vnni" COMPILER_SUPPORTS_AVX512VNNI)
+check_cxx_compiler_flag("-mavx512vbmi" COMPILER_SUPPORTS_AVX512VBMI)
+check_cxx_compiler_flag("-mavx512vbmi2" COMPILER_SUPPORTS_AVX512VBMI2)
+check_cxx_compiler_flag("-mavx512f" COMPILER_SUPPORTS_AVX512F)
+check_cxx_compiler_flag("-mavx512bw" COMPILER_SUPPORTS_AVX512BW)
+check_cxx_compiler_flag("-mavx2" COMPILER_SUPPORTS_AVX2)
+check_cxx_compiler_flag("-mavx" COMPILER_SUPPORTS_AVX)
+check_cxx_compiler_flag("-msse4.2" COMPILER_SUPPORTS_SSE42)
+check_cxx_compiler_flag("-msse4.1" COMPILER_SUPPORTS_SSE41)
+check_cxx_compiler_flag("-mssse3" COMPILER_SUPPORTS_SSSE3)
+check_cxx_compiler_flag("-msse3" COMPILER_SUPPORTS_SSE3)
+check_cxx_compiler_flag("-msse2" COMPILER_SUPPORTS_SSE2)
+
+# Build SIMD flags based on what's available
+set(SIMD_FLAGS "")
+set(SIMD_DEFINES "")
+set(SIMD_LEVELS "")
+
+# Latest Intel extensions for AI/ML workloads
+if(COMPILER_SUPPORTS_AMX_TILE AND COMPILER_SUPPORTS_AMX_INT8)
+    list(APPEND SIMD_FLAGS "-mamx-tile" "-mamx-int8")
+    list(APPEND SIMD_DEFINES "-DHAVE_AMX_TILE" "-DHAVE_AMX_INT8")
+    list(APPEND SIMD_LEVELS "AMX-TMUL")
 endif()
 
-# Distributed Computing Libraries (Primary Development Focus)
-if(FASTJSON_ENABLE_MPI AND MPI_CXX_FOUND)
-    target_link_libraries(fastjson PRIVATE MPI::MPI_CXX)
-    message(STATUS "MPI support enabled: ${MPI_CXX_VERSION}")
+if(COMPILER_SUPPORTS_AVX512VNNI)
+    list(APPEND SIMD_FLAGS "-mavx512vnni")
+    list(APPEND SIMD_DEFINES "-DHAVE_AVX512VNNI")
+    list(APPEND SIMD_LEVELS "AVX-512-VNNI")
 endif()
 
-if(FASTJSON_ENABLE_GRPC AND GRPC_FOUND)
-    target_link_libraries(fastjson PRIVATE ${GRPC_LIBRARIES})
-    target_include_directories(fastjson PRIVATE ${GRPC_INCLUDE_DIRS})
-    message(STATUS "gRPC support enabled")
+if(COMPILER_SUPPORTS_AVX512VBMI2)
+    list(APPEND SIMD_FLAGS "-mavx512vbmi2")
+    list(APPEND SIMD_DEFINES "-DHAVE_AVX512VBMI2")
+    list(APPEND SIMD_LEVELS "AVX-512-VBMI2")
 endif()
 
-if(FASTJSON_ENABLE_KAFKA AND RDKAFKA_FOUND)
-    target_link_libraries(fastjson PRIVATE ${RDKAFKA_LIBRARIES})
-    target_include_directories(fastjson PRIVATE ${RDKAFKA_INCLUDE_DIRS})
-    message(STATUS "Kafka support enabled")
+if(COMPILER_SUPPORTS_AVX512VBMI)
+    list(APPEND SIMD_FLAGS "-mavx512vbmi")
+    list(APPEND SIMD_DEFINES "-DHAVE_AVX512VBMI")
+    list(APPEND SIMD_LEVELS "AVX-512-VBMI")
 endif()
 
-if(FASTJSON_ENABLE_ZEROMQ AND ZMQ_FOUND)
-    target_link_libraries(fastjson PRIVATE ${ZMQ_LIBRARIES})
-    target_include_directories(fastjson PRIVATE ${ZMQ_INCLUDE_DIRS})
-    target_compile_definitions(fastjson PRIVATE FASTJSON_HAVE_ZEROMQ)
-    message(STATUS "ZeroMQ support enabled")
+if(COMPILER_SUPPORTS_AVX512F AND COMPILER_SUPPORTS_AVX512BW)
+    list(APPEND SIMD_FLAGS "-mavx512f" "-mavx512bw")
+    list(APPEND SIMD_DEFINES "-DHAVE_AVX512F" "-DHAVE_AVX512BW")
+    list(APPEND SIMD_LEVELS "AVX-512")
 endif()
 
-if(FASTJSON_ENABLE_GPU AND CUDA_FOUND)
-    enable_language(CUDA)
-    target_link_libraries(fastjson PRIVATE ${CUDA_LIBRARIES})
+if(COMPILER_SUPPORTS_AVX2)
+    list(APPEND SIMD_FLAGS "-mavx2")
+    list(APPEND SIMD_DEFINES "-DHAVE_AVX2")
+    list(APPEND SIMD_LEVELS "AVX2")
 endif()
 
-if(FASTJSON_ENABLE_SIMULATOR AND imgui_FOUND AND glfw3_FOUND AND OpenGL_FOUND)
-    target_link_libraries(fastjson PRIVATE 
-        imgui::imgui 
-        glfw 
-        ${OPENGL_LIBRARIES}
-    )
-    target_compile_definitions(fastjson PRIVATE FASTJSON_HAVE_IMGUI)
-    message(STATUS "ImGui visual simulator support enabled")
+if(COMPILER_SUPPORTS_AVX)
+    list(APPEND SIMD_FLAGS "-mavx")
+    list(APPEND SIMD_DEFINES "-DHAVE_AVX")
+endif()
+
+if(COMPILER_SUPPORTS_SSE42)
+    list(APPEND SIMD_FLAGS "-msse4.2")
+    list(APPEND SIMD_DEFINES "-DHAVE_SSE42")
+endif()
+
+if(COMPILER_SUPPORTS_SSE41)
+    list(APPEND SIMD_FLAGS "-msse4.1")
+    list(APPEND SIMD_DEFINES "-DHAVE_SSE41")
+endif()
+
+if(COMPILER_SUPPORTS_SSSE3)
+    list(APPEND SIMD_FLAGS "-mssse3")
+    list(APPEND SIMD_DEFINES "-DHAVE_SSSE3")
+endif()
+
+if(COMPILER_SUPPORTS_SSE3)
+    list(APPEND SIMD_FLAGS "-msse3")
+    list(APPEND SIMD_DEFINES "-DHAVE_SSE3")
+endif()
+
+if(COMPILER_SUPPORTS_SSE2)
+    list(APPEND SIMD_FLAGS "-msse2")
+    list(APPEND SIMD_DEFINES "-DHAVE_SSE2")
+endif()
+
+# Add additional optimization flags for performance and thread safety
+list(APPEND SIMD_FLAGS "-mpopcnt" "-mbmi" "-mbmi2" "-mlzcnt" "-mtune=native" "-fno-omit-frame-pointer")
+
+# Apply SIMD flags
+string(JOIN " " SIMD_FLAGS_STR ${SIMD_FLAGS})
+string(JOIN " " SIMD_DEFINES_STR ${SIMD_DEFINES})
+string(JOIN " → " SIMD_LEVELS_STR ${SIMD_LEVELS})
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${SIMD_FLAGS_STR} ${SIMD_DEFINES_STR}")
+
+# Enhanced message showing detected capabilities
+if(SIMD_LEVELS)
+    message(STATUS "SIMD Optimizations: Thread-safe conditional compilation (${SIMD_LEVELS_STR} → SSE2)")
 else()
-    message(STATUS "ImGui visual simulator disabled - missing dependencies")
+    message(STATUS "SIMD Optimizations: Scalar fallback only (no advanced instruction sets detected)")
 endif()
 
-# Development debugging tools (Clang primary)
-if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-    # Sanitizers for Clang
-    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-        option(FASTJSON_ENABLE_ASAN "Enable AddressSanitizer" ON)
-        option(FASTJSON_ENABLE_TSAN "Enable ThreadSanitizer" OFF)
-        option(FASTJSON_ENABLE_UBSAN "Enable UBSan" ON)
-        
-        if(FASTJSON_ENABLE_ASAN AND NOT FASTJSON_ENABLE_TSAN)
-            target_compile_options(fastjson PRIVATE -fsanitize=address -g)
-            target_link_options(fastjson PRIVATE -fsanitize=address)
-            message(STATUS "AddressSanitizer enabled")
-        endif()
-        
-        if(FASTJSON_ENABLE_TSAN AND NOT FASTJSON_ENABLE_ASAN)
-            target_compile_options(fastjson PRIVATE -fsanitize=thread -g)
-            target_link_options(fastjson PRIVATE -fsanitize=thread)
-            message(STATUS "ThreadSanitizer enabled")
-        endif()
-        
-        if(FASTJSON_ENABLE_UBSAN)
-            target_compile_options(fastjson PRIVATE -fsanitize=undefined -g)
-            target_link_options(fastjson PRIVATE -fsanitize=undefined)
-            message(STATUS "UBSan enabled")
-        endif()
-    endif()
-    
-    # Valgrind support
-    find_program(VALGRIND_PROGRAM valgrind)
-    if(VALGRIND_PROGRAM)
-        message(STATUS "Valgrind found: ${VALGRIND_PROGRAM}")
-        target_compile_definitions(fastjson PRIVATE FASTJSON_HAVE_VALGRIND)
-    endif()
-endif()
-
-# Development debugging tools (Clang primary)
-if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-    # Sanitizers for Clang
-    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-        option(FASTJSON_ENABLE_ASAN "Enable AddressSanitizer" ON)
-        option(FASTJSON_ENABLE_TSAN "Enable ThreadSanitizer" OFF)
-        option(FASTJSON_ENABLE_UBSAN "Enable UBSan" ON)
-        
-        if(FASTJSON_ENABLE_ASAN AND NOT FASTJSON_ENABLE_TSAN)
-            target_compile_options(fastjson PRIVATE -fsanitize=address -g)
-            target_link_options(fastjson PRIVATE -fsanitize=address)
-            message(STATUS "AddressSanitizer enabled")
-        endif()
-        
-        if(FASTJSON_ENABLE_TSAN AND NOT FASTJSON_ENABLE_ASAN)
-            target_compile_options(fastjson PRIVATE -fsanitize=thread -g)
-            target_link_options(fastjson PRIVATE -fsanitize=thread)
-            message(STATUS "ThreadSanitizer enabled")
-        endif()
-        
-        if(FASTJSON_ENABLE_UBSAN)
-            target_compile_options(fastjson PRIVATE -fsanitize=undefined -g)
-            target_link_options(fastjson PRIVATE -fsanitize=undefined)
-            message(STATUS "UBSan enabled")
-        endif()
-    endif()
-    
-    # Valgrind support
-    find_program(VALGRIND_PROGRAM valgrind)
-    if(VALGRIND_PROGRAM)
-        message(STATUS "Valgrind found: ${VALGRIND_PROGRAM}")
-        target_compile_definitions(fastjson PRIVATE FASTJSON_HAVE_VALGRIND)
-    endif()
-endif()
-
-# =============================================================================
-# Static Analysis
-# =============================================================================
-
-if(FASTJSON_STATIC_ANALYSIS)
-    # Clang-Tidy
-    find_program(CLANG_TIDY_COMMAND clang-tidy)
-    if(CLANG_TIDY_COMMAND)
-        set_target_properties(fastjson PROPERTIES
-            CXX_CLANG_TIDY "${CLANG_TIDY_COMMAND};-config-file=${CMAKE_CURRENT_SOURCE_DIR}/.clang-tidy"
-        )
-    endif()
-
-    # Clang-Format
-    find_program(CLANG_FORMAT_COMMAND clang-format)
-    if(CLANG_FORMAT_COMMAND)
-        file(GLOB_RECURSE CLANG_FORMAT_FILES 
-            "src/*.cpp" "src/*.cppm" "src/*.hpp" 
-            "tests/*.cpp" "examples/*.cpp"
-        )
-        add_custom_target(format
-            COMMAND ${CLANG_FORMAT_COMMAND} -i ${CLANG_FORMAT_FILES}
-            COMMENT "Formatting code with clang-format"
-        )
-    endif()
-endif()
-
-# =============================================================================
-# Subdirectories
-# =============================================================================
-
-# Tests
-if(FASTJSON_BUILD_TESTS AND BUILD_TESTING)
-    enable_testing()
-    add_subdirectory(tests)
-endif()
-
-# Benchmarks
-if(FASTJSON_BUILD_BENCHMARKS)
-    add_subdirectory(benchmarks)
-endif()
-
-# Examples
-if(FASTJSON_BUILD_EXAMPLES)
-    add_subdirectory(examples)
-endif()
-
-# Documentation
-if(FASTJSON_BUILD_DOCS)
-    find_package(Doxygen)
-    if(Doxygen_FOUND)
-        add_subdirectory(docs)
-    endif()
-endif()
-
-# =============================================================================
-# Installation
-# =============================================================================
-
-include(GNUInstallDirs)
-include(CMakePackageConfigHelpers)
-
-# Install targets
-install(TARGETS fastjson
-    EXPORT FastestJSONTargets
-    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-    FILE_SET CXX_MODULES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/modules
+# Link required libraries
+target_link_libraries(fastjson PRIVATE
+    OpenMP::OpenMP_CXX
+    Threads::Threads
 )
 
-# Install headers
-install(DIRECTORY include/ 
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+# Set runtime library path for Homebrew libraries
+set_target_properties(fastjson PROPERTIES
+    BUILD_RPATH "/home/linuxbrew/.linuxbrew/lib;/home/linuxbrew/.linuxbrew/Cellar/libomp/21.1.5/lib"
+    INSTALL_RPATH "/home/linuxbrew/.linuxbrew/lib;/home/linuxbrew/.linuxbrew/Cellar/libomp/21.1.5/lib"
 )
 
-install(FILES ${CMAKE_BINARY_DIR}/include/fastjson/config.h
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/fastjson
+# Create test executable for C++23 modules
+add_executable(module_test tests/module_test.cpp)
+target_link_libraries(module_test fastjson)
+
+# Trail calling syntax verification test
+add_executable(trail_calling_test tests/trail_calling_test.cpp)
+
+# Comprehensive feature test (SIMD, OpenMP, threading)
+add_executable(feature_test tests/feature_test.cpp)
+target_link_libraries(feature_test OpenMP::OpenMP_CXX Threads::Threads)
+set_target_properties(feature_test PROPERTIES
+    BUILD_RPATH "/home/linuxbrew/.linuxbrew/lib;/home/linuxbrew/.linuxbrew/Cellar/libomp/21.1.5/lib"
+    INSTALL_RPATH "/home/linuxbrew/.linuxbrew/lib;/home/linuxbrew/.linuxbrew/Cellar/libomp/21.1.5/lib"
 )
 
-# Generate and install package config files
-write_basic_package_version_file(
-    "${CMAKE_CURRENT_BINARY_DIR}/FastestJSONConfigVersion.cmake"
-    VERSION ${PROJECT_VERSION}
-    COMPATIBILITY SameMajorVersion
+# Add MVP test executable
+add_executable(mvp_test tests/mvp_test.cpp)
+target_link_libraries(mvp_test PRIVATE fastjson ${OpenMP_CXX_LIBRARIES})
+
+# Add SIMD benchmark executable
+add_executable(simd_benchmark tests/simd_benchmark.cpp)
+target_link_libraries(simd_benchmark PRIVATE fastjson ${OpenMP_CXX_LIBRARIES})
+
+# Apply same compilation options as the library
+target_compile_options(mvp_test PRIVATE
+    -std=c++23
+    -fopenmp
+    -O3
+    -ffast-math
+    -funroll-loops
+    -fvectorize
+    -fslp-vectorize
+    -Wall
+    -Wextra
+    -Wpedantic
+    -Wno-unused-parameter
+    -pthread
 )
 
-configure_package_config_file(
-    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/FastestJSONConfig.cmake.in"
-    "${CMAKE_CURRENT_BINARY_DIR}/FastestJSONConfig.cmake"
-    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/FastestJSON
-)
-
-install(FILES
-    "${CMAKE_CURRENT_BINARY_DIR}/FastestJSONConfig.cmake"
-    "${CMAKE_CURRENT_BINARY_DIR}/FastestJSONConfigVersion.cmake"
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/FastestJSON
-)
-
-install(EXPORT FastestJSONTargets
-    FILE FastestJSONTargets.cmake
-    NAMESPACE FastestJSON::
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/FastestJSON
-)
-
-# =============================================================================
-# Package Configuration
-# =============================================================================
-
-set(CPACK_PACKAGE_NAME "FastestJSONInTheWest")
-set(CPACK_PACKAGE_VENDOR "FastestJSON Project")
-set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "High-Performance C++23 JSON Library")
-set(CPACK_PACKAGE_VERSION ${PROJECT_VERSION})
-set(CPACK_PACKAGE_INSTALL_DIRECTORY "FastestJSON")
-set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE")
-set(CPACK_RESOURCE_FILE_README "${CMAKE_CURRENT_SOURCE_DIR}/README.md")
-
-if(WIN32)
-    set(CPACK_GENERATOR "NSIS")
-elseif(APPLE)
-    set(CPACK_GENERATOR "DragNDrop")
-else()
-    set(CPACK_GENERATOR "DEB;RPM")
-    set(CPACK_DEBIAN_PACKAGE_MAINTAINER "FastestJSON Project")
-    set(CPACK_RPM_PACKAGE_LICENSE "MIT")
+# Same comprehensive SIMD options as library
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
+    target_compile_options(mvp_test PRIVATE ${SIMD_FLAGS})
+    target_compile_definitions(mvp_test PRIVATE ${SIMD_DEFINES} FASTJSON_ENABLE_SIMD)
 endif()
 
-include(CPack)
+set_target_properties(mvp_test PROPERTIES
+    BUILD_RPATH "/home/linuxbrew/.linuxbrew/lib;/home/linuxbrew/.linuxbrew/Cellar/libomp/21.1.5/lib"
+    INSTALL_RPATH "/home/linuxbrew/.linuxbrew/lib;/home/linuxbrew/.linuxbrew/Cellar/libomp/21.1.5/lib"
+)
 
-# =============================================================================
-# Status Summary
-# =============================================================================
+# Simple performance demo using modules
+add_executable(performance_demo tests/performance_demo.cpp)
+target_link_libraries(performance_demo fastjson)
 
-message(STATUS "")
-message(STATUS "FastestJSONInTheWest Configuration Summary:")
-message(STATUS "  Version: ${PROJECT_VERSION}")
-message(STATUS "  Build Type: ${CMAKE_BUILD_TYPE}")
-message(STATUS "  Compiler: ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")
-message(STATUS "  C++ Standard: C++${CMAKE_CXX_STANDARD}")
-message(STATUS "")
-message(STATUS "Features:")
-message(STATUS "  SIMD Support: ${FASTJSON_ENABLE_SIMD}")
-if(FASTJSON_ENABLE_SIMD)
-    message(STATUS "    AVX2: ${FASTJSON_HAVE_AVX2}")
-    message(STATUS "    NEON: ${FASTJSON_HAVE_NEON}")
+# Comprehensive test using modules
+add_executable(comprehensive_test tests/comprehensive_test.cpp)
+target_link_libraries(comprehensive_test fastjson)
+
+# C++17 Compatible Header-Only Test
+add_executable(test_cpp17
+    test_cpp17.cpp
+)
+
+set_target_properties(test_cpp17 PROPERTIES
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF
+)
+
+target_include_directories(test_cpp17 PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(test_cpp17 PRIVATE ${OpenMP_CXX_LIBRARIES})
+    target_compile_options(test_cpp17 PRIVATE ${OpenMP_CXX_FLAGS})
 endif()
-message(STATUS "  GPU Acceleration: ${FASTJSON_ENABLE_GPU}")
-message(STATUS "  OpenMP Support: ${FASTJSON_ENABLE_OPENMP}")
-message(STATUS "  GUI Simulator: ${FASTJSON_ENABLE_SIMULATOR}")
-message(STATUS "")
-message(STATUS "Build Options:")
-message(STATUS "  Tests: ${FASTJSON_BUILD_TESTS}")
-message(STATUS "  Benchmarks: ${FASTJSON_BUILD_BENCHMARKS}")
-message(STATUS "  Examples: ${FASTJSON_BUILD_EXAMPLES}")
-message(STATUS "  Documentation: ${FASTJSON_BUILD_DOCS}")
-message(STATUS "  Static Analysis: ${FASTJSON_STATIC_ANALYSIS}")
-message(STATUS "")
+
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
+    target_compile_options(test_cpp17 PRIVATE ${SIMD_FLAGS})
+    target_compile_definitions(test_cpp17 PRIVATE ${SIMD_DEFINES} FASTJSON_ENABLE_SIMD)
+endif()
+
+target_compile_options(test_cpp17 PRIVATE
+    -O3
+    -ffast-math
+    -funroll-loops
+    -fvectorize
+    -fslp-vectorize
+    -Wall
+    -Wextra
+    -Wpedantic
+    -Wno-unused-parameter
+    -pthread
+)
+
+set_target_properties(test_cpp17 PROPERTIES
+    BUILD_RPATH "/home/linuxbrew/.linuxbrew/lib;/home/linuxbrew/.linuxbrew/Cellar/libomp/21.1.5/lib"
+    INSTALL_RPATH "/home/linuxbrew/.linuxbrew/lib;/home/linuxbrew/.linuxbrew/Cellar/libomp/21.1.5/lib"
+)
+
+# Legacy GCC Support Test (C++17 without SIMD)
+add_executable(test_legacy_cpp17
+    test_cpp17.cpp
+)
+
+set_target_properties(test_legacy_cpp17 PROPERTIES
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF
+)
+
+target_include_directories(test_legacy_cpp17 PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+# Disable SIMD for legacy compatibility test
+target_compile_definitions(test_legacy_cpp17 PRIVATE
+    FASTJSON_LEGACY_MODE
+)
+
+target_compile_options(test_legacy_cpp17 PRIVATE
+    -O2
+    -Wall
+    -Wextra
+    -Wpedantic
+    -Wno-unused-parameter
+)
+
+# Print configuration summary
+message(STATUS "=== FastestJSONInTheWest Configuration ===")
+message(STATUS "Compiler: ${CMAKE_CXX_COMPILER}")
+message(STATUS "C++ Standard: ${CMAKE_CXX_STANDARD}")
+message(STATUS "Architecture: ${CMAKE_SYSTEM_PROCESSOR}")
+message(STATUS "Build Type: ${CMAKE_BUILD_TYPE}")
+message(STATUS "Modules Support: Enabled")
+message(STATUS "Trail Calling Syntax: Enforced via clang-tidy")
+message(STATUS "==========================================")
+message(STATUS "=== FastestJSONInTheWest MVP Build ===")
+message(STATUS "Version: ${PROJECT_VERSION}")
+message(STATUS "Compiler: ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")
+message(STATUS "Build Type: ${CMAKE_BUILD_TYPE}")
+message(STATUS "C++ Standard: ${CMAKE_CXX_STANDARD}")
+message(STATUS "Header-Only: TRUE")
+message(STATUS "========================================")

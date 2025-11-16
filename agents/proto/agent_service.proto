@@ -1,0 +1,219 @@
+// FastestJSONInTheWest Agent Service Definitions
+// Author: Olumuyiwa Oluwasanmi
+// gRPC service for multi-agent communication and coordination
+
+syntax = "proto3";
+
+package fastjson.agents;
+
+option cxx_namespace = "fastjson::agents";
+option cc_enable_arenas = true;
+
+// ============================================================================
+// Common Types and Enums
+// ============================================================================
+
+enum TaskStatus {
+    TASK_PENDING = 0;
+    TASK_RUNNING = 1;
+    TASK_COMPLETED = 2;
+    TASK_FAILED = 3;
+    TASK_CANCELLED = 4;
+}
+
+enum AgentType {
+    AGENT_ORCHESTRATOR = 0;
+    AGENT_IMPLEMENTATION = 1;
+    AGENT_ENVIRONMENT = 2;
+    AGENT_CONFIGURATION = 3;
+    AGENT_TESTING = 4;
+}
+
+message AgentInfo {
+    string agent_id = 1;
+    AgentType agent_type = 2;
+    string version = 3;
+    bool is_active = 4;
+    int32 load_factor = 5; // 0-100
+    repeated string capabilities = 6;
+}
+
+message TaskRequest {
+    string task_id = 1;
+    string task_type = 2;
+    string description = 3;
+    map<string, string> parameters = 4;
+    int32 priority = 5; // Higher number = higher priority
+    int64 deadline_timestamp = 6;
+    string requesting_agent = 7;
+}
+
+message TaskResponse {
+    string task_id = 1;
+    TaskStatus status = 2;
+    string result_data = 3;
+    string error_message = 4;
+    map<string, string> metadata = 5;
+    int64 completion_timestamp = 6;
+}
+
+message CodeGenerationRequest {
+    string module_name = 1;
+    string language = 2; // "cpp", "python"
+    string template_type = 3; // "parser", "serializer", "benchmark"
+    map<string, string> generation_params = 4;
+    bool optimize_simd = 5;
+    bool enable_profiling = 6;
+}
+
+message CodeGenerationResponse {
+    string generated_code = 1;
+    repeated string dependencies = 2;
+    repeated string include_paths = 3;
+    bool compilation_success = 4;
+    string compilation_output = 5;
+    repeated string warnings = 6;
+}
+
+// ============================================================================
+// Agent Service Definition
+// ============================================================================
+
+service AgentService {
+    // Agent registration and heartbeat
+    rpc RegisterAgent(AgentInfo) returns (RegisterResponse);
+    rpc Heartbeat(AgentInfo) returns (HeartbeatResponse);
+    rpc GetActiveAgents(GetActiveAgentsRequest) returns (GetActiveAgentsResponse);
+    
+    // Task management
+    rpc SubmitTask(TaskRequest) returns (TaskResponse);
+    rpc GetTaskStatus(TaskStatusRequest) returns (TaskResponse);
+    rpc CancelTask(TaskCancelRequest) returns (TaskResponse);
+    rpc ListTasks(ListTasksRequest) returns (ListTasksResponse);
+    
+    // Code generation coordination
+    rpc GenerateCode(CodeGenerationRequest) returns (CodeGenerationResponse);
+    rpc ValidateCode(CodeValidationRequest) returns (CodeValidationResponse);
+    
+    // Build and dependency management
+    rpc ManageDependencies(DependencyRequest) returns (DependencyResponse);
+    rpc ExecuteBuild(BuildRequest) returns (BuildResponse);
+    
+    // Real-time communication
+    rpc StreamTasks(stream TaskRequest) returns (stream TaskResponse);
+    rpc StreamLogs(StreamLogsRequest) returns (stream LogMessage);
+}
+
+// ============================================================================
+// Supporting Message Types
+// ============================================================================
+
+message RegisterResponse {
+    bool success = 1;
+    string agent_token = 2;
+    string error_message = 3;
+    AgentConfiguration config = 4;
+}
+
+message HeartbeatResponse {
+    bool acknowledged = 1;
+    repeated TaskRequest pending_tasks = 2;
+    AgentConfiguration updated_config = 3;
+}
+
+message GetActiveAgentsRequest {
+    AgentType filter_by_type = 1;
+    bool include_load_info = 2;
+}
+
+message GetActiveAgentsResponse {
+    repeated AgentInfo agents = 1;
+}
+
+message TaskStatusRequest {
+    string task_id = 1;
+}
+
+message TaskCancelRequest {
+    string task_id = 1;
+    string reason = 2;
+}
+
+message ListTasksRequest {
+    string agent_id = 1;
+    TaskStatus filter_by_status = 2;
+    int32 limit = 3;
+}
+
+message ListTasksResponse {
+    repeated TaskResponse tasks = 1;
+    int32 total_count = 2;
+}
+
+message CodeValidationRequest {
+    string source_code = 1;
+    string language = 2;
+    repeated string compile_flags = 3;
+    bool run_static_analysis = 4;
+}
+
+message CodeValidationResponse {
+    bool is_valid = 1;
+    repeated string errors = 2;
+    repeated string warnings = 3;
+    string static_analysis_report = 4;
+}
+
+message DependencyRequest {
+    string project_path = 1;
+    repeated string required_libraries = 2;
+    bool force_source_compilation = 3;
+    map<string, string> environment_vars = 4;
+}
+
+message DependencyResponse {
+    bool success = 1;
+    repeated string installed_packages = 2;
+    repeated string failed_packages = 3;
+    string installation_log = 4;
+    map<string, string> updated_env_vars = 5;
+}
+
+message BuildRequest {
+    string project_path = 1;
+    string build_type = 2; // "Debug", "Release", "RelWithDebInfo"
+    repeated string cmake_args = 3;
+    bool enable_parallel_build = 4;
+    int32 parallel_jobs = 5;
+    bool run_tests = 6;
+}
+
+message BuildResponse {
+    bool success = 1;
+    string build_output = 2;
+    string test_output = 3;
+    repeated string generated_artifacts = 4;
+    int64 build_duration_ms = 5;
+}
+
+message StreamLogsRequest {
+    string agent_id = 1;
+    string log_level = 2; // "DEBUG", "INFO", "WARN", "ERROR"
+    bool include_system_logs = 3;
+}
+
+message LogMessage {
+    int64 timestamp = 1;
+    string level = 2;
+    string source = 3;
+    string message = 4;
+    map<string, string> context = 5;
+}
+
+message AgentConfiguration {
+    int32 max_concurrent_tasks = 1;
+    int32 heartbeat_interval_ms = 2;
+    int32 task_timeout_ms = 3;
+    map<string, string> environment_variables = 4;
+    repeated string enabled_features = 5;
+}

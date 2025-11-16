@@ -15,6 +15,7 @@ Architecture:
 - ConfigurationAgent: Build system and tool configuration management
 
 All agents operate with thread safety and coordinated communication.
+Monitors PRD.md and CLAUDE.md for changes and updates implementation accordingly.
 """
 
 import asyncio
@@ -23,6 +24,7 @@ import queue
 import logging
 import json
 import time
+import hashlib
 from abc import ABC, abstractmethod
 from typing import Dict, List, Any, Optional, Callable
 from dataclasses import dataclass, asdict
@@ -48,6 +50,12 @@ class TaskType(Enum):
     CODE_GENERATION = "code_generation"
     ENVIRONMENT_SETUP = "environment_setup"
     DOCUMENTATION_UPDATE = "documentation_update"
+    TEST_GENERATION = "test_generation"
+    CONFIG_UPDATE = "config_update"
+    BUILD_VALIDATION = "build_validation"
+    DEPENDENCY_CHECK = "dependency_check"
+    PRD_CHANGE_HANDLER = "prd_change_handler"
+    REQUIREMENTS_ANALYSIS = "requirements_analysis"
     TEST_GENERATION = "test_generation"
     CONFIG_UPDATE = "config_update"
     BUILD_VALIDATION = "build_validation"
@@ -153,6 +161,95 @@ class Agent(ABC):
             except Exception as e:
                 self.logger.error(f"Worker loop error: {e}")
 
+class DocumentMonitor:
+    """Monitors PRD and CLAUDE.md for changes"""
+    
+    def __init__(self, project_root: Path, orchestrator: 'AgentOrchestrator'):
+        self.project_root = project_root
+        self.orchestrator = orchestrator
+        self.logger = logging.getLogger("DocumentMonitor")
+        self.prd_path = project_root / "docs" / "PRD.md"
+        self.claude_path = project_root / "ai" / "CLAUDE.md"
+        self.prd_hash = self._compute_hash(self.prd_path)
+        self.claude_hash = self._compute_hash(self.claude_path)
+        self.monitoring = False
+        self.monitor_thread = None
+        
+    def _compute_hash(self, file_path: Path) -> str:
+        """Compute MD5 hash of file contents"""
+        if not file_path.exists():
+            return ""
+        with open(file_path, 'rb') as f:
+            return hashlib.md5(f.read()).hexdigest()
+    
+    def check_for_changes(self) -> Dict[str, bool]:
+        """Check if PRD or CLAUDE.md have changed"""
+        changes = {"prd": False, "claude": False}
+        
+        new_prd_hash = self._compute_hash(self.prd_path)
+        if new_prd_hash != self.prd_hash:
+            changes["prd"] = True
+            self.prd_hash = new_prd_hash
+            self.logger.info(f"PRD.md has been modified at {datetime.now()}")
+            self._trigger_prd_update()
+        
+        new_claude_hash = self._compute_hash(self.claude_path)
+        if new_claude_hash != self.claude_hash:
+            changes["claude"] = True
+            self.claude_hash = new_claude_hash
+            self.logger.info(f"CLAUDE.md has been modified at {datetime.now()}")
+            self._trigger_claude_update()
+        
+        return changes
+    
+    def _trigger_prd_update(self):
+        """Trigger tasks when PRD changes"""
+        self.logger.info("PRD changed - triggering requirements analysis")
+        task = Task(
+            task_id=f"prd_update_{int(time.time())}",
+            task_type=TaskType.REQUIREMENTS_ANALYSIS,
+            priority=TaskPriority.HIGH,
+            description="Analyze PRD changes and update implementation",
+            parameters={"document": "PRD.md"}
+        )
+        self.orchestrator.submit_task(task)
+    
+    def _trigger_claude_update(self):
+        """Trigger tasks when CLAUDE.md changes"""
+        self.logger.info("CLAUDE.md changed - triggering requirements analysis")
+        task = Task(
+            task_id=f"claude_update_{int(time.time())}",
+            task_type=TaskType.REQUIREMENTS_ANALYSIS,
+            priority=TaskPriority.HIGH,
+            description="Analyze CLAUDE.md changes and update implementation",
+            parameters={"document": "CLAUDE.md"}
+        )
+        self.orchestrator.submit_task(task)
+    
+    def start_monitoring(self, interval: int = 30):
+        """Start monitoring documents in background thread"""
+        self.monitoring = True
+        self.monitor_thread = threading.Thread(
+            target=self._monitor_loop, 
+            args=(interval,), 
+            daemon=True
+        )
+        self.monitor_thread.start()
+        self.logger.info(f"Started document monitoring (interval: {interval}s)")
+    
+    def stop_monitoring(self):
+        """Stop monitoring documents"""
+        self.monitoring = False
+        if self.monitor_thread:
+            self.monitor_thread.join(timeout=5)
+        self.logger.info("Stopped document monitoring")
+    
+    def _monitor_loop(self, interval: int):
+        """Background monitoring loop"""
+        while self.monitoring:
+            self.check_for_changes()
+            time.sleep(interval)
+
 class AgentOrchestrator:
     """Main orchestrator that coordinates all coding agents."""
     
@@ -170,6 +267,9 @@ class AgentOrchestrator:
         
         # Initialize communication channels
         self.event_bus = queue.Queue()
+        
+        # Initialize document monitor
+        self.doc_monitor = DocumentMonitor(project_root, self)
         
         self.logger.info("AgentOrchestrator initialized")
     
@@ -198,10 +298,17 @@ class AgentOrchestrator:
         with self.lock:
             for agent in self.agents.values():
                 agent.start()
+        
+        # Start document monitoring
+        self.doc_monitor.start_monitoring(interval=30)
+        
         self.logger.info("All agents started")
     
     def stop_all_agents(self):
         """Stop all registered agents."""
+        # Stop document monitoring first
+        self.doc_monitor.stop_monitoring()
+        
         with self.lock:
             for agent in self.agents.values():
                 agent.stop()

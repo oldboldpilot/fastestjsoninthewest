@@ -11,8 +11,8 @@ import sys
 from pathlib import Path
 import logging
 
-# Add agents directory to path
-sys.path.append(str(Path(__file__).parent / "agents"))
+# Add current directory to path for agent imports
+sys.path.insert(0, str(Path(__file__).parent))
 
 from agent_orchestrator import AgentOrchestrator, TaskType, TaskPriority
 from implementation_agent import ImplementationAgent
@@ -28,7 +28,7 @@ async def main():
     logger = logging.getLogger("Main")
     
     # Initialize orchestrator
-    project_root = Path("/home/muyiwa/Development/FastestJSONInTheWest")
+    project_root = Path(__file__).parent.parent
     orchestrator = AgentOrchestrator(project_root)
     
     try:
@@ -43,26 +43,29 @@ async def main():
         orchestrator.start_all_agents()
         logger.info("All agents started successfully")
         
-        # Generate Ansible playbook
-        logger.info("Generating comprehensive Ansible playbook...")
+        # Generate Ansible playbook with source installations
+        logger.info("Generating comprehensive source-based Ansible playbook...")
         
         playbook_task = orchestrator.create_task(
             task_type=TaskType.ENVIRONMENT_SETUP,
-            description="Generate complete Ansible playbook for development environment",
+            description="Generate complete source-based Ansible playbook for development environment",
             parameters={
                 "action": "generate_ansible_playbook",
                 "playbook_name": "fastjson_development_environment",
-                "platforms": ["ubuntu", "centos", "macos"],
-                "include_all_dependencies": True
+                "platforms": ["ubuntu", "debian", "redhat", "centos", "fedora", "windows_wsl"],
+                "include_all_dependencies": True,
+                "install_from_source": True,
+                "use_uv_python": True,
+                "windows_winrm_support": True
             },
             priority=TaskPriority.HIGH
         )
         
         task_id = orchestrator.submit_task(playbook_task)
-        logger.info(f"Submitted Ansible playbook generation task: {task_id}")
+        logger.info(f"Submitted source-based Ansible playbook generation task: {task_id}")
         
         # Wait for task completion
-        timeout = 60  # 60 seconds timeout
+        timeout = 120  # 2 minutes timeout for source-based setup
         for i in range(timeout):
             await asyncio.sleep(1)
             status = orchestrator.get_task_status(task_id)
@@ -74,33 +77,36 @@ async def main():
         if final_status:
             if final_status["status"] == "completed":
                 result = final_status["result"]
-                logger.info("Ansible playbook generated successfully!")
+                logger.info("Source-based Ansible playbook generated successfully!")
                 logger.info(f"Playbook file: {result.get('playbook_file')}")
                 logger.info(f"Roles created: {len(result.get('roles_created', []))}")
-                logger.info(f"Inventory file: {result.get('inventory_file')}")
+                logger.info(f"UV Python environment configured: {result.get('uv_configured')}")
+                logger.info(f"CMakeLists.txt updated: {result.get('cmake_updated')}")
                 
-                # Create setup script
-                logger.info("Creating automated setup script...")
-                script_task = orchestrator.create_task(
-                    task_type=TaskType.ENVIRONMENT_SETUP,
-                    description="Create automated setup script",
-                    parameters={"action": "create_setup_script"},
-                    priority=TaskPriority.NORMAL
+                # Update CMakeLists.txt with source dependencies
+                cmake_task = orchestrator.create_task(
+                    task_type=TaskType.CONFIG_UPDATE,
+                    description="Update CMakeLists.txt with source-built dependencies",
+                    parameters={
+                        "action": "update_cmake_dependencies",
+                        "source_installations": True,
+                        "custom_paths": result.get('dependency_paths', {})
+                    },
+                    priority=TaskPriority.HIGH
                 )
                 
-                script_task_id = orchestrator.submit_task(script_task)
+                cmake_task_id = orchestrator.submit_task(cmake_task)
                 
-                # Wait for script completion
-                for i in range(30):
+                # Wait for CMake update
+                for i in range(60):
                     await asyncio.sleep(1)
-                    script_status = orchestrator.get_task_status(script_task_id)
-                    if script_status and script_status["status"] in ["completed", "failed"]:
+                    cmake_status = orchestrator.get_task_status(cmake_task_id)
+                    if cmake_status and cmake_status["status"] in ["completed", "failed"]:
                         break
                 
-                script_final_status = orchestrator.get_task_status(script_task_id)
-                if script_final_status and script_final_status["status"] == "completed":
-                    script_result = script_final_status["result"]
-                    logger.info(f"Setup script created: {script_result.get('script_file')}")
+                cmake_final = orchestrator.get_task_status(cmake_task_id)
+                if cmake_final and cmake_final["status"] == "completed":
+                    logger.info(f"CMakeLists.txt updated successfully")
                 
             else:
                 logger.error(f"Task failed: {final_status.get('error')}")

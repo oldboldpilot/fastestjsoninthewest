@@ -5,7 +5,7 @@
 - **Version**: 1.0
 - **Date**: November 14, 2025
 - **Status**: Draft
-- **Authors**: Development Team
+- **Authors**: Olumuyiwa Oluwasanmi
 
 ---
 
@@ -323,8 +323,9 @@ To create the ultimate JSON processing library that combines extreme performance
 
 ### 8.1 Minimum Viable Product (MVP)
 - Core JSON parsing and serialization
-- Basic SIMD optimization (SSE2/NEON)
+- Basic SIMD optimization (AVX-512/AVX2/AVX/SSE4/SSE3/SSE2/NEON)
 - Thread-safe operations
+- OpenMP and STL multi-threading support
 - CMake build system
 - Basic documentation
 

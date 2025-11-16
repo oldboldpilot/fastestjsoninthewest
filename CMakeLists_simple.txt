@@ -1,0 +1,50 @@
+# FastestJSONInTheWest Simple CMakeLists.txt for MVP Demo
+# Author: Olumuyiwa Oluwasanmi
+# Simplified build for header-only implementation
+
+cmake_minimum_required(VERSION 3.20)
+
+project(FastestJSONInTheWest 
+    VERSION 1.0.0
+    LANGUAGES CXX
+    DESCRIPTION "High-Performance C++23 JSON Library - MVP Demo"
+)
+
+# Set C++23 standard
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+# Create header-only interface library
+add_library(fastjson INTERFACE)
+
+# Set include directories
+target_include_directories(fastjson INTERFACE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+)
+
+# Compile features
+target_compile_features(fastjson INTERFACE cxx_std_23)
+
+# Build examples and tests
+add_executable(header_only_test tests/header_only_test.cpp)
+target_link_libraries(header_only_test fastjson)
+
+add_executable(json_benchmark_simple 
+    src/cli/main.cpp
+)
+target_link_libraries(json_benchmark_simple fastjson)
+
+# Add a simple performance test
+add_executable(performance_demo tests/performance_demo.cpp)
+target_link_libraries(performance_demo fastjson)
+
+# Print configuration summary
+message(STATUS "=== FastestJSONInTheWest MVP Build ===")
+message(STATUS "Version: ${PROJECT_VERSION}")
+message(STATUS "Compiler: ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")
+message(STATUS "Build Type: ${CMAKE_BUILD_TYPE}")
+message(STATUS "C++ Standard: ${CMAKE_CXX_STANDARD}")
+message(STATUS "Header-Only: TRUE")
+message(STATUS "========================================")

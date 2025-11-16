@@ -5,5 +5,5 @@
 - lineinfile:
     create: true
     line: export PATH=/opt/homebrew/opt/llvm@21/bin:$PATH
-    path: '{{ ansible_env.HOME }}/.zshrc'
+    path: '{{ ansible_env.HOME }}/.bash_profile'
   name: Add LLVM to PATH

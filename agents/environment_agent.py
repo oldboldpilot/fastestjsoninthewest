@@ -54,6 +54,153 @@ class EnvironmentAgent(Agent):
         self.platform_info = self._detect_platform()
         self.logger.info(f"Detected platform: {self.platform_info}")
         
+        # Source compilation configurations
+        self.source_install_base = "/opt/fastjson"
+        self.source_packages = {
+            "llvm": {
+                "version": "21.0.0",
+                "url": "https://github.com/llvm/llvm-project/releases/download/llvmorg-{version}/llvm-project-{version}.src.tar.xz",
+                "build_type": "cmake",
+                "cmake_options": [
+                    "-DLLVM_ENABLE_PROJECTS=clang;clang-tools-extra",
+                    "-DLLVM_ENABLE_RUNTIMES=libcxx;libcxxabi", 
+                    "-DCMAKE_BUILD_TYPE=Release",
+                    "-DLLVM_TARGETS_TO_BUILD=X86",
+                    "-DLLVM_ENABLE_ASSERTIONS=OFF",
+                    "-DLLVM_ENABLE_LLD=ON"
+                ],
+                "build_time_hours": 2,
+                "dependencies": ["cmake", "ninja-build", "python3"]
+            },
+            "openmpi": {
+                "version": "5.0.3", 
+                "url": "https://download.open-mpi.org/release/open-mpi/v{major}.{minor}/openmpi-{version}.tar.gz",
+                "build_type": "autotools",
+                "configure_options": [
+                    "--enable-mpirun-prefix-by-default",
+                    "--with-slurm",
+                    "--enable-mpi-cxx",
+                    "--enable-shared"
+                ],
+                "build_time_hours": 1,
+                "dependencies": ["autotools-dev", "libtool"]
+            },
+            "zeromq": {
+                "version": "4.3.5",
+                "url": "https://github.com/zeromq/libzmq/releases/download/v{version}/zeromq-{version}.tar.gz", 
+                "build_type": "cmake",
+                "cmake_options": [
+                    "-DWITH_PERF_TOOL=OFF", 
+                    "-DZMQ_BUILD_TESTS=OFF",
+                    "-DBUILD_SHARED=ON",
+                    "-DBUILD_STATIC=ON"
+                ],
+                "build_time_hours": 0.5,
+                "dependencies": ["cmake", "libtool"]
+            },
+            "googletest": {
+                "version": "1.15.0",
+                "url": "https://github.com/google/googletest/archive/refs/tags/v{version}.tar.gz",
+                "build_type": "cmake", 
+                "cmake_options": [
+                    "-DBUILD_GMOCK=ON", 
+                    "-DINSTALL_GTEST=ON",
+                    "-DBUILD_SHARED_LIBS=ON"
+                ],
+                "build_time_hours": 0.3,
+                "dependencies": ["cmake"]
+            },
+            "imgui": {
+                "version": "1.91.0",
+                "url": "https://github.com/ocornut/imgui/archive/refs/tags/v{version}.tar.gz",
+                "build_type": "cmake",
+                "cmake_options": [
+                    "-DIMGUI_BUILD_EXAMPLES=OFF",
+                    "-DBUILD_SHARED_LIBS=ON"
+                ],
+                "build_time_hours": 0.2,
+                "dependencies": ["cmake", "opengl-dev"]
+            }
+        }
+        
+        # Platform-specific configurations
+        self.platform_configs = {
+            "ubuntu": {
+                "package_manager": "apt",
+                "update_command": "apt update",
+                "build_deps": [
+                    "build-essential", "cmake", "ninja-build", "git", "wget", "curl",
+                    "autotools-dev", "libtool", "pkg-config", "python3-dev",
+                    "libgl1-mesa-dev", "libglu1-mesa-dev", "freeglut3-dev"
+                ],
+                "python_support": True,
+                "wsl_compatible": True,
+                "source_compile_parallel_jobs": "$(nproc)"
+            },
+            "debian": {
+                "package_manager": "apt",
+                "update_command": "apt update", 
+                "build_deps": [
+                    "build-essential", "cmake", "ninja-build", "git", "wget", "curl",
+                    "autotools-dev", "libtool", "pkg-config", "python3-dev",
+                    "libgl1-mesa-dev", "libglu1-mesa-dev", "freeglut3-dev"
+                ],
+                "python_support": True,
+                "wsl_compatible": True,
+                "source_compile_parallel_jobs": "$(nproc)"
+            },
+            "redhat": {
+                "package_manager": "yum",
+                "update_command": "yum update -y",
+                "build_deps": [
+                    "@development", "cmake", "ninja-build", "git", "wget", "curl",
+                    "autoconf", "automake", "libtool", "pkgconfig", "python3-devel",
+                    "mesa-libGL-devel", "mesa-libGLU-devel", "freeglut-devel"
+                ],
+                "python_support": True,
+                "wsl_compatible": False,
+                "source_compile_parallel_jobs": "$(nproc)"
+            },
+            "centos": {
+                "package_manager": "yum",
+                "update_command": "yum update -y",
+                "build_deps": [
+                    "@development", "cmake", "ninja-build", "git", "wget", "curl", 
+                    "autoconf", "automake", "libtool", "pkgconfig", "python3-devel",
+                    "mesa-libGL-devel", "mesa-libGLU-devel", "freeglut-devel"
+                ],
+                "python_support": True,
+                "wsl_compatible": False,
+                "source_compile_parallel_jobs": "$(nproc)"
+            },
+            "fedora": {
+                "package_manager": "dnf",
+                "update_command": "dnf update -y",
+                "build_deps": [
+                    "@development-tools", "cmake", "ninja-build", "git", "wget", "curl",
+                    "autoconf", "automake", "libtool", "pkgconfig", "python3-devel",
+                    "mesa-libGL-devel", "mesa-libGLU-devel", "freeglut-devel"
+                ],
+                "python_support": True,
+                "wsl_compatible": False,
+                "source_compile_parallel_jobs": "$(nproc)"
+            },
+            "windows_wsl": {
+                "package_manager": "apt",
+                "update_command": "apt update",
+                "build_deps": [
+                    "build-essential", "cmake", "ninja-build", "git", "wget", "curl",
+                    "autotools-dev", "libtool", "pkg-config", "python3-dev",
+                    "libgl1-mesa-dev", "libglu1-mesa-dev", "freeglut3-dev"
+                ],
+                "python_support": True,
+                "wsl_compatible": True,
+                "wsl_specific": True,
+                "source_compile_parallel_jobs": "$(nproc)",
+                "wsl_mount_point": "/mnt/c"
+            }
+        }
+        
         # Define dependencies - will be initialized after method definitions
         self.dependencies = {}
         
@@ -500,39 +647,54 @@ class EnvironmentAgent(Agent):
         return []
     
     async def _create_cmake_role(self, platform: str) -> List[Dict[str, Any]]:
-        """Create CMake installation role."""
-        return [
-            {
-                "name": "Download CMake source",
-                "get_url": {
-                    "url": "https://github.com/Kitware/CMake/releases/download/v3.28.0/cmake-3.28.0.tar.gz",
-                    "dest": "/tmp/cmake-3.28.0.tar.gz"
+        """Create CMake installation role - via Homebrew for latest version."""
+        if platform == "macos":
+            return [
+                {
+                    "name": "Install CMake via Homebrew (latest)",
+                    "homebrew": {"name": "cmake", "state": "latest"}
+                },
+                {
+                    "name": "Verify CMake installation",
+                    "command": "cmake --version",
+                    "register": "cmake_version"
                 }
-            },
-            {
-                "name": "Extract CMake source",
-                "unarchive": {
-                    "src": "/tmp/cmake-3.28.0.tar.gz",
-                    "dest": "/tmp/",
-                    "remote_src": True
+            ]
+        else:
+            # For Linux, install Homebrew first then CMake
+            return [
+                {
+                    "name": "Check if Homebrew is installed",
+                    "command": "which brew",
+                    "register": "brew_check",
+                    "ignore_errors": True
+                },
+                {
+                    "name": "Install Homebrew",
+                    "shell": '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"',
+                    "when": "brew_check.rc != 0",
+                    "become_user": "{{ ansible_user_id }}"
+                },
+                {
+                    "name": "Add Homebrew to PATH",
+                    "lineinfile": {
+                        "path": "/home/{{ ansible_user_id }}/.profile",
+                        "line": 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"',
+                        "create": True
+                    },
+                    "when": "brew_check.rc != 0"
+                },
+                {
+                    "name": "Install CMake via Homebrew (latest)",
+                    "shell": "eval $(/home/linuxbrew/.linuxbrew/bin/brew shellenv) && brew install cmake",
+                    "become_user": "{{ ansible_user_id }}"
+                },
+                {
+                    "name": "Verify CMake installation",
+                    "shell": "eval $(/home/linuxbrew/.linuxbrew/bin/brew shellenv) && cmake --version",
+                    "register": "cmake_version"
                 }
-            },
-            {
-                "name": "Configure CMake build",
-                "command": "./bootstrap --prefix=/usr/local --parallel={{ ansible_processor_vcpus }}",
-                "args": {"chdir": "/tmp/cmake-3.28.0"}
-            },
-            {
-                "name": "Build CMake",
-                "command": "make -j{{ ansible_processor_vcpus }}",
-                "args": {"chdir": "/tmp/cmake-3.28.0"}
-            },
-            {
-                "name": "Install CMake",
-                "command": "make install",
-                "args": {"chdir": "/tmp/cmake-3.28.0"}
-            }
-        ]
+            ]
     
     async def _create_openmpi_role(self, platform: str) -> List[Dict[str, Any]]:
         """Create OpenMPI installation role."""
@@ -756,6 +918,402 @@ ansible_python_interpreter=/usr/bin/python3
             return {"success": False, "error": str(e)}
     
     async def _run_command(self, command: str, cwd: Optional[str] = None) -> Dict[str, Any]:
+        """Run a shell command asynchronously."""
+        try:
+            process = await asyncio.create_subprocess_shell(
+                command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=cwd
+            )
+            
+            stdout, stderr = await process.communicate()
+            
+            return {
+                "success": process.returncode == 0,
+                "returncode": process.returncode,
+                "stdout": stdout.decode(),
+                "stderr": stderr.decode(),
+                "command": command
+            }
+            
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "command": command
+            }
+    
+    def _generate_source_compilation_ansible(self, platforms: List[str], use_uv: bool = True) -> Dict[str, Any]:
+        """Generate enhanced Ansible playbook with source compilation support."""
+        
+        # Main playbook structure
+        playbook = {
+            "hosts": "all",
+            "become": True,
+            "gather_facts": True,
+            "vars": {
+                "fastjson_source_base": self.source_install_base,
+                "fastjson_parallel_jobs": "{{ ansible_processor_vcpus }}",
+                "fastjson_use_uv": use_uv,
+                "fastjson_packages": self.source_packages
+            },
+            "tasks": []
+        }
+        
+        # Platform detection and validation
+        playbook["tasks"].extend([
+            {
+                "name": "Detect platform information",
+                "setup": {},
+                "tags": ["always"]
+            },
+            {
+                "name": "Validate supported platform",
+                "fail": {
+                    "msg": "Unsupported platform: {{ ansible_distribution }}"
+                },
+                "when": "ansible_distribution|lower not in " + str([p.replace('_', '-') for p in platforms]),
+                "tags": ["always"]
+            },
+            {
+                "name": "Create FastJSON source installation directory",
+                "file": {
+                    "path": "{{ fastjson_source_base }}",
+                    "state": "directory", 
+                    "mode": "0755"
+                },
+                "tags": ["setup"]
+            }
+        ])
+        
+        # Platform-specific package installation
+        for platform in platforms:
+            if platform in self.platform_configs:
+                config = self.platform_configs[platform]
+                
+                # Package manager update
+                playbook["tasks"].append({
+                    "name": f"Update package cache ({platform})",
+                    "package": {"update_cache": True},
+                    "when": f"ansible_distribution|lower == '{platform.replace('_', '-')}'",
+                    "tags": ["packages"]
+                })
+                
+                # Install build dependencies
+                playbook["tasks"].append({
+                    "name": f"Install build dependencies ({platform})",
+                    "package": {
+                        "name": config["build_deps"],
+                        "state": "present"
+                    },
+                    "when": f"ansible_distribution|lower == '{platform.replace('_', '-')}'",
+                    "tags": ["packages"]
+                })
+        
+        # UV Python environment setup
+        if use_uv:
+            playbook["tasks"].extend([
+                {
+                    "name": "Install UV Python package manager",
+                    "shell": "curl -LsSf https://astral.sh/uv/install.sh | sh",
+                    "creates": "/root/.cargo/bin/uv",
+                    "tags": ["uv"]
+                },
+                {
+                    "name": "Add UV to PATH",
+                    "lineinfile": {
+                        "path": "/etc/environment",
+                        "line": "PATH=\"{{ ansible_env.PATH }}:/root/.cargo/bin\""
+                    },
+                    "tags": ["uv"]
+                },
+                {
+                    "name": "Initialize UV project environment", 
+                    "shell": "/root/.cargo/bin/uv init --python 3.11",
+                    "args": {"chdir": "{{ fastjson_source_base }}"},
+                    "tags": ["uv"]
+                }
+            ])
+        
+        # Source compilation tasks for each package
+        for pkg_name, pkg_config in self.source_packages.items():
+            
+            # Download source
+            download_task = {
+                "name": f"Download {pkg_name} source",
+                "get_url": {
+                    "url": pkg_config["url"].format(
+                        version=pkg_config["version"],
+                        major=pkg_config["version"].split('.')[0],
+                        minor=pkg_config["version"].split('.')[1] if len(pkg_config["version"].split('.')) > 1 else "0"
+                    ),
+                    "dest": f"{{{{ fastjson_source_base }}}}/{pkg_name}-source.tar.xz" if "tar.xz" in pkg_config["url"] else f"{{{{ fastjson_source_base }}}}/{pkg_name}-source.tar.gz"
+                },
+                "tags": [f"source-{pkg_name}"]
+            }
+            playbook["tasks"].append(download_task)
+            
+            # Extract source
+            extract_task = {
+                "name": f"Extract {pkg_name} source",
+                "unarchive": {
+                    "src": f"{{{{ fastjson_source_base }}}}/{pkg_name}-source.tar.xz" if "tar.xz" in pkg_config["url"] else f"{{{{ fastjson_source_base }}}}/{pkg_name}-source.tar.gz",
+                    "dest": f"{{{{ fastjson_source_base }}}}",
+                    "remote_src": True,
+                    "creates": f"{{{{ fastjson_source_base }}}}/{pkg_name}-{pkg_config['version']}"
+                },
+                "tags": [f"source-{pkg_name}"]
+            }
+            playbook["tasks"].append(extract_task)
+            
+            # Create build directory
+            build_dir_task = {
+                "name": f"Create {pkg_name} build directory",
+                "file": {
+                    "path": f"{{{{ fastjson_source_base }}}}/{pkg_name}-build",
+                    "state": "directory"
+                },
+                "tags": [f"source-{pkg_name}"]
+            }
+            playbook["tasks"].append(build_dir_task)
+            
+            # Configure build
+            if pkg_config["build_type"] == "cmake":
+                configure_task = {
+                    "name": f"Configure {pkg_name} with CMake",
+                    "shell": f"cmake {' '.join(pkg_config['cmake_options'])} -DCMAKE_INSTALL_PREFIX={{{{ fastjson_source_base }}}}/{pkg_name}-{pkg_config['version']} ../$(ls {{{{ fastjson_source_base }}}} | grep '{pkg_name}.*{pkg_config['version']}')",
+                    "args": {"chdir": f"{{{{ fastjson_source_base }}}}/{pkg_name}-build"},
+                    "tags": [f"source-{pkg_name}"]
+                }
+            elif pkg_config["build_type"] == "autotools":
+                configure_task = {
+                    "name": f"Configure {pkg_name} with autotools",
+                    "shell": f"../$(ls {{{{ fastjson_source_base }}}} | grep '{pkg_name}.*{pkg_config['version']}')/configure {' '.join(pkg_config.get('configure_options', []))} --prefix={{{{ fastjson_source_base }}}}/{pkg_name}-{pkg_config['version']}",
+                    "args": {"chdir": f"{{{{ fastjson_source_base }}}}/{pkg_name}-build"},
+                    "tags": [f"source-{pkg_name}"]
+                }
+            
+            playbook["tasks"].append(configure_task)
+            
+            # Build
+            build_task = {
+                "name": f"Build {pkg_name} from source",
+                "shell": f"make -j{{{{ fastjson_parallel_jobs }}}}",
+                "args": {"chdir": f"{{{{ fastjson_source_base }}}}/{pkg_name}-build"},
+                "tags": [f"source-{pkg_name}"],
+                "async": int(pkg_config["build_time_hours"] * 3600),
+                "poll": 60
+            }
+            playbook["tasks"].append(build_task)
+            
+            # Install
+            install_task = {
+                "name": f"Install {pkg_name}",
+                "shell": "make install",
+                "args": {"chdir": f"{{{{ fastjson_source_base }}}}/{pkg_name}-build"},
+                "tags": [f"source-{pkg_name}"]
+            }
+            playbook["tasks"].append(install_task)
+            
+            # Create symlinks
+            symlink_task = {
+                "name": f"Create {pkg_name} symlinks",
+                "file": {
+                    "src": f"{{{{ fastjson_source_base }}}}/{pkg_name}-{pkg_config['version']}",
+                    "dest": f"{{{{ fastjson_source_base }}}}/{pkg_name}",
+                    "state": "link"
+                },
+                "tags": [f"source-{pkg_name}"]
+            }
+            playbook["tasks"].append(symlink_task)
+        
+        # Environment configuration
+        playbook["tasks"].extend([
+            {
+                "name": "Configure FastJSON environment variables",
+                "blockinfile": {
+                    "path": "/etc/environment",
+                    "block": "\\n".join([
+                        f"FASTJSON_ROOT={self.source_install_base}",
+                        f"LLVM_ROOT={self.source_install_base}/llvm",
+                        f"OPENMPI_ROOT={self.source_install_base}/openmpi",
+                        f"ZMQ_ROOT={self.source_install_base}/zeromq",
+                        f"GTEST_ROOT={self.source_install_base}/googletest",
+                        f"IMGUI_ROOT={self.source_install_base}/imgui",
+                        f"PATH=$PATH:{self.source_install_base}/llvm/bin:{self.source_install_base}/openmpi/bin",
+                        f"LD_LIBRARY_PATH=$LD_LIBRARY_PATH:{self.source_install_base}/llvm/lib:{self.source_install_base}/openmpi/lib:{self.source_install_base}/zeromq/lib",
+                        f"PKG_CONFIG_PATH=$PKG_CONFIG_PATH:{self.source_install_base}/llvm/lib/pkgconfig:{self.source_install_base}/openmpi/lib/pkgconfig:{self.source_install_base}/zeromq/lib/pkgconfig"
+                    ])
+                },
+                "tags": ["environment"]
+            },
+            {
+                "name": "Verify installations",
+                "shell": f"{{{{ fastjson_source_base }}}}/llvm/bin/clang --version && {{{{ fastjson_source_base }}}}/openmpi/bin/mpicc --version",
+                "tags": ["verify"]
+            }
+        ])
+        
+        return {
+            "playbook": playbook,
+            "estimated_time_hours": sum(pkg["build_time_hours"] for pkg in self.source_packages.values()),
+            "requires_root": True,
+            "parallel_safe": True
+        }
+    
+    def _generate_windows_support(self) -> Dict[str, Any]:
+        """Generate Windows-specific Ansible configuration."""
+        
+        windows_playbook = {
+            "hosts": "windows",
+            "gather_facts": True,
+            "vars": {
+                "fastjson_wsl_distro": "Ubuntu-22.04",
+                "fastjson_source_base": "/mnt/c/fastjson"
+            },
+            "tasks": [
+                {
+                    "name": "Check WSL availability",
+                    "win_shell": "wsl --status",
+                    "register": "wsl_status",
+                    "ignore_errors": True
+                },
+                {
+                    "name": "Install WSL if not available", 
+                    "win_shell": "wsl --install {{ fastjson_wsl_distro }}",
+                    "when": "wsl_status.rc != 0"
+                },
+                {
+                    "name": "Update WSL distribution",
+                    "win_shell": "wsl -d {{ fastjson_wsl_distro }} -- sudo apt update && sudo apt upgrade -y"
+                },
+                {
+                    "name": "Install build dependencies in WSL",
+                    "win_shell": "wsl -d {{ fastjson_wsl_distro }} -- sudo apt install -y {{ ' '.join(self.platform_configs['windows_wsl']['build_deps']) }}"
+                },
+                {
+                    "name": "Setup FastJSON source directory",
+                    "win_file": {
+                        "path": "C:\\\\fastjson",
+                        "state": "directory"
+                    }
+                },
+                {
+                    "name": "Download source compilation script",
+                    "win_get_url": {
+                        "url": "https://raw.githubusercontent.com/FastestJSONInTheWest/setup/main/windows_setup.ps1",
+                        "dest": "C:\\\\fastjson\\\\setup.ps1"
+                    }
+                },
+                {
+                    "name": "Execute source compilation in WSL",
+                    "win_shell": "wsl -d {{ fastjson_wsl_distro }} -- bash /mnt/c/fastjson/linux_setup.sh",
+                    "async": 7200,  # 2 hours
+                    "poll": 300     # Check every 5 minutes
+                }
+            ]
+        }
+        
+        return {"windows_playbook": windows_playbook, "requires_winrm": True}
+    
+    def _generate_deploy_script(self, platforms: List[str]) -> str:
+        """Generate deployment script for Ansible execution."""
+        
+        script_lines = [
+            "#!/bin/bash",
+            "# FastestJSONInTheWest Development Environment Deployment",
+            "# Auto-generated by Environment Agent",
+            "",
+            "set -e",
+            "",
+            "SCRIPT_DIR=\"$( cd \"$( dirname \"${BASH_SOURCE[0]}\" )\" && pwd )\"",
+            "PLAYBOOK_DIR=\"$SCRIPT_DIR\"",
+            "",
+            "# Colors for output",
+            "RED='\\033[0;31m'",
+            "GREEN='\\033[0;32m'",
+            "YELLOW='\\033[1;33m'",
+            "NC='\\033[0m' # No Color",
+            "",
+            "echo -e \"${GREEN}FastestJSONInTheWest Development Environment Setup${NC}\"",
+            "echo -e \"${YELLOW}This will install all dependencies from source${NC}\"",
+            "echo -e \"${YELLOW}Estimated time: 3-4 hours depending on hardware${NC}\"",
+            "echo",
+            "",
+            "# Check for Ansible",
+            "if ! command -v ansible-playbook &> /dev/null; then",
+            "    echo -e \"${RED}Ansible not found. Installing...${NC}\"",
+            "    if command -v apt &> /dev/null; then",
+            "        sudo apt update && sudo apt install -y ansible",
+            "    elif command -v yum &> /dev/null; then",
+            "        sudo yum install -y epel-release && sudo yum install -y ansible",
+            "    elif command -v dnf &> /dev/null; then",
+            "        sudo dnf install -y ansible",
+            "    else",
+            "        echo -e \"${RED}Please install Ansible manually${NC}\"",
+            "        exit 1",
+            "    fi",
+            "fi",
+            "",
+            "# Detect platform",
+            "PLATFORM=\"unknown\"",
+            "if [ -f /etc/os-release ]; then",
+            "    . /etc/os-release",
+            "    PLATFORM=\"$ID\"",
+            "fi",
+            "",
+            f"# Validate platform support",
+            f"SUPPORTED_PLATFORMS=({' '.join([f'\"{p}\"' for p in platforms])})",
+            "PLATFORM_SUPPORTED=false",
+            "for supported in \"${SUPPORTED_PLATFORMS[@]}\"; do",
+            "    if [[ \"$PLATFORM\" == \"$supported\" ]]; then",
+            "        PLATFORM_SUPPORTED=true",
+            "        break",
+            "    fi",
+            "done",
+            "",
+            "if [[ \"$PLATFORM_SUPPORTED\" != \"true\" ]]; then",
+            "    echo -e \"${RED}Unsupported platform: $PLATFORM${NC}\"",
+            "    echo -e \"${YELLOW}Supported platforms: ${SUPPORTED_PLATFORMS[*]}${NC}\"",
+            "    exit 1",
+            "fi",
+            "",
+            "echo -e \"${GREEN}Detected platform: $PLATFORM${NC}\"",
+            "",
+            "# Run main playbook",
+            "echo -e \"${YELLOW}Starting source compilation deployment...${NC}\"",
+            "ansible-playbook -i localhost, -c local fastjson_development_environment.yml",
+            "",
+            "# Run platform-specific tasks if needed",
+            "if [[ -f \"${PLATFORM}_specific.yml\" ]]; then",
+            "    echo -e \"${YELLOW}Running platform-specific tasks...${NC}\"",
+            "    ansible-playbook -i localhost, -c local \"${PLATFORM}_specific.yml\"",
+            "fi",
+            "",
+            "echo",
+            "echo -e \"${GREEN}✓ FastestJSONInTheWest development environment setup complete!${NC}\"",
+            "echo -e \"${YELLOW}Source installations located in: /opt/fastjson${NC}\"",
+            "echo -e \"${YELLOW}Please run 'source /etc/environment' or restart your shell${NC}\"",
+            "",
+            "# Verify installation",
+            "echo -e \"${YELLOW}Verifying installation...${NC}\"",
+            "if /opt/fastjson/llvm/bin/clang --version &> /dev/null; then",
+            "    echo -e \"${GREEN}✓ Clang 21 installed successfully${NC}\"",
+            "else",
+            "    echo -e \"${RED}✗ Clang 21 installation failed${NC}\"",
+            "fi",
+            "",
+            "if /opt/fastjson/openmpi/bin/mpicc --version &> /dev/null; then",
+            "    echo -e \"${GREEN}✓ OpenMPI installed successfully${NC}\"",
+            "else",
+            "    echo -e \"${RED}✗ OpenMPI installation failed${NC}\"",
+            "fi",
+            "",
+            "echo -e \"${GREEN}Setup complete! You can now build FastestJSONInTheWest.${NC}\"",
+        ]
+        
+        return "\\n".join(script_lines)
         """Run a shell command asynchronously."""
         try:
             process = await asyncio.create_subprocess_shell(
