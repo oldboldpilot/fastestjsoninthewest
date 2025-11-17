@@ -38,7 +38,8 @@ namespace fastjson {
 
 struct parse_config {
     // Parallelism control
-    int num_threads = -1;          // -1 = auto (use OMP_NUM_THREADS or hardware max)
+    int num_threads = 8;           // Default to 8 (physical cores)
+                                   // -1 = auto (use OMP_NUM_THREADS or hardware max)
                                    // 0 = disable parallelism (single-threaded)
                                    // >0 = use exactly this many threads
     
@@ -689,10 +690,162 @@ auto parser::parse_array() -> json_result<json_value> {
     return parse_array_parallel(0);  // 0 = unknown size, will be determined during scan
 }
 
+// SIMD-accelerated structural character scanner for arrays
+__attribute__((target("avx2")))
+static auto scan_array_boundaries_simd(
+    std::span<const char> input,
+    size_t start_pos,
+    std::vector<std::pair<size_t, size_t>>& elements,
+    size_t& array_end
+) -> bool {
+    // Use AVX2 to quickly find structural characters: []{},"
+    const __m256i left_bracket = _mm256_set1_epi8('[');
+    const __m256i right_bracket = _mm256_set1_epi8(']');
+    const __m256i left_brace = _mm256_set1_epi8('{');
+    const __m256i right_brace = _mm256_set1_epi8('}');
+    const __m256i comma = _mm256_set1_epi8(',');
+    const __m256i quote = _mm256_set1_epi8('"');
+    const __m256i backslash = _mm256_set1_epi8('\\');
+    
+    size_t pos = start_pos;
+    size_t element_start = pos;
+    int depth = 0;
+    bool in_string = false;
+    
+    // Process 32 bytes at a time with AVX2
+    while (pos + 32 <= input.size()) {
+        __m256i chunk = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(input.data() + pos));
+        
+        // Find all structural characters and quotes
+        __m256i is_left_bracket = _mm256_cmpeq_epi8(chunk, left_bracket);
+        __m256i is_right_bracket = _mm256_cmpeq_epi8(chunk, right_bracket);
+        __m256i is_left_brace = _mm256_cmpeq_epi8(chunk, left_brace);
+        __m256i is_right_brace = _mm256_cmpeq_epi8(chunk, right_brace);
+        __m256i is_comma = _mm256_cmpeq_epi8(chunk, comma);
+        __m256i is_quote = _mm256_cmpeq_epi8(chunk, quote);
+        __m256i is_backslash = _mm256_cmpeq_epi8(chunk, backslash);
+        
+        // Combine into mask
+        __m256i structural = _mm256_or_si256(
+            _mm256_or_si256(
+                _mm256_or_si256(is_left_bracket, is_right_bracket),
+                _mm256_or_si256(is_left_brace, is_right_brace)
+            ),
+            _mm256_or_si256(
+                _mm256_or_si256(is_comma, is_quote),
+                is_backslash
+            )
+        );
+        
+        uint32_t mask = _mm256_movemask_epi8(structural);
+        
+        if (mask == 0) {
+            // No structural characters in this chunk - fast path
+            pos += 32;
+            continue;
+        }
+        
+        // Process each structural character found
+        for (int bit = 0; bit < 32 && mask; ++bit, mask >>= 1) {
+            if (!(mask & 1)) continue;
+            
+            size_t char_pos = pos + bit;
+            char c = input[char_pos];
+            
+            if (in_string) {
+                if (c == '\\' && char_pos + 1 < input.size()) {
+                    // Skip escape sequence
+                    bit++;
+                    mask >>= 1;
+                } else if (c == '"') {
+                    in_string = false;
+                }
+            } else {
+                switch (c) {
+                    case '"':
+                        in_string = true;
+                        break;
+                    case '[':
+                    case '{':
+                        depth++;
+                        break;
+                    case ']':
+                        if (depth == 0) {
+                            // Found array end
+                            if (element_start < char_pos) {
+                                elements.push_back({element_start, char_pos});
+                            }
+                            array_end = char_pos;
+                            return true;
+                        }
+                        depth--;
+                        break;
+                    case '}':
+                        depth--;
+                        break;
+                    case ',':
+                        if (depth == 0) {
+                            // Found element boundary
+                            elements.push_back({element_start, char_pos});
+                            element_start = char_pos + 1;
+                        }
+                        break;
+                }
+            }
+        }
+        
+        pos += 32;
+    }
+    
+    // Process remaining bytes with scalar code
+    while (pos < input.size()) {
+        char c = input[pos];
+        
+        if (in_string) {
+            if (c == '\\' && pos + 1 < input.size()) {
+                pos += 2;
+                continue;
+            } else if (c == '"') {
+                in_string = false;
+            }
+        } else {
+            switch (c) {
+                case '"':
+                    in_string = true;
+                    break;
+                case '[':
+                case '{':
+                    depth++;
+                    break;
+                case ']':
+                    if (depth == 0) {
+                        if (element_start < pos) {
+                            elements.push_back({element_start, pos});
+                        }
+                        array_end = pos;
+                        return true;
+                    }
+                    depth--;
+                    break;
+                case '}':
+                    depth--;
+                    break;
+                case ',':
+                    if (depth == 0) {
+                        elements.push_back({element_start, pos});
+                        element_start = pos + 1;
+                    }
+                    break;
+            }
+        }
+        pos++;
+    }
+    
+    return false;
+}
+
 auto parser::parse_array_parallel(size_t estimated_size) -> json_result<json_value> {
-    // Phase 1: Find element boundaries by scanning for commas at depth 0
-    // Future work: Add SIMD-based structural character detection for 2-3x additional speedup
-    // Current implementation uses direct scanning which already achieves 4.6x parallel speedup
+    // Phase 1: Find element boundaries using SIMD-accelerated scanning
     
     struct element_span {
         size_t start;
@@ -701,9 +854,24 @@ auto parser::parse_array_parallel(size_t estimated_size) -> json_result<json_val
     
     std::vector<element_span> element_spans;
     element_spans.reserve(estimated_size);
-    size_t array_end_pos = pos_;  // Track where the array ends
+    size_t array_end_pos = pos_;
     
-    // Direct scan for element boundaries (respects nesting and strings)
+    // Try SIMD-accelerated scan first (AVX2)
+    bool use_simd = g_config.enable_simd && g_config.enable_avx2 && g_simd_caps.avx2;
+    
+    if (use_simd) {
+        std::vector<std::pair<size_t, size_t>> simd_elements;
+        if (scan_array_boundaries_simd(input_, pos_, simd_elements, array_end_pos)) {
+            // Convert to element_span format
+            for (const auto& [start, end] : simd_elements) {
+                element_spans.push_back({start, end});
+            }
+            goto parallel_parse;
+        }
+        // If SIMD scan failed, fall through to scalar scan
+    }
+    
+    // Fallback: Direct scan for element boundaries (respects nesting and strings)
     {
         size_t scan_pos = pos_;
         int depth = 0;
@@ -762,6 +930,7 @@ auto parser::parse_array_parallel(size_t estimated_size) -> json_result<json_val
         }
     }
     
+parallel_parse:
     // If we found no elements or very few, fall back to sequential
     // Debug: show when we use parallel vs sequential
     #ifdef DEBUG_PARALLEL
@@ -922,8 +1091,213 @@ auto parser::parse_object() -> json_result<json_value> {
     return json_value{std::move(object)};
 }
 
+// SIMD-accelerated object boundary scanner
+__attribute__((target("avx2")))
+static auto scan_object_boundaries_simd(
+    std::span<const char> input,
+    size_t start_pos,
+    std::vector<std::tuple<size_t, size_t, size_t, size_t>>& kv_pairs,
+    size_t& object_end
+) -> bool {
+    // Use AVX2 to quickly find structural characters
+    const __m256i left_brace = _mm256_set1_epi8('{');
+    const __m256i right_brace = _mm256_set1_epi8('}');
+    const __m256i left_bracket = _mm256_set1_epi8('[');
+    const __m256i right_bracket = _mm256_set1_epi8(']');
+    const __m256i comma = _mm256_set1_epi8(',');
+    const __m256i colon = _mm256_set1_epi8(':');
+    const __m256i quote = _mm256_set1_epi8('"');
+    const __m256i backslash = _mm256_set1_epi8('\\');
+    
+    size_t pos = start_pos;
+    size_t key_start = 0, key_end = 0, value_start = 0;
+    int depth = 0;
+    bool in_string = false;
+    enum class state_t { need_key, need_colon, need_value, need_comma };
+    state_t state = state_t::need_key;
+    
+    // Process 32 bytes at a time
+    while (pos + 32 <= input.size()) {
+        __m256i chunk = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(input.data() + pos));
+        
+        __m256i is_left_brace = _mm256_cmpeq_epi8(chunk, left_brace);
+        __m256i is_right_brace = _mm256_cmpeq_epi8(chunk, right_brace);
+        __m256i is_left_bracket = _mm256_cmpeq_epi8(chunk, left_bracket);
+        __m256i is_right_bracket = _mm256_cmpeq_epi8(chunk, right_bracket);
+        __m256i is_comma = _mm256_cmpeq_epi8(chunk, comma);
+        __m256i is_colon = _mm256_cmpeq_epi8(chunk, colon);
+        __m256i is_quote = _mm256_cmpeq_epi8(chunk, quote);
+        __m256i is_backslash = _mm256_cmpeq_epi8(chunk, backslash);
+        
+        __m256i structural = _mm256_or_si256(
+            _mm256_or_si256(
+                _mm256_or_si256(is_left_brace, is_right_brace),
+                _mm256_or_si256(is_left_bracket, is_right_bracket)
+            ),
+            _mm256_or_si256(
+                _mm256_or_si256(is_comma, is_colon),
+                _mm256_or_si256(is_quote, is_backslash)
+            )
+        );
+        
+        uint32_t mask = _mm256_movemask_epi8(structural);
+        
+        if (mask == 0) {
+            pos += 32;
+            continue;
+        }
+        
+        // Process structural characters
+        for (int bit = 0; bit < 32 && mask; ++bit, mask >>= 1) {
+            if (!(mask & 1)) continue;
+            
+            size_t char_pos = pos + bit;
+            char c = input[char_pos];
+            
+            if (in_string) {
+                if (c == '\\' && char_pos + 1 < input.size()) {
+                    bit++;
+                    mask >>= 1;
+                } else if (c == '"') {
+                    in_string = false;
+                    if (state == state_t::need_key) {
+                        key_end = char_pos;
+                        state = state_t::need_colon;
+                    }
+                }
+            } else {
+                switch (c) {
+                    case '"':
+                        in_string = true;
+                        if (state == state_t::need_key) {
+                            key_start = char_pos + 1;
+                        }
+                        break;
+                    case ':':
+                        if (state == state_t::need_colon && depth == 0) {
+                            value_start = char_pos + 1;
+                            state = state_t::need_value;
+                        }
+                        break;
+                    case '[':
+                    case '{':
+                        if (state == state_t::need_value) {
+                            depth++;
+                        }
+                        break;
+                    case ']':
+                    case '}':
+                        if (state == state_t::need_value && depth > 0) {
+                            depth--;
+                        } else if (c == '}' && depth == 0 && state == state_t::need_comma) {
+                            object_end = char_pos;
+                            return true;
+                        } else if (c == '}' && depth == 0) {
+                            // End of last value
+                            if (state == state_t::need_value) {
+                                kv_pairs.push_back({key_start, key_end, value_start, char_pos});
+                            }
+                            object_end = char_pos;
+                            return true;
+                        }
+                        break;
+                    case ',':
+                        if (depth == 0 && state == state_t::need_comma) {
+                            state = state_t::need_key;
+                        } else if (depth == 0 && state == state_t::need_value) {
+                            kv_pairs.push_back({key_start, key_end, value_start, char_pos});
+                            state = state_t::need_key;
+                        }
+                        break;
+                }
+                
+                // Transition from need_value to need_comma
+                if (state == state_t::need_value && depth == 0 && 
+                    c != ':' && c != '[' && c != '{' && c != '"' && !std::isspace(c)) {
+                    // We're in a value (primitive), scan to end
+                    size_t value_end = char_pos;
+                    while (value_end < input.size() && 
+                           input[value_end] != ',' && input[value_end] != '}') {
+                        value_end++;
+                    }
+                    if (value_end < input.size()) {
+                        kv_pairs.push_back({key_start, key_end, value_start, value_end});
+                        state = state_t::need_comma;
+                        pos = value_end - 1;
+                        break;
+                    }
+                }
+            }
+        }
+        
+        pos += 32;
+    }
+    
+    // Scalar fallback for remaining bytes
+    while (pos < input.size()) {
+        char c = input[pos];
+        
+        if (in_string) {
+            if (c == '\\' && pos + 1 < input.size()) {
+                pos += 2;
+                continue;
+            } else if (c == '"') {
+                in_string = false;
+                if (state == state_t::need_key) {
+                    key_end = pos;
+                    state = state_t::need_colon;
+                }
+            }
+        } else {
+            if (!std::isspace(c)) {
+                switch (c) {
+                    case '"':
+                        in_string = true;
+                        if (state == state_t::need_key) {
+                            key_start = pos + 1;
+                        }
+                        break;
+                    case ':':
+                        if (state == state_t::need_colon && depth == 0) {
+                            value_start = pos + 1;
+                            state = state_t::need_value;
+                        }
+                        break;
+                    case '[':
+                    case '{':
+                        if (state == state_t::need_value) {
+                            depth++;
+                        }
+                        break;
+                    case ']':
+                    case '}':
+                        if (state == state_t::need_value && depth > 0) {
+                            depth--;
+                        } else if (c == '}' && depth == 0) {
+                            if (state == state_t::need_value) {
+                                kv_pairs.push_back({key_start, key_end, value_start, pos});
+                            }
+                            object_end = pos;
+                            return true;
+                        }
+                        break;
+                    case ',':
+                        if (depth == 0 && state == state_t::need_value) {
+                            kv_pairs.push_back({key_start, key_end, value_start, pos});
+                            state = state_t::need_key;
+                        }
+                        break;
+                }
+            }
+        }
+        pos++;
+    }
+    
+    return false;
+}
+
 auto parser::parse_object_parallel(size_t estimated_size) -> json_result<json_value> {
-    // Phase 1: Scan to find key-value pair boundaries
+    // Phase 1: Scan to find key-value pair boundaries using SIMD
     struct kv_span {
         size_t key_start;
         size_t key_end;
@@ -933,16 +1307,32 @@ auto parser::parse_object_parallel(size_t estimated_size) -> json_result<json_va
     
     std::vector<kv_span> kv_spans;
     kv_spans.reserve(estimated_size);
+    size_t object_end_pos = pos_;
     
-    // Scan forward to find key-value boundaries
-    size_t scan_pos = pos_;
-    int depth = 0;
-    bool in_string = false;
-    bool escape_next = false;
+    // Try SIMD-accelerated scan first
+    bool use_simd = g_config.enable_simd && g_config.enable_avx2 && g_simd_caps.avx2;
+    bool simd_success = false;
     
-    size_t key_start = 0, key_end = 0, value_start = 0;
-    enum class scan_state { need_key, need_colon, need_value, need_comma };
-    scan_state state = scan_state::need_key;
+    if (use_simd) {
+        std::vector<std::tuple<size_t, size_t, size_t, size_t>> simd_kvs;
+        if (scan_object_boundaries_simd(input_, pos_, simd_kvs, object_end_pos)) {
+            for (const auto& [ks, ke, vs, ve] : simd_kvs) {
+                kv_spans.push_back({ks, ke, vs, ve});
+            }
+            simd_success = true;
+        }
+    }
+    
+    // Fallback: Scan forward to find key-value boundaries
+    if (!simd_success) {
+        size_t scan_pos = pos_;
+        int depth = 0;
+        bool in_string = false;
+        bool escape_next = false;
+        
+        size_t key_start = 0, key_end = 0, value_start = 0;
+        enum class scan_state { need_key, need_colon, need_value, need_comma };
+        scan_state state = scan_state::need_key;
     
     while (scan_pos < input_.size()) {
         char c = input_[scan_pos];
@@ -991,7 +1381,8 @@ auto parser::parse_object_parallel(size_t estimated_size) -> json_result<json_va
                         if (state == scan_state::need_value || state == scan_state::need_comma) {
                             kv_spans.push_back({key_start, key_end, value_start, scan_pos});
                         }
-                        goto scan_complete;
+                        object_end_pos = scan_pos;
+                        break;
                     }
                     depth--;
                     break;
@@ -1005,8 +1396,7 @@ auto parser::parse_object_parallel(size_t estimated_size) -> json_result<json_va
         }
         scan_pos++;
     }
-    
-scan_complete:
+    }  // End of if (!simd_success) block
     
     // If we found very few pairs, fall back to sequential
     if (kv_spans.size() < static_cast<size_t>(g_config.parallel_threshold / 100)) {
@@ -1068,7 +1458,7 @@ scan_complete:
     }
     
     // Update parser position
-    pos_ = scan_pos + 1;  // +1 to skip the '}'
+    pos_ = object_end_pos + 1;  // +1 to skip the '}'
     
     --depth_;
     return json_value{std::move(object)};
