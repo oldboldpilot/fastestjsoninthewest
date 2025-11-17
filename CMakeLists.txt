@@ -257,6 +257,24 @@ set_target_properties(mvp_test PROPERTIES
     INSTALL_RPATH "/home/linuxbrew/.linuxbrew/lib;/home/linuxbrew/.linuxbrew/Cellar/libomp/21.1.5/lib"
 )
 
+# Comparative benchmark: FastestJSONInTheWest vs simdjson
+add_executable(comparative_benchmark benchmarks/comparative_benchmark.cpp)
+target_link_libraries(comparative_benchmark PRIVATE ${OpenMP_CXX_LIBRARIES})
+target_compile_options(comparative_benchmark PRIVATE
+    -std=c++23
+    -fopenmp
+    -O3
+    -ffast-math
+    -funroll-loops
+    -fvectorize
+    -fslp-vectorize
+    -Wall
+    -Wextra
+    -Wpedantic
+    -Wno-unused-parameter
+    -pthread
+)
+
 # Simple performance demo using modules
 add_executable(performance_demo tests/performance_demo.cpp)
 target_link_libraries(performance_demo fastjson)
