@@ -7,7 +7,9 @@ A production-ready JSON library combining cutting-edge SIMD optimizations, paral
 ## 🚀 Key Features
 
 ### Performance
-- **SIMD Acceleration**: Full instruction set waterfall (SSE → AVX → AVX-512)
+- **SIMD Acceleration**: Multi-platform support
+  - x86/x64: SSE2 → SSE3 → SSSE3 → SSE4.1 → SSE4.2 → AVX → AVX2 → AVX-512
+  - ARM: NEON (128-bit) with optimized JSON parsing kernels
 - **Parallel Parsing**: OpenMP-based multi-threaded parsing
 - **NUMA-Aware**: 69% speedup on multi-socket systems
 - **UTF-8 Validation**: <1% overhead with SIMD (12/12 tests passing)
@@ -33,6 +35,14 @@ A production-ready JSON library combining cutting-edge SIMD optimizations, paral
 - **Zero-Copy**: Efficient memory handling
 - **Type-Safe**: Strong type system with `std::variant`
 
+### Cross-Platform SIMD
+- **x86/x64**: SSE2 through AVX-512 with automatic instruction selection
+- **ARM**: NEON 128-bit SIMD with JSON parsing kernels
+  - Vectorized character classification
+  - Fast string comparison
+  - Optimized number parsing
+  - Automatic runtime detection
+
 ## 📊 Performance Targets
 
 | JSON Size | Target Time | Throughput |
@@ -48,12 +58,34 @@ A production-ready JSON library combining cutting-edge SIMD optimizations, paral
 - **Clang 21+** (C++23 modules support)
 - **OpenMP** (parallel processing)
 - **CMake 3.28+**
+- **Platform Support**:
+  - x86/x64 Linux/macOS/Windows with SSE2+
+  - ARM with NEON support (ARMv7+ or ARMv8)
 
 ### Build Steps
 ```bash
 mkdir build && cd build
 cmake -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_CXX_COMPILER=/opt/clang-21/bin/clang++ \
+      ..
+cmake --build . -j$(nproc)
+```
+
+### ARM NEON Build
+```bash
+# ARM 32-bit (ARMv7)
+mkdir build_arm && cd build_arm
+cmake -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_CXX_COMPILER=arm-linux-gnueabihf-clang++ \
+      -DCMAKE_CXX_FLAGS="-march=armv7-a -mfpu=neon" \
+      ..
+cmake --build . -j$(nproc)
+
+# ARM 64-bit (ARMv8)
+mkdir build_arm64 && cd build_arm64
+cmake -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-clang++ \
+      -DCMAKE_CXX_FLAGS="-march=armv8-a+simd" \
       ..
 cmake --build . -j$(nproc)
 ```
