@@ -179,14 +179,59 @@ std::u32string utf32 = U"こんにちは";
 auto json = fastjson::parse_utf32(utf32);
 ```
 
-## 📚 Documentation
+## 📚 Documentation & Architecture
 
-- [Architecture](docs/ARCHITECTURE.md) - System design and components
-- [LINQ Implementation](docs/LINQ_IMPLEMENTATION.md) - Query interface details
-- [Unicode Support](docs/UTF16_UTF32_IMPLEMENTATION.md) - UTF-16/32 handling
-- [NUMA Implementation](docs/NUMA_IMPLEMENTATION.md) - Multi-socket optimization
-- [Future Work Status](docs/FUTURE_WORK_STATUS.md) - Roadmap and completion status
-- [Coding Standards](docs/CODING_STANDARDS.md) - Development guidelines
+### System Architecture
+
+FastestJSONInTheWest implements a **multi-layered architecture** optimized for maximum performance:
+
+1. **Module Interface Layer** - Public API exports through C++23 modules
+2. **SIMD Optimization Layer** - Hardware-specific optimizations with instruction set waterfall:
+   - AVX-512 (latest Intel/AMD) → AVX2 → AVX → SSE4.2 → ARM NEON → Scalar fallback
+   - Vectorized string scanning, number parsing, and validation
+3. **Parser Core Layer** - Lexical analyzer, recursive parser, type-safe value construction
+4. **Type System Layer** - Strong typing with `std::variant` for null, bool, numbers, strings, arrays, objects
+5. **Memory Management** - No raw pointers, RAII-based with exception safety guarantees
+
+**Performance Architecture**: Branch prediction optimization, cache-friendly sequential access, minimal allocations with move semantics.
+
+### LINQ & Functional Programming
+
+Complete query interface with **40+ operations** available in both sequential and parallel variants:
+
+- **Filtering**: `where()`, `take()`, `skip()`, `distinct()`, `take_while()`, `skip_while()`
+- **Transformation**: `select()`, `order_by()`, `order_by_descending()`
+- **Aggregation**: `sum()`, `min()`, `max()`, `average()`, `aggregate()`, `count()`, `any()`, `all()`
+- **Set Operations**: `concat()`, `union_with()`, `intersect()`, `except()`
+- **Joining**: `join()`, `group_by()`
+- **Element Access**: `first()`, `last()`, `single()`, `to_vector()`
+
+Parallel variants use **OpenMP** for thread-safe execution with automatic load balancing.
+
+### Unicode Support (UTF-8/16/32)
+
+- **UTF-8** - Native default with <1% SIMD validation overhead
+- **UTF-16** - Full surrogate pair handling for emoji and extended characters
+- **UTF-32** - Direct fixed-width code point support
+- **Comprehensive Testing** - 39/39 Unicode compliance tests passing
+
+### NUMA-Aware Optimization
+
+For multi-socket systems:
+- Automatic NUMA topology detection
+- Thread binding to optimize cache locality
+- NUMA-aware memory allocation strategies (local, interleaved, node-specific)
+- Dynamic `libnuma` loading (no compile-time dependency)
+- **Performance Impact**: 69% speedup on multi-socket systems
+
+### Thread Safety & Concurrency
+
+- **Immutable Design** - Parsed values are immutable by default
+- **Lock-Free Operations** - Concurrent read access without synchronization
+- **OpenMP Integration** - Automatic parallelization with `#pragma omp` pragmas
+- **Atomic Operations** - Safe counter updates and synchronization
+
+For detailed technical documentation, see the `docs/` folder with internal references and complete implementation guides.
 
 ## 🧪 Testing
 
@@ -311,7 +356,10 @@ All LINQ operations are thread-safe and use OpenMP pragmas:
 
 ## 📜 License
 
-MIT License - See LICENSE file for details
+BSD 4-Clause License with advertising clause - See LICENSE_BSD_4_CLAUSE file for details
+
+The license requires that redistributions in binary form include the following notice in documentation or prominent display:
+> This product includes software developed by Olumuyiwa Oluwasanmi.
 
 ## 👥 Author
 
