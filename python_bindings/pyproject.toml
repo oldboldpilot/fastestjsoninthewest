@@ -1,0 +1,62 @@
+[build-system]
+requires = ["setuptools>=68", "pybind11>=3.0.1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fastjson"
+version = "1.0.0"
+description = "FastestJSONInTheWest - Ultra-high-performance JSON library with Python bindings"
+readme = "README.md"
+requires-python = "==3.13.*"
+authors = [{name = "Olumuyiwa Oluwasanmi"}]
+license = {text = "BSD-4-Clause"}
+keywords = ["json", "parser", "simd", "performance", "c++23"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: BSD License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+dependencies = [
+    "pybind11>=3.0.1",
+    "numpy>=2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.0.0",
+    "pytest-cov>=7.0.0",
+    "pytest-benchmark>=4.0.0",
+    "setuptools>=68",
+    "wheel",
+]
+test = [
+    "pytest>=9.0.0",
+    "pytest-cov>=7.0.0",
+    "pytest-benchmark>=4.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/oldboldpilot/fastestjsoninthewest"
+Repository = "https://github.com/oldboldpilot/fastestjsoninthewest.git"
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-v --tb=short"
+markers = [
+    "benchmark: marks tests as benchmark",
+    "slow: marks tests as slow",
+]
+
+[tool.coverage.run]
+source = ["src"]
+branch = true
+
+[tool.coverage.report]
+precision = 2
+show_missing = true
