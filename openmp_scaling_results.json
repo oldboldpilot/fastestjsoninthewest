@@ -6,8 +6,8 @@
       "execution_mode": "CPU+OpenMP",
       "num_threads": 1,
       "simd_enabled": false,
-      "parse_time_ms": 237.743,
-      "throughput_mbs": 42.0625,
+      "parse_time_ms": 230.181,
+      "throughput_mbs": 43.4444,
       "speedup": 1,
       "efficiency": 1
     },
@@ -15,82 +15,82 @@
       "execution_mode": "CPU+OpenMP",
       "num_threads": 1,
       "simd_enabled": true,
-      "parse_time_ms": 244.639,
-      "throughput_mbs": 40.8768,
-      "speedup": 0.97181,
-      "efficiency": 0.97181
+      "parse_time_ms": 215.754,
+      "throughput_mbs": 46.3494,
+      "speedup": 1.06687,
+      "efficiency": 1.06687
     },
     {
       "execution_mode": "CPU+OpenMP",
       "num_threads": 2,
       "simd_enabled": false,
-      "parse_time_ms": 132.548,
-      "throughput_mbs": 75.4446,
-      "speedup": 1.79363,
-      "efficiency": 0.896815
+      "parse_time_ms": 134.028,
+      "throughput_mbs": 74.6116,
+      "speedup": 1.71741,
+      "efficiency": 0.858703
     },
     {
       "execution_mode": "CPU+OpenMP",
       "num_threads": 4,
       "simd_enabled": false,
-      "parse_time_ms": 76.8963,
-      "throughput_mbs": 130.046,
-      "speedup": 3.09173,
-      "efficiency": 0.772933
+      "parse_time_ms": 81.2629,
+      "throughput_mbs": 123.058,
+      "speedup": 2.83254,
+      "efficiency": 0.708136
     },
     {
       "execution_mode": "CPU+OpenMP",
       "num_threads": 8,
       "simd_enabled": false,
-      "parse_time_ms": 49.4564,
-      "throughput_mbs": 202.199,
-      "speedup": 4.80711,
-      "efficiency": 0.600889
+      "parse_time_ms": 55.6686,
+      "throughput_mbs": 179.635,
+      "speedup": 4.13484,
+      "efficiency": 0.516855
     },
     {
       "execution_mode": "CPU+OpenMP",
       "num_threads": 16,
       "simd_enabled": false,
-      "parse_time_ms": 53.3314,
-      "throughput_mbs": 187.508,
-      "speedup": 4.45784,
-      "efficiency": 0.278615
+      "parse_time_ms": 60.8973,
+      "throughput_mbs": 164.212,
+      "speedup": 3.77982,
+      "efficiency": 0.236239
     },
     {
       "execution_mode": "CPU+OpenMP",
       "num_threads": 2,
       "simd_enabled": true,
-      "parse_time_ms": 133.392,
-      "throughput_mbs": 74.9672,
-      "speedup": 1.78228,
-      "efficiency": 0.89114
+      "parse_time_ms": 122.217,
+      "throughput_mbs": 81.8219,
+      "speedup": 1.88337,
+      "efficiency": 0.941686
     },
     {
       "execution_mode": "CPU+OpenMP",
       "num_threads": 4,
       "simd_enabled": true,
-      "parse_time_ms": 76.9025,
-      "throughput_mbs": 130.035,
-      "speedup": 3.09148,
-      "efficiency": 0.772871
+      "parse_time_ms": 71.7665,
+      "throughput_mbs": 139.341,
+      "speedup": 3.20735,
+      "efficiency": 0.801839
     },
     {
       "execution_mode": "CPU+OpenMP",
       "num_threads": 8,
       "simd_enabled": true,
-      "parse_time_ms": 49.395,
-      "throughput_mbs": 202.451,
-      "speedup": 4.81309,
-      "efficiency": 0.601636
+      "parse_time_ms": 46.782,
+      "throughput_mbs": 213.758,
+      "speedup": 4.92028,
+      "efficiency": 0.615035
     },
     {
       "execution_mode": "CPU+OpenMP",
       "num_threads": 16,
       "simd_enabled": true,
-      "parse_time_ms": 47.7558,
-      "throughput_mbs": 209.4,
-      "speedup": 4.9783,
-      "efficiency": 0.311144
+      "parse_time_ms": 45.0413,
+      "throughput_mbs": 222.02,
+      "speedup": 5.11044,
+      "efficiency": 0.319403
     }
   ]
 }

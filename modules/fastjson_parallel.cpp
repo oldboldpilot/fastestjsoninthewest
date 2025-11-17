@@ -361,6 +361,123 @@ scalar_fallback:
     return pos;
 }
 
+// SIMD string scanning - find end quote or escape
+__attribute__((target("avx2")))
+static auto find_string_end_avx2(std::span<const char> data, size_t start_pos) -> size_t {
+    const __m256i quote = _mm256_set1_epi8('"');
+    const __m256i backslash = _mm256_set1_epi8('\\');
+    const __m256i control = _mm256_set1_epi8(0x20);  // Characters < 0x20 are control chars
+    
+    size_t pos = start_pos;
+    
+    while (pos + 32 <= data.size()) {
+        __m256i chunk = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(data.data() + pos));
+        
+        __m256i is_quote = _mm256_cmpeq_epi8(chunk, quote);
+        __m256i is_backslash = _mm256_cmpeq_epi8(chunk, backslash);
+        __m256i is_control = _mm256_cmpgt_epi8(control, chunk);  // Find chars < 0x20
+        
+        __m256i special = _mm256_or_si256(_mm256_or_si256(is_quote, is_backslash), is_control);
+        
+        uint32_t mask = _mm256_movemask_epi8(special);
+        
+        if (mask != 0) {
+            int first_special = __builtin_ctz(mask);
+            return pos + first_special;
+        }
+        
+        pos += 32;
+    }
+    
+    // Scalar fallback for remaining bytes
+    while (pos < data.size()) {
+        char c = data[pos];
+        if (c == '"' || c == '\\' || static_cast<unsigned char>(c) < 0x20) {
+            return pos;
+        }
+        pos++;
+    }
+    
+    return pos;
+}
+
+// SIMD number validation - check if all digits/valid number chars
+__attribute__((target("avx2")))
+static auto validate_number_chars_avx2(std::span<const char> data, size_t start_pos, size_t end_pos) -> bool {
+    const __m256i digit_0 = _mm256_set1_epi8('0' - 1);
+    const __m256i digit_9 = _mm256_set1_epi8('9' + 1);
+    const __m256i minus = _mm256_set1_epi8('-');
+    const __m256i plus = _mm256_set1_epi8('+');
+    const __m256i dot = _mm256_set1_epi8('.');
+    const __m256i e_lower = _mm256_set1_epi8('e');
+    const __m256i e_upper = _mm256_set1_epi8('E');
+    
+    size_t pos = start_pos;
+    
+    while (pos + 32 <= end_pos) {
+        __m256i chunk = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(data.data() + pos));
+        
+        // Check if in range '0'-'9'
+        __m256i gt_digit_0 = _mm256_cmpgt_epi8(chunk, digit_0);
+        __m256i lt_digit_9 = _mm256_cmpgt_epi8(digit_9, chunk);
+        __m256i is_digit = _mm256_and_si256(gt_digit_0, lt_digit_9);
+        
+        // Check for valid special chars
+        __m256i is_minus = _mm256_cmpeq_epi8(chunk, minus);
+        __m256i is_plus = _mm256_cmpeq_epi8(chunk, plus);
+        __m256i is_dot = _mm256_cmpeq_epi8(chunk, dot);
+        __m256i is_e_lower = _mm256_cmpeq_epi8(chunk, e_lower);
+        __m256i is_e_upper = _mm256_cmpeq_epi8(chunk, e_upper);
+        
+        __m256i valid = _mm256_or_si256(is_digit,
+            _mm256_or_si256(_mm256_or_si256(is_minus, is_plus),
+                _mm256_or_si256(_mm256_or_si256(is_dot, is_e_lower), is_e_upper)));
+        
+        uint32_t mask = _mm256_movemask_epi8(valid);
+        
+        if (mask != 0xFFFFFFFF) {
+            return false;  // Found invalid character
+        }
+        
+        pos += 32;
+    }
+    
+    // Scalar validation for remaining bytes
+    while (pos < end_pos) {
+        char c = data[pos];
+        if (!((c >= '0' && c <= '9') || c == '-' || c == '+' || 
+              c == '.' || c == 'e' || c == 'E')) {
+            return false;
+        }
+        pos++;
+    }
+    
+    return true;
+}
+
+// SIMD literal matching (true, false, null)
+__attribute__((target("sse2")))
+static auto match_literal_sse2(std::span<const char> data, size_t pos, const char* literal, size_t len) -> bool {
+    if (pos + len > data.size()) {
+        return false;
+    }
+    
+    // For small literals (4, 5 chars), use single SSE load and compare
+    if (len <= 16) {
+        __m128i chunk = _mm_loadu_si128(reinterpret_cast<const __m128i*>(data.data() + pos));
+        __m128i expected = _mm_loadu_si128(reinterpret_cast<const __m128i*>(literal));
+        __m128i cmp = _mm_cmpeq_epi8(chunk, expected);
+        int mask = _mm_movemask_epi8(cmp);
+        
+        // Check only the first 'len' bytes
+        int len_mask = (1 << len) - 1;
+        return (mask & len_mask) == len_mask;
+    }
+    
+    // Fallback for longer strings
+    return std::memcmp(data.data() + pos, literal, len) == 0;
+}
+
 #else // Non-x86 platforms
 
 static auto skip_whitespace_simd(std::span<const char> data, size_t start_pos) -> size_t {
@@ -369,6 +486,36 @@ static auto skip_whitespace_simd(std::span<const char> data, size_t start_pos) -
         pos++;
     }
     return pos;
+}
+
+static auto find_string_end_avx2(std::span<const char> data, size_t start_pos) -> size_t {
+    size_t pos = start_pos;
+    while (pos < data.size()) {
+        char c = data[pos];
+        if (c == '"' || c == '\\' || static_cast<unsigned char>(c) < 0x20) {
+            return pos;
+        }
+        pos++;
+    }
+    return pos;
+}
+
+static auto validate_number_chars_avx2(std::span<const char> data, size_t start_pos, size_t end_pos) -> bool {
+    for (size_t pos = start_pos; pos < end_pos; ++pos) {
+        char c = data[pos];
+        if (!((c >= '0' && c <= '9') || c == '-' || c == '+' || 
+              c == '.' || c == 'e' || c == 'E')) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static auto match_literal_sse2(std::span<const char> data, size_t pos, const char* literal, size_t len) -> bool {
+    if (pos + len > data.size()) {
+        return false;
+    }
+    return std::memcmp(data.data() + pos, literal, len) == 0;
 }
 
 #endif
@@ -506,6 +653,17 @@ auto parser::parse_value() -> json_result<json_value> {
 }
 
 auto parser::parse_null() -> json_result<json_value> {
+    // SIMD literal matching for "null"
+    if (g_config.enable_simd && g_config.enable_sse42 && g_simd_caps.sse2) {
+        if (match_literal_sse2(input_, pos_, "null", 4)) {
+            pos_ += 4;
+            return json_value{};
+        }
+        return std::unexpected(make_error(json_error_code::invalid_literal,
+            "Invalid null literal"));
+    }
+    
+    // Fallback scalar matching
     if (!match('n') || !match('u') || !match('l') || !match('l')) {
         return std::unexpected(make_error(json_error_code::invalid_literal,
             "Invalid null literal"));
@@ -514,6 +672,28 @@ auto parser::parse_null() -> json_result<json_value> {
 }
 
 auto parser::parse_boolean() -> json_result<json_value> {
+    // SIMD literal matching for "true" and "false"
+    if (g_config.enable_simd && g_config.enable_sse42 && g_simd_caps.sse2) {
+        if (peek() == 't') {
+            if (match_literal_sse2(input_, pos_, "true", 4)) {
+                pos_ += 4;
+                return json_value{true};
+            }
+            return std::unexpected(make_error(json_error_code::invalid_literal,
+                "Invalid true literal"));
+        } else if (peek() == 'f') {
+            if (match_literal_sse2(input_, pos_, "false", 5)) {
+                pos_ += 5;
+                return json_value{false};
+            }
+            return std::unexpected(make_error(json_error_code::invalid_literal,
+                "Invalid false literal"));
+        }
+        return std::unexpected(make_error(json_error_code::invalid_literal,
+            "Invalid boolean literal"));
+    }
+    
+    // Fallback scalar matching
     if (match('t')) {
         if (!match('r') || !match('u') || !match('e')) {
             return std::unexpected(make_error(json_error_code::invalid_literal,
@@ -594,6 +774,101 @@ auto parser::parse_string() -> json_result<json_value> {
     std::string value;
     value.reserve(64);
     
+    // Use SIMD to quickly scan for quotes, escapes, or control chars
+    if (g_config.enable_simd && g_config.enable_avx2 && g_simd_caps.avx2) {
+        size_t string_start = pos_;
+        
+        while (!is_at_end()) {
+            size_t special_pos = find_string_end_avx2(input_, pos_);
+            
+            // Copy all the normal characters at once
+            if (special_pos > pos_) {
+                value.append(input_.data() + pos_, special_pos - pos_);
+                pos_ = special_pos;
+            }
+            
+            if (is_at_end()) {
+                break;
+            }
+            
+            char c = peek();
+            
+            if (c == '"') {
+                // Found end quote
+                advance();
+                return json_value{std::move(value)};
+            } else if (c == '\\') {
+                // Handle escape sequence
+                advance();  // Skip backslash
+                
+                if (is_at_end()) {
+                    return std::unexpected(make_error(json_error_code::invalid_string,
+                        "Unterminated escape sequence"));
+                }
+                
+                char escaped = advance();
+                switch (escaped) {
+                    case '"':  value += '"'; break;
+                    case '\\': value += '\\'; break;
+                    case '/':  value += '/'; break;
+                    case 'b':  value += '\b'; break;
+                    case 'f':  value += '\f'; break;
+                    case 'n':  value += '\n'; break;
+                    case 'r':  value += '\r'; break;
+                    case 't':  value += '\t'; break;
+                    case 'u': {
+                        if (pos_ + 4 > input_.size()) {
+                            return std::unexpected(make_error(json_error_code::invalid_unicode,
+                                "Incomplete Unicode escape"));
+                        }
+                        
+                        uint32_t codepoint = 0;
+                        for (int i = 0; i < 4; ++i) {
+                            char hex = advance();
+                            if (hex >= '0' && hex <= '9') {
+                                codepoint = (codepoint << 4) | (hex - '0');
+                            } else if (hex >= 'a' && hex <= 'f') {
+                                codepoint = (codepoint << 4) | (hex - 'a' + 10);
+                            } else if (hex >= 'A' && hex <= 'F') {
+                                codepoint = (codepoint << 4) | (hex - 'A' + 10);
+                            } else {
+                                return std::unexpected(make_error(json_error_code::invalid_unicode,
+                                    "Invalid Unicode escape"));
+                            }
+                        }
+                        
+                        if (codepoint <= 0x7F) {
+                            value += static_cast<char>(codepoint);
+                        } else if (codepoint <= 0x7FF) {
+                            value += static_cast<char>(0xC0 | (codepoint >> 6));
+                            value += static_cast<char>(0x80 | (codepoint & 0x3F));
+                        } else {
+                            value += static_cast<char>(0xE0 | (codepoint >> 12));
+                            value += static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F));
+                            value += static_cast<char>(0x80 | (codepoint & 0x3F));
+                        }
+                        break;
+                    }
+                    default:
+                        return std::unexpected(make_error(json_error_code::invalid_escape,
+                            "Invalid escape sequence"));
+                }
+            } else if (static_cast<unsigned char>(c) < 0x20) {
+                return std::unexpected(make_error(json_error_code::invalid_string,
+                    "Control character in string"));
+            }
+            
+            if (value.size() > g_config.max_string_length) {
+                return std::unexpected(make_error(json_error_code::invalid_string,
+                    "String exceeds maximum length"));
+            }
+        }
+        
+        return std::unexpected(make_error(json_error_code::invalid_string,
+            "Unterminated string"));
+    }
+    
+    // Fallback: scalar string parsing
     while (!is_at_end() && peek() != '"') {
         char c = advance();
         
