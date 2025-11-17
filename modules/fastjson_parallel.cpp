@@ -30,6 +30,9 @@
 // SIMD structural indexing (Phase 1)
 #include "fastjson_simd_index.h"
 
+// NUMA-aware memory allocation
+#include "numa_allocator.h"
+
 namespace fastjson {
 
 // ============================================================================
@@ -48,6 +51,11 @@ struct parse_config {
     // SIMD control
     bool enable_simd = true;       // Enable SIMD optimizations
     bool enable_avx512 = true;     // Enable AVX-512 if available
+    
+    // NUMA control
+    bool enable_numa = true;       // Enable NUMA-aware allocations
+    bool bind_threads_to_numa = true;  // Bind OpenMP threads to NUMA nodes
+    bool use_numa_interleaved = false; // Use interleaved vs node-local allocation
     bool enable_avx2 = true;       // Enable AVX2 if available
     bool enable_sse42 = true;      // Enable SSE4.2 if available
     
@@ -67,12 +75,16 @@ struct parse_config {
 // Global configuration (thread-local for safety)
 thread_local parse_config g_config;
 
+// NUMA topology (shared across threads, initialized once)
+static numa::numa_topology g_numa_topo;
+static std::atomic<bool> g_numa_initialized{false};
+
 // Configuration API
-inline auto set_parse_config(const parse_config& config) -> void {
+auto set_parse_config(const parse_config& config) -> void {
     g_config = config;
 }
 
-inline auto get_parse_config() -> const parse_config& {
+auto get_parse_config() -> const parse_config& {
     return g_config;
 }
 
@@ -1529,8 +1541,30 @@ parallel_parse:
     std::atomic<bool> has_error{false};
     json_error first_error{};
     
+    // Initialize NUMA topology if enabled (once per process)
+    if (g_config.enable_numa && !g_numa_initialized.load(std::memory_order_acquire)) {
+        bool expected = false;
+        if (g_numa_initialized.compare_exchange_strong(expected, true)) {
+            g_numa_topo = numa::detect_numa_topology();
+        }
+    }
+    
     #pragma omp parallel for schedule(dynamic) if(element_spans.size() >= 4)
     for (size_t i = 0; i < element_spans.size(); ++i) {
+        // Bind thread to NUMA node on first iteration
+        if (g_config.enable_numa && g_config.bind_threads_to_numa && g_numa_topo.is_numa_available) {
+            #ifdef _OPENMP
+            static thread_local bool thread_bound = false;
+            if (!thread_bound) {
+                int thread_id = omp_get_thread_num();
+                int num_threads = omp_get_num_threads();
+                int node = numa::get_optimal_node_for_thread(thread_id, num_threads, g_numa_topo.num_nodes);
+                numa::bind_thread_to_numa_node(node);
+                thread_bound = true;
+            }
+            #endif
+        }
+        
         if (has_error.load(std::memory_order_relaxed)) {
             continue;  // Skip if another thread hit an error
         }
@@ -1975,6 +2009,20 @@ auto parser::parse_object_parallel(size_t estimated_size) -> json_result<json_va
     
     #pragma omp parallel for schedule(dynamic) if(kv_spans.size() >= 4)
     for (size_t i = 0; i < kv_spans.size(); ++i) {
+        // Bind thread to NUMA node on first iteration
+        if (g_config.enable_numa && g_config.bind_threads_to_numa && g_numa_topo.is_numa_available) {
+            #ifdef _OPENMP
+            static thread_local bool thread_bound = false;
+            if (!thread_bound) {
+                int thread_id = omp_get_thread_num();
+                int num_threads = omp_get_num_threads();
+                int node = numa::get_optimal_node_for_thread(thread_id, num_threads, g_numa_topo.num_nodes);
+                numa::bind_thread_to_numa_node(node);
+                thread_bound = true;
+            }
+            #endif
+        }
+        
         if (has_error.load(std::memory_order_relaxed)) {
             continue;
         }
