@@ -16,6 +16,7 @@
 #include <atomic>
 #include <cctype>
 #include <iostream>
+#include "unicode.h"
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -51,6 +52,7 @@ struct parse_config {
     // SIMD control
     bool enable_simd = true;       // Enable SIMD optimizations
     bool enable_avx512 = true;     // Enable AVX-512 if available
+    bool enable_neon = true;       // Enable ARM NEON if available
     
     // NUMA control
     bool enable_numa = true;       // Enable NUMA-aware allocations
@@ -233,7 +235,49 @@ struct simd_capabilities {
     bool fma = false;
     bool vnni = false;
     bool amx = false;
+    bool neon = false;  // For ARM
 };
+
+#elif defined(__aarch64__) || defined(_M_ARM64)
+
+struct simd_capabilities {
+    bool neon = false;
+    bool sve = false;   // Scalable Vector Extension (future)
+    bool sve2 = false;  // SVE2 (future)
+    bool dotprod = false; // Dot product instructions
+    bool i8mm = false;  // Int8 matrix multiply
+    // Placeholders for x86 compatibility
+    bool sse2 = false;
+    bool sse42 = false;
+    bool avx2 = false;
+    bool avx512f = false;
+    bool avx512bw = false;
+    bool fma = false;
+    bool vnni = false;
+    bool amx = false;
+};
+
+#else
+
+struct simd_capabilities {
+    bool neon = false;
+    bool sse2 = false;
+    bool sse42 = false;
+    bool avx2 = false;
+    bool avx512f = false;
+    bool avx512bw = false;
+    bool fma = false;
+    bool vnni = false;
+    bool amx = false;
+    bool sve = false;
+    bool sve2 = false;
+    bool dotprod = false;
+    bool i8mm = false;
+};
+
+#endif
+
+#if defined(__x86_64__) || defined(_M_X64)
 
 __attribute__((target("default")))
 static auto detect_simd_capabilities() -> simd_capabilities {
@@ -271,6 +315,65 @@ static auto detect_simd_capabilities() -> simd_capabilities {
 }
 
 static const simd_capabilities g_simd_caps = detect_simd_capabilities();
+
+#elif defined(__aarch64__) || defined(_M_ARM64)
+
+// ARM NEON detection
+static auto detect_simd_capabilities() -> simd_capabilities {
+    simd_capabilities caps;
+    
+    // NEON is mandatory on AArch64
+    caps.neon = true;
+    
+    // Check for optional extensions via hwcaps on Linux
+    #ifdef __linux__
+    #include <sys/auxv.h>
+    #include <asm/hwcap.h>
+    
+    unsigned long hwcaps = getauxval(AT_HWCAP);
+    
+    #ifdef HWCAP_ASIMDDP
+    caps.dotprod = (hwcaps & HWCAP_ASIMDDP) != 0;
+    #endif
+    
+    #ifdef HWCAP_SVE
+    caps.sve = (hwcaps & HWCAP_SVE) != 0;
+    #endif
+    
+    #ifdef HWCAP_SVE2
+    unsigned long hwcaps2 = getauxval(AT_HWCAP2);
+    caps.sve2 = (hwcaps2 & HWCAP_SVE2) != 0;
+    #endif
+    
+    #ifdef HWCAP_I8MM
+    caps.i8mm = (hwcaps & HWCAP_I8MM) != 0;
+    #endif
+    
+    #else
+    // On non-Linux systems, assume basic NEON only
+    caps.neon = true;
+    #endif
+    
+    return caps;
+}
+
+static const simd_capabilities g_simd_caps = detect_simd_capabilities();
+
+#else
+
+static auto detect_simd_capabilities() -> simd_capabilities {
+    return simd_capabilities{}; // No SIMD on unknown platforms
+}
+
+static const simd_capabilities g_simd_caps = detect_simd_capabilities();
+
+#endif
+
+// ============================================================================
+// SIMD Implementations
+// ============================================================================
+
+#if defined(__x86_64__) || defined(_M_X64)
 
 // SIMD whitespace skipping
 __attribute__((target("sse2")))
@@ -352,11 +455,60 @@ static auto skip_whitespace_avx512(std::span<const char> data, size_t start_pos)
     return skip_whitespace_avx2(data, pos);
 }
 
+#elif defined(__aarch64__) || defined(_M_ARM64)
+
+// ARM NEON whitespace skipping
+#include <arm_neon.h>
+
+static auto skip_whitespace_neon(std::span<const char> data, size_t start_pos) -> size_t {
+    size_t pos = start_pos;
+    const size_t size = data.size();
+    
+    while (pos + 16 <= size) {
+        uint8x16_t chunk = vld1q_u8(reinterpret_cast<const uint8_t*>(data.data() + pos));
+        
+        // Compare with whitespace characters
+        uint8x16_t cmp_space = vceqq_u8(chunk, vdupq_n_u8(' '));
+        uint8x16_t cmp_tab = vceqq_u8(chunk, vdupq_n_u8('\t'));
+        uint8x16_t cmp_newline = vceqq_u8(chunk, vdupq_n_u8('\n'));
+        uint8x16_t cmp_return = vceqq_u8(chunk, vdupq_n_u8('\r'));
+        
+        // OR all comparisons together
+        uint8x16_t is_ws = vorrq_u8(vorrq_u8(cmp_space, cmp_tab),
+                                    vorrq_u8(cmp_newline, cmp_return));
+        
+        // Create mask from high bit of each byte
+        // Check if all bytes are whitespace
+        uint64_t mask_low = vgetq_lane_u64(vreinterpretq_u64_u8(is_ws), 0);
+        uint64_t mask_high = vgetq_lane_u64(vreinterpretq_u64_u8(is_ws), 1);
+        
+        if (mask_low != 0xFFFFFFFFFFFFFFFFULL || mask_high != 0xFFFFFFFFFFFFFFFFULL) {
+            // Found non-whitespace, find first occurrence
+            for (size_t i = 0; i < 16 && pos + i < size; ++i) {
+                char c = data[pos + i];
+                if (c != ' ' && c != '\t' && c != '\n' && c != '\r') {
+                    return pos + i;
+                }
+            }
+        }
+        pos += 16;
+    }
+    
+    // Scalar fallback for remaining bytes
+    while (pos < size && (data[pos] == ' ' || data[pos] == '\t' || data[pos] == '\n' || data[pos] == '\r')) {
+        pos++;
+    }
+    return pos;
+}
+
+#endif
+
 static auto skip_whitespace_simd(std::span<const char> data, size_t start_pos) -> size_t {
     if (!g_config.enable_simd) {
         goto scalar_fallback;
     }
     
+    #if defined(__x86_64__) || defined(_M_X64)
     if (g_config.enable_avx512 && g_simd_caps.avx512f && g_simd_caps.avx512bw) {
         return skip_whitespace_avx512(data, start_pos);
     } else if (g_config.enable_avx2 && g_simd_caps.avx2) {
@@ -364,6 +516,11 @@ static auto skip_whitespace_simd(std::span<const char> data, size_t start_pos) -
     } else if (g_config.enable_sse42 && g_simd_caps.sse2) {
         return skip_whitespace_sse2(data, start_pos);
     }
+    #elif defined(__aarch64__) || defined(_M_ARM64)
+    if (g_config.enable_neon && g_simd_caps.neon) {
+        return skip_whitespace_neon(data, start_pos);
+    }
+    #endif
     
 scalar_fallback:
     size_t pos = start_pos;
@@ -372,6 +529,8 @@ scalar_fallback:
     }
     return pos;
 }
+
+#if defined(__x86_64__) || defined(_M_X64)
 
 // SIMD string scanning - find end quote or escape
 __attribute__((target("avx2")))
@@ -412,6 +571,61 @@ static auto find_string_end_avx2(std::span<const char> data, size_t start_pos) -
     
     return pos;
 }
+
+#elif defined(__aarch64__) || defined(_M_ARM64)
+
+// ARM NEON string scanning - find end quote or escape
+static auto find_string_end_neon(std::span<const char> data, size_t start_pos) -> size_t {
+    size_t pos = start_pos;
+    
+    while (pos + 16 <= data.size()) {
+        uint8x16_t chunk = vld1q_u8(reinterpret_cast<const uint8_t*>(data.data() + pos));
+        
+        // Create comparison vectors
+        uint8x16_t quote = vdupq_n_u8('"');
+        uint8x16_t backslash = vdupq_n_u8('\\');
+        uint8x16_t control = vdupq_n_u8(0x20);
+        
+        // Compare
+        uint8x16_t is_quote = vceqq_u8(chunk, quote);
+        uint8x16_t is_backslash = vceqq_u8(chunk, backslash);
+        uint8x16_t is_control = vcltq_u8(chunk, control);  // chunk < 0x20
+        
+        // OR all special character checks
+        uint8x16_t special = vorrq_u8(vorrq_u8(is_quote, is_backslash), is_control);
+        
+        // Check if any special character found
+        uint64_t mask_low = vgetq_lane_u64(vreinterpretq_u64_u8(special), 0);
+        uint64_t mask_high = vgetq_lane_u64(vreinterpretq_u64_u8(special), 1);
+        
+        if (mask_low != 0 || mask_high != 0) {
+            // Found special character, scan to find exact position
+            for (size_t i = 0; i < 16 && pos + i < data.size(); ++i) {
+                char c = data[pos + i];
+                if (c == '"' || c == '\\' || static_cast<unsigned char>(c) < 0x20) {
+                    return pos + i;
+                }
+            }
+        }
+        
+        pos += 16;
+    }
+    
+    // Scalar fallback for remaining bytes
+    while (pos < data.size()) {
+        char c = data[pos];
+        if (c == '"' || c == '\\' || static_cast<unsigned char>(c) < 0x20) {
+            return pos;
+        }
+        pos++;
+    }
+    
+    return pos;
+}
+
+#endif
+
+#if defined(__x86_64__) || defined(_M_X64)
 
 // SIMD number validation - check if all digits/valid number chars
 __attribute__((target("avx2")))
@@ -1038,11 +1252,25 @@ auto parser::parse_string() -> json_result<json_value> {
     value.reserve(64);
     
     // Use SIMD to quickly scan for quotes, escapes, or control chars
+    #if defined(__x86_64__) || defined(_M_X64)
     if (g_config.enable_simd && g_config.enable_avx2 && g_simd_caps.avx2) {
         size_t string_start = pos_;
         
         while (!is_at_end()) {
             size_t special_pos = find_string_end_avx2(input_, pos_);
+    #elif defined(__aarch64__) || defined(_M_ARM64)
+    if (g_config.enable_simd && g_config.enable_neon && g_simd_caps.neon) {
+        size_t string_start = pos_;
+        
+        while (!is_at_end()) {
+            size_t special_pos = find_string_end_neon(input_, pos_);
+    #else
+    if (false) {
+        size_t string_start = pos_;
+        
+        while (!is_at_end()) {
+            size_t special_pos = pos_;  // Dummy
+    #endif
             
             // Copy all the normal characters at once
             if (special_pos > pos_) {
@@ -1062,6 +1290,7 @@ auto parser::parse_string() -> json_result<json_value> {
                 
                 // Validate UTF-8 encoding of the complete string
                 bool is_valid_utf8;
+                #if defined(__x86_64__) || defined(_M_X64)
                 if (g_config.enable_simd && g_config.enable_avx2 && g_simd_caps.avx2) {
                     is_valid_utf8 = validate_utf8_avx2(
                         std::span<const char>(value.data(), value.size()), 0, value.size());
@@ -1069,6 +1298,18 @@ auto parser::parse_string() -> json_result<json_value> {
                     is_valid_utf8 = validate_utf8_scalar(
                         std::span<const char>(value.data(), value.size()), 0, value.size());
                 }
+                #elif defined(__aarch64__) || defined(_M_ARM64)
+                if (g_config.enable_simd && g_config.enable_neon && g_simd_caps.neon) {
+                    is_valid_utf8 = validate_utf8_neon(
+                        std::span<const char>(value.data(), value.size()), 0, value.size());
+                } else {
+                    is_valid_utf8 = validate_utf8_scalar(
+                        std::span<const char>(value.data(), value.size()), 0, value.size());
+                }
+                #else
+                is_valid_utf8 = validate_utf8_scalar(
+                    std::span<const char>(value.data(), value.size()), 0, value.size());
+                #endif
                 
                 if (!is_valid_utf8) {
                     return std::unexpected(make_error(json_error_code::invalid_string,
@@ -1096,36 +1337,18 @@ auto parser::parse_string() -> json_result<json_value> {
                     case 'r':  value += '\r'; break;
                     case 't':  value += '\t'; break;
                     case 'u': {
-                        if (pos_ + 4 > input_.size()) {
+                        // Use unicode module for proper UTF-16 surrogate pair handling
+                        size_t remaining = input_.size() - pos_;
+                        auto result = unicode::decode_json_unicode_escape(
+                            input_.data() + pos_, remaining, value);
+                        
+                        if (!result.has_value()) {
                             return std::unexpected(make_error(json_error_code::invalid_unicode,
-                                "Incomplete Unicode escape"));
+                                result.error()));
                         }
                         
-                        uint32_t codepoint = 0;
-                        for (int i = 0; i < 4; ++i) {
-                            char hex = advance();
-                            if (hex >= '0' && hex <= '9') {
-                                codepoint = (codepoint << 4) | (hex - '0');
-                            } else if (hex >= 'a' && hex <= 'f') {
-                                codepoint = (codepoint << 4) | (hex - 'a' + 10);
-                            } else if (hex >= 'A' && hex <= 'F') {
-                                codepoint = (codepoint << 4) | (hex - 'A' + 10);
-                            } else {
-                                return std::unexpected(make_error(json_error_code::invalid_unicode,
-                                    "Invalid Unicode escape"));
-                            }
-                        }
-                        
-                        if (codepoint <= 0x7F) {
-                            value += static_cast<char>(codepoint);
-                        } else if (codepoint <= 0x7FF) {
-                            value += static_cast<char>(0xC0 | (codepoint >> 6));
-                            value += static_cast<char>(0x80 | (codepoint & 0x3F));
-                        } else {
-                            value += static_cast<char>(0xE0 | (codepoint >> 12));
-                            value += static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F));
-                            value += static_cast<char>(0x80 | (codepoint & 0x3F));
-                        }
+                        // Advance position by number of bytes consumed
+                        pos_ += result.value();
                         break;
                     }
                     default:
@@ -1168,36 +1391,18 @@ auto parser::parse_string() -> json_result<json_value> {
                 case 'r':  value += '\r'; break;
                 case 't':  value += '\t'; break;
                 case 'u': {
-                    if (pos_ + 4 > input_.size()) {
+                    // Use unicode module for proper UTF-16 surrogate pair handling
+                    size_t remaining = input_.size() - pos_;
+                    auto result = unicode::decode_json_unicode_escape(
+                        input_.data() + pos_, remaining, value);
+                    
+                    if (!result.has_value()) {
                         return std::unexpected(make_error(json_error_code::invalid_unicode,
-                            "Incomplete Unicode escape"));
+                            result.error()));
                     }
                     
-                    uint32_t codepoint = 0;
-                    for (int i = 0; i < 4; ++i) {
-                        char hex = advance();
-                        if (hex >= '0' && hex <= '9') {
-                            codepoint = (codepoint << 4) | (hex - '0');
-                        } else if (hex >= 'a' && hex <= 'f') {
-                            codepoint = (codepoint << 4) | (hex - 'a' + 10);
-                        } else if (hex >= 'A' && hex <= 'F') {
-                            codepoint = (codepoint << 4) | (hex - 'A' + 10);
-                        } else {
-                            return std::unexpected(make_error(json_error_code::invalid_unicode,
-                                "Invalid Unicode escape"));
-                        }
-                    }
-                    
-                    if (codepoint <= 0x7F) {
-                        value += static_cast<char>(codepoint);
-                    } else if (codepoint <= 0x7FF) {
-                        value += static_cast<char>(0xC0 | (codepoint >> 6));
-                        value += static_cast<char>(0x80 | (codepoint & 0x3F));
-                    } else {
-                        value += static_cast<char>(0xE0 | (codepoint >> 12));
-                        value += static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F));
-                        value += static_cast<char>(0x80 | (codepoint & 0x3F));
-                    }
+                    // Advance position by number of bytes consumed
+                    pos_ += result.value();
                     break;
                 }
                 default:

@@ -48,6 +48,17 @@ set(CMAKE_C_COMPILER /opt/clang-21/bin/clang)
 set(CMAKE_MAKE_PROGRAM /usr/local/bin/ninja)
 set(CMAKE_CXX_STANDARD 23)
 
+# Header and library paths for Clang 21 (built from source)
+include_directories(
+    /opt/clang-21/include
+    /opt/clang-21/lib/clang/21/include
+)
+
+link_directories(
+    /opt/clang-21/lib
+    /opt/clang-21/lib/x86_64-unknown-linux-gnu
+)
+
 # MUST use Ninja generator:
 # cmake -G Ninja -DCMAKE_BUILD_TYPE=Release \
 #   -DCMAKE_CXX_COMPILER=/opt/clang-21/bin/clang++ \
