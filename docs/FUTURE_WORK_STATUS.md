@@ -8,12 +8,16 @@
 | Feature | Status | Priority | Notes |
 |---------|--------|----------|-------|
 | SIMD UTF-8 Validation | ✅ Complete | High | 12/12 tests passing, <1% overhead |
+| UTF-16/UTF-32 Support | ✅ Complete | High | 39/39 tests passing, full Unicode compliance |
+| LINQ Query Interface | ✅ Complete | High | 40+ operations, sequential & parallel |
+| Functional Programming | ✅ Complete | High | map, filter, reduce, zip, find, forEach, scan |
+| Prefix Sum (Scan) | ✅ Complete | Medium | Sequential & parallel, custom operations |
 | Prefetching Optimization | ✅ Complete | Medium | 3-4 elements ahead in parallel loops |
 | FMA for Number Parsing | ⚠️ Tested, Not Used | Low | 2.3x slower than strtod, not beneficial |
 | ROCm/HIP GPU Kernels | ✅ Code Complete | High | 331 lines, needs ROCm SDK to compile |
 | NUMA-Aware Allocation | ✅ Complete | High | 69% speedup, full implementation |
 | Work-Stealing Thread Pool | ❌ Not Started | Medium | OpenMP dynamic scheduling sufficient |
-| ARM NEON Support | ❌ Not Started | Medium | Would enable mobile/Apple Silicon |
+| ARM NEON Support | ⚠️ Partial | Medium | Code exists, needs testing |
 
 ---
 

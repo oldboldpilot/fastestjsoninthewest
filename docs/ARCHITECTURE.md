@@ -2,7 +2,7 @@
 
 ## System Architecture Overview
 
-FastestJSONInTheWest implements a multi-layered architecture designed for maximum performance while maintaining thread safety and memory efficiency.
+FastestJSONInTheWest implements a multi-layered architecture designed for maximum performance while maintaining thread safety and memory efficiency. The system includes full Unicode support (UTF-8/16/32), NUMA-aware memory allocation, and a comprehensive LINQ-style query interface with functional programming primitives.
 
 ## Core Architecture Layers
 
@@ -160,9 +160,15 @@ struct json_error {
 - **Testing Framework**: Comprehensive test suite
 
 ### Compiler Support
-- **GCC 13+**: Primary development compiler
-- **Clang 16+**: Alternative compiler support
+- **Clang 21+**: Primary development compiler (C++23 modules)
+- **GCC 13+**: Alternative compiler support
 - **MSVC 19.35+**: Windows platform support
+
+### Key Components
+- **Unicode Module** (`modules/unicode.h`): UTF-16/32 support with surrogate pairs
+- **LINQ Interface** (`modules/json_linq.h`): Query operations (40+ operations)
+- **Parallel LINQ**: OpenMP-based parallel query execution
+- **Functional API**: map, filter, reduce, zip, find, forEach, scan operations
 
 ## Testing Architecture
 

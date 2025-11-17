@@ -11,8 +11,8 @@ project(FastestJSONInTheWest
 )
 
 # Force use of our custom built Clang 21.1.5
-set(CMAKE_CXX_COMPILER "/home/muyiwa/toolchain-build/llvm-build/bin/clang++")
-set(CMAKE_C_COMPILER "/home/muyiwa/toolchain-build/llvm-build/bin/clang")
+set(CMAKE_CXX_COMPILER "/opt/clang-21/bin/clang++")
+set(CMAKE_C_COMPILER "/opt/clang-21/bin/clang")
 
 # Verify we're using the correct compiler
 execute_process(
@@ -27,7 +27,7 @@ else()
     message(FATAL_ERROR "❌ Failed to detect Clang version from ${CMAKE_CXX_COMPILER}")
 endif()
 
-message(STATUS "Using Homebrew Clang 21: ${CMAKE_CXX_COMPILER}")
+message(STATUS "Using Clang 21 from source: ${CMAKE_CXX_COMPILER}")
 
 # Set C++23 standard with modules support
 set(CMAKE_CXX_STANDARD 23)
@@ -38,17 +38,15 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 find_package(OpenMP REQUIRED)
 find_package(Threads REQUIRED)
 
-# Add Homebrew library paths
+# Add Clang 21 library paths
 link_directories(
-    /home/linuxbrew/.linuxbrew/lib
-    /home/linuxbrew/.linuxbrew/Cellar/libomp/21.1.5/lib
-    /home/linuxbrew/.linuxbrew/Cellar/tbb/2022.3.0/lib
+    /opt/clang-21/lib
+    /opt/clang-21/lib/x86_64-unknown-linux-gnu
 )
 
 include_directories(
-    /home/linuxbrew/.linuxbrew/include
-    /home/linuxbrew/.linuxbrew/Cellar/libomp/21.1.5/include
-    /home/linuxbrew/.linuxbrew/Cellar/tbb/2022.3.0/include
+    /opt/clang-21/include
+    /opt/clang-21/lib/clang/21/include
 )
 
 # Find clang-tidy
