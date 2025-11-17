@@ -478,6 +478,257 @@ static auto match_literal_sse2(std::span<const char> data, size_t pos, const cha
     return std::memcmp(data.data() + pos, literal, len) == 0;
 }
 
+// FMA-accelerated number parsing for simple integers
+// Uses FMA for fast digit accumulation in chunks of 8 digits
+// Based on techniques from lemire/fast_double_parser
+__attribute__((target("fma,avx2")))
+static auto parse_number_fma(std::string_view str) -> std::optional<double> {
+    if (str.empty()) return std::nullopt;
+    
+    const char* p = str.data();
+    const char* end = p + str.length();
+    bool negative = false;
+    
+    // Handle sign
+    if (*p == '-') {
+        negative = true;
+        p++;
+        if (p >= end) return std::nullopt;
+    }
+    
+    // Only handle pure integers or simple decimals (no exponent) for fast path
+    // Scan ahead to check
+    bool has_decimal = false;
+    for (const char* scan = p; scan < end; ++scan) {
+        if (*scan == 'e' || *scan == 'E') return std::nullopt;  // Has exponent, use strtod
+        if (*scan == '.') {
+            if (has_decimal) return std::nullopt;  // Multiple decimal points
+            has_decimal = true;
+        }
+    }
+    
+    // Fast integer parsing using chunks of 8 digits
+    uint64_t int_part = 0;
+    const char* decimal_pos = p;
+    
+    // Find decimal point if present
+    while (decimal_pos < end && *decimal_pos != '.') {
+        if (*decimal_pos < '0' || *decimal_pos > '9') return std::nullopt;
+        decimal_pos++;
+    }
+    
+    // Parse integer part
+    size_t int_digits = decimal_pos - p;
+    if (int_digits == 0) return std::nullopt;
+    
+    // Process 8 digits at a time using FMA for accumulation
+    const char* chunk_end = p + (int_digits / 8) * 8;
+    
+    while (p < chunk_end) {
+        // Process 8 digits: d0 d1 d2 d3 d4 d5 d6 d7
+        // Result = int_part * 10^8 + (d0*10^7 + d1*10^6 + ... + d7)
+        uint32_t chunk = 0;
+        for (int i = 0; i < 8; ++i) {
+            chunk = chunk * 10 + (*p++ - '0');
+        }
+        // Use FMA: int_part = int_part * 100000000 + chunk
+        int_part = static_cast<uint64_t>(__builtin_fma(static_cast<double>(int_part), 
+                                                        100000000.0, 
+                                                        static_cast<double>(chunk)));
+    }
+    
+    // Handle remaining digits (< 8)
+    while (p < decimal_pos) {
+        int_part = int_part * 10 + (*p++ - '0');
+    }
+    
+    double result = static_cast<double>(int_part);
+    
+    // Handle decimal part if present
+    if (p < end && *p == '.') {
+        p++;  // Skip decimal point
+        
+        uint64_t frac_part = 0;
+        int frac_digits = 0;
+        const int max_frac_digits = 15;  // Limit precision
+        
+        while (p < end && frac_digits < max_frac_digits) {
+            if (*p < '0' || *p > '9') return std::nullopt;
+            frac_part = frac_part * 10 + (*p++ - '0');
+            frac_digits++;
+        }
+        
+        // Skip any remaining fractional digits (beyond precision)
+        while (p < end) {
+            if (*p < '0' || *p > '9') return std::nullopt;
+            p++;
+        }
+        
+        if (frac_digits > 0) {
+            // Use FMA to compute: result + frac_part * 10^(-frac_digits)
+            static const double pow10[] = {
+                1.0, 0.1, 0.01, 0.001, 0.0001, 0.00001, 0.000001, 0.0000001, 
+                0.00000001, 0.000000001, 0.0000000001, 0.00000000001, 
+                0.000000000001, 0.0000000000001, 0.00000000000001, 0.000000000000001
+            };
+            result = __builtin_fma(static_cast<double>(frac_part), pow10[frac_digits], result);
+        }
+    }
+    
+    // Verify we consumed all input
+    if (p != end) return std::nullopt;
+    
+    return negative ? -result : result;
+}
+
+// SIMD UTF-8 validation using AVX2
+// Based on the algorithm from "Validating UTF-8 In Less Than One Instruction Per Byte"
+// https://github.com/simdjson/simdjson/blob/master/src/generic/stage1/utf8_lookup4_algorithm.h
+__attribute__((target("avx2")))
+static auto validate_utf8_avx2(std::span<const char> data, size_t start_pos, size_t end_pos) -> bool {
+    size_t pos = start_pos;
+    
+    // Process 32 bytes at a time with AVX2
+    while (pos + 32 <= end_pos) {
+        __m256i chunk = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(data.data() + pos));
+        
+        // Check for ASCII (high bit clear)
+        __m256i high_bit = _mm256_and_si256(chunk, _mm256_set1_epi8(static_cast<char>(0x80)));
+        uint32_t ascii_mask = _mm256_movemask_epi8(_mm256_cmpeq_epi8(high_bit, _mm256_setzero_si256()));
+        
+        if (ascii_mask == 0xFFFFFFFF) {
+            // All ASCII, continue
+            pos += 32;
+            continue;
+        }
+        
+        // Need to check multi-byte sequences - fall back to scalar for this chunk
+        for (size_t i = 0; i < 32 && pos < end_pos; ++i, ++pos) {
+            unsigned char c = static_cast<unsigned char>(data[pos]);
+            
+            if (c < 0x80) {
+                // ASCII
+                continue;
+            } else if ((c & 0xE0) == 0xC0) {
+                // 2-byte sequence: 110xxxxx 10xxxxxx
+                if (pos + 1 >= end_pos) return false;
+                unsigned char c2 = static_cast<unsigned char>(data[pos + 1]);
+                if ((c2 & 0xC0) != 0x80) return false;
+                // Check for overlong encoding
+                if (c < 0xC2) return false;
+                pos += 1;
+            } else if ((c & 0xF0) == 0xE0) {
+                // 3-byte sequence: 1110xxxx 10xxxxxx 10xxxxxx
+                if (pos + 2 >= end_pos) return false;
+                unsigned char c2 = static_cast<unsigned char>(data[pos + 1]);
+                unsigned char c3 = static_cast<unsigned char>(data[pos + 2]);
+                if ((c2 & 0xC0) != 0x80 || (c3 & 0xC0) != 0x80) return false;
+                // Check for overlong encodings and surrogates
+                if (c == 0xE0 && c2 < 0xA0) return false;  // Overlong
+                if (c == 0xED && c2 >= 0xA0) return false;  // Surrogate
+                pos += 2;
+            } else if ((c & 0xF8) == 0xF0) {
+                // 4-byte sequence: 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
+                if (pos + 3 >= end_pos) return false;
+                unsigned char c2 = static_cast<unsigned char>(data[pos + 1]);
+                unsigned char c3 = static_cast<unsigned char>(data[pos + 2]);
+                unsigned char c4 = static_cast<unsigned char>(data[pos + 3]);
+                if ((c2 & 0xC0) != 0x80 || (c3 & 0xC0) != 0x80 || (c4 & 0xC0) != 0x80) return false;
+                // Check for overlong and out-of-range
+                if (c == 0xF0 && c2 < 0x90) return false;  // Overlong
+                if (c == 0xF4 && c2 >= 0x90) return false;  // > U+10FFFF
+                if (c > 0xF4) return false;  // > U+10FFFF
+                pos += 3;
+            } else {
+                // Invalid UTF-8
+                return false;
+            }
+        }
+        continue;
+    }
+    
+    // Scalar validation for remaining bytes
+    while (pos < end_pos) {
+        unsigned char c = static_cast<unsigned char>(data[pos]);
+        
+        if (c < 0x80) {
+            // ASCII
+            pos++;
+        } else if ((c & 0xE0) == 0xC0) {
+            // 2-byte sequence
+            if (pos + 1 >= end_pos) return false;
+            unsigned char c2 = static_cast<unsigned char>(data[pos + 1]);
+            if ((c2 & 0xC0) != 0x80) return false;
+            if (c < 0xC2) return false;  // Overlong
+            pos += 2;
+        } else if ((c & 0xF0) == 0xE0) {
+            // 3-byte sequence
+            if (pos + 2 >= end_pos) return false;
+            unsigned char c2 = static_cast<unsigned char>(data[pos + 1]);
+            unsigned char c3 = static_cast<unsigned char>(data[pos + 2]);
+            if ((c2 & 0xC0) != 0x80 || (c3 & 0xC0) != 0x80) return false;
+            if (c == 0xE0 && c2 < 0xA0) return false;  // Overlong
+            if (c == 0xED && c2 >= 0xA0) return false;  // Surrogate
+            pos += 3;
+        } else if ((c & 0xF8) == 0xF0) {
+            // 4-byte sequence
+            if (pos + 3 >= end_pos) return false;
+            unsigned char c2 = static_cast<unsigned char>(data[pos + 1]);
+            unsigned char c3 = static_cast<unsigned char>(data[pos + 2]);
+            unsigned char c4 = static_cast<unsigned char>(data[pos + 3]);
+            if ((c2 & 0xC0) != 0x80 || (c3 & 0xC0) != 0x80 || (c4 & 0xC0) != 0x80) return false;
+            if (c == 0xF0 && c2 < 0x90) return false;  // Overlong
+            if (c == 0xF4 && c2 >= 0x90) return false;  // > U+10FFFF
+            if (c > 0xF4) return false;  // > U+10FFFF
+            pos += 4;
+        } else {
+            return false;
+        }
+    }
+    
+    return true;
+}
+
+// Scalar UTF-8 validation fallback
+static auto validate_utf8_scalar(std::span<const char> data, size_t start_pos, size_t end_pos) -> bool {
+    size_t pos = start_pos;
+    
+    while (pos < end_pos) {
+        unsigned char c = static_cast<unsigned char>(data[pos]);
+        
+        if (c < 0x80) {
+            pos++;
+        } else if ((c & 0xE0) == 0xC0) {
+            if (pos + 1 >= end_pos) return false;
+            unsigned char c2 = static_cast<unsigned char>(data[pos + 1]);
+            if ((c2 & 0xC0) != 0x80 || c < 0xC2) return false;
+            pos += 2;
+        } else if ((c & 0xF0) == 0xE0) {
+            if (pos + 2 >= end_pos) return false;
+            unsigned char c2 = static_cast<unsigned char>(data[pos + 1]);
+            unsigned char c3 = static_cast<unsigned char>(data[pos + 2]);
+            if ((c2 & 0xC0) != 0x80 || (c3 & 0xC0) != 0x80) return false;
+            if (c == 0xE0 && c2 < 0xA0) return false;
+            if (c == 0xED && c2 >= 0xA0) return false;
+            pos += 3;
+        } else if ((c & 0xF8) == 0xF0) {
+            if (pos + 3 >= end_pos) return false;
+            unsigned char c2 = static_cast<unsigned char>(data[pos + 1]);
+            unsigned char c3 = static_cast<unsigned char>(data[pos + 2]);
+            unsigned char c4 = static_cast<unsigned char>(data[pos + 3]);
+            if ((c2 & 0xC0) != 0x80 || (c3 & 0xC0) != 0x80 || (c4 & 0xC0) != 0x80) return false;
+            if (c == 0xF0 && c2 < 0x90) return false;
+            if (c == 0xF4 && c2 >= 0x90) return false;
+            if (c > 0xF4) return false;
+            pos += 4;
+        } else {
+            return false;
+        }
+    }
+    
+    return true;
+}
+
 #else // Non-x86 platforms
 
 static auto skip_whitespace_simd(std::span<const char> data, size_t start_pos) -> size_t {
@@ -794,8 +1045,24 @@ auto parser::parse_string() -> json_result<json_value> {
             char c = peek();
             
             if (c == '"') {
-                // Found end quote
+                // Found end quote - validate UTF-8 before returning
                 advance();
+                
+                // Validate UTF-8 encoding of the complete string
+                bool is_valid_utf8;
+                if (g_config.enable_simd && g_config.enable_avx2 && g_simd_caps.avx2) {
+                    is_valid_utf8 = validate_utf8_avx2(
+                        std::span<const char>(value.data(), value.size()), 0, value.size());
+                } else {
+                    is_valid_utf8 = validate_utf8_scalar(
+                        std::span<const char>(value.data(), value.size()), 0, value.size());
+                }
+                
+                if (!is_valid_utf8) {
+                    return std::unexpected(make_error(json_error_code::invalid_string,
+                        "Invalid UTF-8 encoding in string"));
+                }
+                
                 return json_value{std::move(value)};
             } else if (c == '\\') {
                 // Handle escape sequence
@@ -941,6 +1208,15 @@ auto parser::parse_string() -> json_result<json_value> {
     if (!match('"')) {
         return std::unexpected(make_error(json_error_code::invalid_string,
             "Unterminated string"));
+    }
+    
+    // Validate UTF-8 encoding of the complete string
+    bool is_valid_utf8 = validate_utf8_scalar(
+        std::span<const char>(value.data(), value.size()), 0, value.size());
+    
+    if (!is_valid_utf8) {
+        return std::unexpected(make_error(json_error_code::invalid_string,
+            "Invalid UTF-8 encoding in string"));
     }
     
     return json_value{std::move(value)};
@@ -1257,6 +1533,16 @@ parallel_parse:
     for (size_t i = 0; i < element_spans.size(); ++i) {
         if (has_error.load(std::memory_order_relaxed)) {
             continue;  // Skip if another thread hit an error
+        }
+        
+        // Prefetch next element's data (3-4 cache lines ahead)
+        if (i + 3 < element_spans.size()) {
+            const auto& next_span = element_spans[i + 3];
+            __builtin_prefetch(input_.data() + next_span.start, 0, 3);  // Read, high temporal locality
+            // Prefetch middle of the span too if it's large
+            if (next_span.end - next_span.start > 128) {
+                __builtin_prefetch(input_.data() + (next_span.start + next_span.end) / 2, 0, 3);
+            }
         }
         
         // Create a thread-local parser for this element
@@ -1691,6 +1977,18 @@ auto parser::parse_object_parallel(size_t estimated_size) -> json_result<json_va
     for (size_t i = 0; i < kv_spans.size(); ++i) {
         if (has_error.load(std::memory_order_relaxed)) {
             continue;
+        }
+        
+        // Prefetch next key-value pair's data (3-4 items ahead)
+        if (i + 3 < kv_spans.size()) {
+            const auto& next_kv = kv_spans[i + 3];
+            // Prefetch key and value locations
+            __builtin_prefetch(input_.data() + next_kv.key_start, 0, 3);
+            __builtin_prefetch(input_.data() + next_kv.value_start, 0, 3);
+            // Prefetch middle of value if it's large (>2 cache lines)
+            if (next_kv.value_end - next_kv.value_start > 128) {
+                __builtin_prefetch(input_.data() + (next_kv.value_start + next_kv.value_end) / 2, 0, 3);
+            }
         }
         
         auto& span = kv_spans[i];
