@@ -16,7 +16,15 @@ Welcome to the FastestJSONInTheWest public documentation. This folder contains a
 
 ### Deep Dives
 
-2. **[LINQ_IMPLEMENTATION.md](./LINQ_IMPLEMENTATION.md)**
+2. **[JSON_OBJECT_MAPPING.md](./JSON_OBJECT_MAPPING.md)** 
+   - JSON to C++ type mappings
+   - `std::unordered_map<std::string, json_value>` patterns
+   - Custom class mapping techniques
+   - Error handling strategies
+   - Performance optimization tips
+   - **Best for:** Developers working with complex JSON structures
+
+3. **[LINQ_IMPLEMENTATION.md](./LINQ_IMPLEMENTATION.md)**
    - Detailed LINQ implementation guide
    - Sequential and parallel operations
    - Advanced querying patterns
@@ -24,7 +32,7 @@ Welcome to the FastestJSONInTheWest public documentation. This folder contains a
    - Performance characteristics
    - **Best for:** Data-intensive applications
 
-3. **[BENCHMARK_RESULTS.md](./BENCHMARK_RESULTS.md)**
+4. **[BENCHMARK_RESULTS.md](./BENCHMARK_RESULTS.md)**
    - Comparative performance analysis
    - FastestJSONInTheWest vs simdjson benchmarks
    - Performance metrics across workloads
@@ -33,7 +41,7 @@ Welcome to the FastestJSONInTheWest public documentation. This folder contains a
 
 ### Architecture & Design
 
-4. **[ARCHITECTURE.md](../docs/ARCHITECTURE.md)**
+5. **[ARCHITECTURE.md](../docs/ARCHITECTURE.md)**
    - System design overview
    - Module structure
    - Design patterns used
