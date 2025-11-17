@@ -1,0 +1,1094 @@
+// FastestJSONInTheWest - Parallel SIMD JSON Parser Implementation
+// Copyright (c) 2025 - High-performance JSON parsing with OpenMP, SIMD, and GPU support
+// ============================================================================
+
+#include <string>
+#include <string_view>
+#include <vector>
+#include <unordered_map>
+#include <variant>
+#include <expected>
+#include <algorithm>
+#include <cstring>
+#include <array>
+#include <cmath>
+#include <span>
+#include <atomic>
+#include <cctype>
+#include <iostream>
+
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
+// SIMD intrinsics
+#if defined(__x86_64__) || defined(_M_X64)
+#include <immintrin.h>
+#include <cpuid.h>
+#endif
+
+namespace fastjson {
+
+// ============================================================================
+// Configuration and Settings
+// ============================================================================
+
+struct parse_config {
+    // Parallelism control
+    int num_threads = -1;          // -1 = auto (use OMP_NUM_THREADS or hardware max)
+                                   // 0 = disable parallelism (single-threaded)
+                                   // >0 = use exactly this many threads
+    
+    size_t parallel_threshold = 1000;  // Minimum array/object size for parallel parsing
+    
+    // SIMD control
+    bool enable_simd = true;       // Enable SIMD optimizations
+    bool enable_avx512 = true;     // Enable AVX-512 if available
+    bool enable_avx2 = true;       // Enable AVX2 if available
+    bool enable_sse42 = true;      // Enable SSE4.2 if available
+    
+    // GPU control
+    bool enable_gpu = false;       // Enable GPU acceleration (CUDA/ROCm/SYCL)
+    size_t gpu_threshold = 10000;  // Minimum size for GPU offload
+    
+    // Parsing limits
+    size_t max_depth = 1000;       // Maximum nesting depth
+    size_t max_string_length = 1024 * 1024 * 10;  // 10MB max string
+    
+    // Performance tuning
+    size_t chunk_size = 100;       // Elements per thread chunk in parallel parsing
+    bool use_memory_pool = true;   // Use memory pooling for allocations
+};
+
+// Global configuration (thread-local for safety)
+thread_local parse_config g_config;
+
+// Configuration API
+inline auto set_parse_config(const parse_config& config) -> void {
+    g_config = config;
+}
+
+inline auto get_parse_config() -> const parse_config& {
+    return g_config;
+}
+
+inline auto set_num_threads(int threads) -> void {
+    g_config.num_threads = threads;
+#ifdef _OPENMP
+    if (threads > 0) {
+        omp_set_num_threads(threads);
+    }
+#endif
+}
+
+inline auto get_num_threads() -> int {
+#ifdef _OPENMP
+    if (g_config.num_threads == 0) {
+        return 1;  // Parallelism disabled
+    } else if (g_config.num_threads > 0) {
+        return g_config.num_threads;
+    } else {
+        return omp_get_max_threads();
+    }
+#else
+    return 1;
+#endif
+}
+
+inline auto get_effective_num_threads(size_t data_size) -> int {
+    int max_threads = get_num_threads();
+    if (max_threads == 1 || data_size < g_config.parallel_threshold) {
+        return 1;
+    }
+    // Scale threads based on data size
+    int effective = std::min(max_threads, static_cast<int>(data_size / g_config.chunk_size));
+    return std::max(1, effective);
+}
+
+// ============================================================================
+// JSON Type System
+// ============================================================================
+
+enum class json_error_code {
+    empty_input,
+    extra_tokens,
+    max_depth_exceeded,
+    unexpected_end,
+    invalid_syntax,
+    invalid_literal,
+    invalid_number,
+    invalid_string,
+    invalid_escape,
+    invalid_unicode
+};
+
+struct json_error {
+    json_error_code code;
+    std::string message;
+    size_t line;
+    size_t column;
+};
+
+template<typename T>
+using json_result = std::expected<T, json_error>;
+
+using json_string = std::string;
+using json_number = double;
+using json_boolean = bool;
+using json_null = std::nullptr_t;
+
+class json_value;
+using json_array = std::vector<json_value>;
+using json_object = std::unordered_map<std::string, json_value>;
+
+class json_value {
+public:
+    json_value() : data_(nullptr) {}
+    json_value(std::nullptr_t) : data_(nullptr) {}
+    json_value(bool b) : data_(b) {}
+    json_value(double d) : data_(d) {}
+    json_value(int i) : data_(static_cast<double>(i)) {}
+    json_value(const std::string& s) : data_(s) {}
+    json_value(std::string&& s) : data_(std::move(s)) {}
+    json_value(const json_array& a) : data_(a) {}
+    json_value(json_array&& a) : data_(std::move(a)) {}
+    json_value(const json_object& o) : data_(o) {}
+    json_value(json_object&& o) : data_(std::move(o)) {}
+    
+    // Destructor must be explicitly defined to handle recursive cleanup
+    ~json_value() {
+#ifdef DEBUG_DESTRUCTOR
+        static std::atomic<size_t> destroy_count{0};
+        size_t count = ++destroy_count;
+        
+        std::visit([count](auto&& arg) {
+            using T = std::decay_t<decltype(arg)>;
+            if constexpr (std::is_same_v<T, json_array>) {
+                std::cerr << "Destroying json_array #" << count << " with " << arg.size() << " elements\n";
+            } else if constexpr (std::is_same_v<T, json_object>) {
+                std::cerr << "Destroying json_object #" << count << " with " << arg.size() << " keys\n";
+            } else if constexpr (std::is_same_v<T, json_string>) {
+                std::cerr << "Destroying json_string #" << count << " length=" << arg.length() << "\n";
+            } else {
+                std::cerr << "Destroying json_value #" << count << " (primitive)\n";
+            }
+        }, data_);
+#endif
+        // The variant destructor will call the destructor of the active alternative.
+        // For json_array (std::vector<json_value>) and json_object (std::unordered_map<std::string, json_value>),
+        // their destructors will recursively destroy all contained json_values.
+    }
+    json_value(const json_value&) = default;
+    json_value(json_value&&) noexcept = default;
+    json_value& operator=(const json_value&) = default;
+    json_value& operator=(json_value&&) noexcept = default;
+    
+    auto is_null() const -> bool { return std::holds_alternative<json_null>(data_); }
+    auto is_bool() const -> bool { return std::holds_alternative<json_boolean>(data_); }
+    auto is_number() const -> bool { return std::holds_alternative<json_number>(data_); }
+    auto is_string() const -> bool { return std::holds_alternative<json_string>(data_); }
+    auto is_array() const -> bool { return std::holds_alternative<json_array>(data_); }
+    auto is_object() const -> bool { return std::holds_alternative<json_object>(data_); }
+    
+    auto as_bool() const -> bool { return std::get<json_boolean>(data_); }
+    auto as_number() const -> double { return std::get<json_number>(data_); }
+    auto as_string() const -> const std::string& { return std::get<json_string>(data_); }
+    auto as_array() const -> const json_array& { return std::get<json_array>(data_); }
+    auto as_object() const -> const json_object& { return std::get<json_object>(data_); }
+    
+private:
+    std::variant<json_null, json_boolean, json_number, json_string, json_array, json_object> data_;
+};
+
+// Destructor was moved inline to the class definition above since this is a header-only library
+
+// ============================================================================
+// SIMD Detection and Optimization
+// ============================================================================
+
+#if defined(__x86_64__) || defined(_M_X64)
+
+struct simd_capabilities {
+    bool sse2 = false;
+    bool sse42 = false;
+    bool avx2 = false;
+    bool avx512f = false;
+    bool avx512bw = false;
+    bool fma = false;
+    bool vnni = false;
+    bool amx = false;
+};
+
+__attribute__((target("default")))
+static auto detect_simd_capabilities() -> simd_capabilities {
+    unsigned int eax, ebx, ecx, edx;
+    
+    bool has_sse2 = false, has_sse42 = false, has_fma = false;
+    bool has_avx2 = false, has_avx512f = false, has_avx512bw = false;
+    bool has_vnni = false, has_amx = false;
+    
+    // Check CPUID support
+    if (__get_cpuid(1, &eax, &ebx, &ecx, &edx)) {
+        has_sse2 = (edx & bit_SSE2) != 0;
+        has_sse42 = (ecx & bit_SSE4_2) != 0;
+        has_fma = (ecx & bit_FMA) != 0;
+        
+        if (__get_cpuid_count(7, 0, &eax, &ebx, &ecx, &edx)) {
+            has_avx2 = (ebx & bit_AVX2) != 0;
+            has_avx512f = (ebx & bit_AVX512F) != 0;
+            has_avx512bw = (ebx & bit_AVX512BW) != 0;
+            has_vnni = (ecx & bit_AVX512VNNI) != 0;
+            has_amx = (edx & (1 << 24)) != 0;  // AMX-TILE
+        }
+    }
+    
+    return simd_capabilities{
+        .sse2 = has_sse2,
+        .sse42 = has_sse42,
+        .avx2 = has_avx2,
+        .avx512f = has_avx512f,
+        .avx512bw = has_avx512bw,
+        .fma = has_fma,
+        .vnni = has_vnni,
+        .amx = has_amx
+    };
+}
+
+static const simd_capabilities g_simd_caps = detect_simd_capabilities();
+
+// SIMD whitespace skipping
+__attribute__((target("sse2")))
+static auto skip_whitespace_sse2(std::span<const char> data, size_t start_pos) -> size_t {
+    size_t pos = start_pos;
+    const size_t size = data.size();
+    
+    while (pos + 16 <= size) {
+        __m128i chunk = _mm_loadu_si128(reinterpret_cast<const __m128i*>(data.data() + pos));
+        __m128i cmp_space = _mm_cmpeq_epi8(chunk, _mm_set1_epi8(' '));
+        __m128i cmp_tab = _mm_cmpeq_epi8(chunk, _mm_set1_epi8('\t'));
+        __m128i cmp_newline = _mm_cmpeq_epi8(chunk, _mm_set1_epi8('\n'));
+        __m128i cmp_return = _mm_cmpeq_epi8(chunk, _mm_set1_epi8('\r'));
+        
+        __m128i is_ws = _mm_or_si128(_mm_or_si128(cmp_space, cmp_tab),
+                                     _mm_or_si128(cmp_newline, cmp_return));
+        
+        int mask = _mm_movemask_epi8(is_ws);
+        if (mask != 0xFFFF) {
+            int first_non_ws = __builtin_ctz(~mask & 0xFFFF);
+            return pos + first_non_ws;
+        }
+        pos += 16;
+    }
+    
+    while (pos < size && (data[pos] == ' ' || data[pos] == '\t' || data[pos] == '\n' || data[pos] == '\r')) {
+        pos++;
+    }
+    return pos;
+}
+
+__attribute__((target("avx2")))
+static auto skip_whitespace_avx2(std::span<const char> data, size_t start_pos) -> size_t {
+    size_t pos = start_pos;
+    const size_t size = data.size();
+    
+    while (pos + 32 <= size) {
+        __m256i chunk = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(data.data() + pos));
+        __m256i cmp_space = _mm256_cmpeq_epi8(chunk, _mm256_set1_epi8(' '));
+        __m256i cmp_tab = _mm256_cmpeq_epi8(chunk, _mm256_set1_epi8('\t'));
+        __m256i cmp_newline = _mm256_cmpeq_epi8(chunk, _mm256_set1_epi8('\n'));
+        __m256i cmp_return = _mm256_cmpeq_epi8(chunk, _mm256_set1_epi8('\r'));
+        
+        __m256i is_ws = _mm256_or_si256(_mm256_or_si256(cmp_space, cmp_tab),
+                                        _mm256_or_si256(cmp_newline, cmp_return));
+        
+        int mask = _mm256_movemask_epi8(is_ws);
+        if (mask != 0xFFFFFFFF) {
+            int first_non_ws = __builtin_ctz(~mask);
+            return pos + first_non_ws;
+        }
+        pos += 32;
+    }
+    
+    return skip_whitespace_sse2(data, pos);
+}
+
+__attribute__((target("avx512f,avx512bw")))
+static auto skip_whitespace_avx512(std::span<const char> data, size_t start_pos) -> size_t {
+    size_t pos = start_pos;
+    const size_t size = data.size();
+    
+    while (pos + 64 <= size) {
+        __m512i chunk = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(data.data() + pos));
+        __mmask64 cmp_space = _mm512_cmpeq_epi8_mask(chunk, _mm512_set1_epi8(' '));
+        __mmask64 cmp_tab = _mm512_cmpeq_epi8_mask(chunk, _mm512_set1_epi8('\t'));
+        __mmask64 cmp_newline = _mm512_cmpeq_epi8_mask(chunk, _mm512_set1_epi8('\n'));
+        __mmask64 cmp_return = _mm512_cmpeq_epi8_mask(chunk, _mm512_set1_epi8('\r'));
+        
+        __mmask64 is_ws = cmp_space | cmp_tab | cmp_newline | cmp_return;
+        
+        if (is_ws != 0xFFFFFFFFFFFFFFFF) {
+            int first_non_ws = __builtin_ctzll(~is_ws);
+            return pos + first_non_ws;
+        }
+        pos += 64;
+    }
+    
+    return skip_whitespace_avx2(data, pos);
+}
+
+static auto skip_whitespace_simd(std::span<const char> data, size_t start_pos) -> size_t {
+    if (!g_config.enable_simd) {
+        goto scalar_fallback;
+    }
+    
+    if (g_config.enable_avx512 && g_simd_caps.avx512f && g_simd_caps.avx512bw) {
+        return skip_whitespace_avx512(data, start_pos);
+    } else if (g_config.enable_avx2 && g_simd_caps.avx2) {
+        return skip_whitespace_avx2(data, start_pos);
+    } else if (g_config.enable_sse42 && g_simd_caps.sse2) {
+        return skip_whitespace_sse2(data, start_pos);
+    }
+    
+scalar_fallback:
+    size_t pos = start_pos;
+    while (pos < data.size() && (data[pos] == ' ' || data[pos] == '\t' || data[pos] == '\n' || data[pos] == '\r')) {
+        pos++;
+    }
+    return pos;
+}
+
+#else // Non-x86 platforms
+
+static auto skip_whitespace_simd(std::span<const char> data, size_t start_pos) -> size_t {
+    size_t pos = start_pos;
+    while (pos < data.size() && (data[pos] == ' ' || data[pos] == '\t' || data[pos] == '\n' || data[pos] == '\r')) {
+        pos++;
+    }
+    return pos;
+}
+
+#endif
+
+// ============================================================================
+// Parser Implementation
+// ============================================================================
+
+class parser {
+public:
+    parser(std::string_view input);
+    auto parse() -> json_result<json_value>;
+    
+private:
+    auto parse_value() -> json_result<json_value>;
+    auto parse_null() -> json_result<json_value>;
+    auto parse_boolean() -> json_result<json_value>;
+    auto parse_number() -> json_result<json_value>;
+    auto parse_string() -> json_result<json_value>;
+    auto parse_array() -> json_result<json_value>;
+    auto parse_array_parallel(size_t estimated_size) -> json_result<json_value>;
+    auto parse_object() -> json_result<json_value>;
+    auto parse_object_parallel(size_t estimated_size) -> json_result<json_value>;
+    
+    auto skip_whitespace() -> void;
+    auto peek() const noexcept -> char;
+    auto advance() noexcept -> char;
+    auto match(char expected) noexcept -> bool;
+    auto is_at_end() const noexcept -> bool;
+    auto make_error(json_error_code code, std::string message) const -> json_error;
+    auto current_ptr() const noexcept -> const char*;
+    
+    std::string_view input_;
+    size_t pos_;
+    size_t line_;
+    size_t column_;
+    size_t depth_;
+};
+
+parser::parser(std::string_view input)
+    : input_(input)
+    , pos_(0)
+    , line_(1)
+    , column_(1)
+    , depth_(0) {}
+
+auto parser::parse() -> json_result<json_value> {
+    skip_whitespace();
+    if (is_at_end()) {
+        return std::unexpected(make_error(json_error_code::empty_input, "Empty input"));
+    }
+    
+    auto result = parse_value();
+    if (!result) {
+        return result;
+    }
+    
+    skip_whitespace();
+    if (!is_at_end()) {
+        return std::unexpected(make_error(json_error_code::extra_tokens,
+            "Unexpected characters after JSON value"));
+    }
+    
+    return result;
+}
+
+auto parser::current_ptr() const noexcept -> const char* {
+    return input_.data() + pos_;
+}
+
+auto parser::skip_whitespace() -> void {
+    pos_ = skip_whitespace_simd(std::span<const char>(input_.data(), input_.size()), pos_);
+}
+
+auto parser::peek() const noexcept -> char {
+    return is_at_end() ? '\0' : input_[pos_];
+}
+
+auto parser::advance() noexcept -> char {
+    if (is_at_end()) return '\0';
+    char c = input_[pos_++];
+    if (c == '\n') {
+        line_++;
+        column_ = 1;
+    } else {
+        column_++;
+    }
+    return c;
+}
+
+auto parser::match(char expected) noexcept -> bool {
+    if (is_at_end() || input_[pos_] != expected) return false;
+    advance();
+    return true;
+}
+
+auto parser::is_at_end() const noexcept -> bool {
+    return pos_ >= input_.size();
+}
+
+auto parser::make_error(json_error_code code, std::string message) const -> json_error {
+    return json_error{code, std::move(message), line_, column_};
+}
+
+auto parser::parse_value() -> json_result<json_value> {
+    if (depth_ >= g_config.max_depth) {
+        return std::unexpected(make_error(json_error_code::max_depth_exceeded,
+            "Maximum nesting depth exceeded"));
+    }
+    
+    skip_whitespace();
+    
+    if (is_at_end()) {
+        return std::unexpected(make_error(json_error_code::unexpected_end,
+            "Unexpected end of input"));
+    }
+    
+    char c = peek();
+    
+    switch (c) {
+        case 'n': return parse_null();
+        case 't':
+        case 'f': return parse_boolean();
+        case '"': return parse_string();
+        case '[': return parse_array();
+        case '{': return parse_object();
+        case '-':
+        case '0': case '1': case '2': case '3': case '4':
+        case '5': case '6': case '7': case '8': case '9':
+            return parse_number();
+        default:
+            return std::unexpected(make_error(json_error_code::invalid_syntax,
+                "Unexpected character: " + std::string(1, c)));
+    }
+}
+
+auto parser::parse_null() -> json_result<json_value> {
+    if (!match('n') || !match('u') || !match('l') || !match('l')) {
+        return std::unexpected(make_error(json_error_code::invalid_literal,
+            "Invalid null literal"));
+    }
+    return json_value{};
+}
+
+auto parser::parse_boolean() -> json_result<json_value> {
+    if (match('t')) {
+        if (!match('r') || !match('u') || !match('e')) {
+            return std::unexpected(make_error(json_error_code::invalid_literal,
+                "Invalid true literal"));
+        }
+        return json_value{true};
+    } else if (match('f')) {
+        if (!match('a') || !match('l') || !match('s') || !match('e')) {
+            return std::unexpected(make_error(json_error_code::invalid_literal,
+                "Invalid false literal"));
+        }
+        return json_value{false};
+    }
+    
+    return std::unexpected(make_error(json_error_code::invalid_literal,
+        "Invalid boolean literal"));
+}
+
+auto parser::parse_number() -> json_result<json_value> {
+    size_t start_pos = pos_;
+    
+    if (peek() == '-') advance();
+    
+    if (peek() == '0') {
+        advance();
+    } else if (peek() >= '1' && peek() <= '9') {
+        advance();
+        while (peek() >= '0' && peek() <= '9') advance();
+    } else {
+        return std::unexpected(make_error(json_error_code::invalid_number,
+            "Invalid number format"));
+    }
+    
+    if (peek() == '.') {
+        advance();
+        if (!(peek() >= '0' && peek() <= '9')) {
+            return std::unexpected(make_error(json_error_code::invalid_number,
+                "Invalid decimal number"));
+        }
+        while (peek() >= '0' && peek() <= '9') advance();
+    }
+    
+    if (peek() == 'e' || peek() == 'E') {
+        advance();
+        if (peek() == '+' || peek() == '-') advance();
+        if (!(peek() >= '0' && peek() <= '9')) {
+            return std::unexpected(make_error(json_error_code::invalid_number,
+                "Invalid exponent"));
+        }
+        while (peek() >= '0' && peek() <= '9') advance();
+    }
+    
+    // Use string_view directly
+    std::string_view number_str = input_.substr(start_pos, pos_ - start_pos);
+    
+    thread_local std::array<char, 64> buffer;
+    size_t length = std::min(pos_ - start_pos, buffer.size() - 1);
+    std::memcpy(buffer.data(), input_.data() + start_pos, length);
+    buffer[length] = '\0';
+    
+    char* end_ptr;
+    double value = std::strtod(buffer.data(), &end_ptr);
+    
+    if (end_ptr != buffer.data() + length) {
+        return std::unexpected(make_error(json_error_code::invalid_number,
+            "Failed to parse number"));
+    }
+    
+    return json_value{value};
+}
+
+auto parser::parse_string() -> json_result<json_value> {
+    if (!match('"')) {
+        return std::unexpected(make_error(json_error_code::invalid_string,
+            "Expected opening quote"));
+    }
+    
+    std::string value;
+    value.reserve(64);
+    
+    while (!is_at_end() && peek() != '"') {
+        char c = advance();
+        
+        if (c == '\\') {
+            if (is_at_end()) {
+                return std::unexpected(make_error(json_error_code::invalid_string,
+                    "Unterminated escape sequence"));
+            }
+            
+            char escaped = advance();
+            switch (escaped) {
+                case '"':  value += '"'; break;
+                case '\\': value += '\\'; break;
+                case '/':  value += '/'; break;
+                case 'b':  value += '\b'; break;
+                case 'f':  value += '\f'; break;
+                case 'n':  value += '\n'; break;
+                case 'r':  value += '\r'; break;
+                case 't':  value += '\t'; break;
+                case 'u': {
+                    if (pos_ + 4 > input_.size()) {
+                        return std::unexpected(make_error(json_error_code::invalid_unicode,
+                            "Incomplete Unicode escape"));
+                    }
+                    
+                    uint32_t codepoint = 0;
+                    for (int i = 0; i < 4; ++i) {
+                        char hex = advance();
+                        if (hex >= '0' && hex <= '9') {
+                            codepoint = (codepoint << 4) | (hex - '0');
+                        } else if (hex >= 'a' && hex <= 'f') {
+                            codepoint = (codepoint << 4) | (hex - 'a' + 10);
+                        } else if (hex >= 'A' && hex <= 'F') {
+                            codepoint = (codepoint << 4) | (hex - 'A' + 10);
+                        } else {
+                            return std::unexpected(make_error(json_error_code::invalid_unicode,
+                                "Invalid Unicode escape"));
+                        }
+                    }
+                    
+                    if (codepoint <= 0x7F) {
+                        value += static_cast<char>(codepoint);
+                    } else if (codepoint <= 0x7FF) {
+                        value += static_cast<char>(0xC0 | (codepoint >> 6));
+                        value += static_cast<char>(0x80 | (codepoint & 0x3F));
+                    } else {
+                        value += static_cast<char>(0xE0 | (codepoint >> 12));
+                        value += static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F));
+                        value += static_cast<char>(0x80 | (codepoint & 0x3F));
+                    }
+                    break;
+                }
+                default:
+                    return std::unexpected(make_error(json_error_code::invalid_escape,
+                        "Invalid escape sequence"));
+            }
+        } else if (static_cast<unsigned char>(c) < 0x20) {
+            return std::unexpected(make_error(json_error_code::invalid_string,
+                "Control character in string"));
+        } else {
+            value += c;
+        }
+        
+        if (value.size() > g_config.max_string_length) {
+            return std::unexpected(make_error(json_error_code::invalid_string,
+                "String exceeds maximum length"));
+        }
+    }
+    
+    if (!match('"')) {
+        return std::unexpected(make_error(json_error_code::invalid_string,
+            "Unterminated string"));
+    }
+    
+    return json_value{std::move(value)};
+}
+
+auto parser::parse_array() -> json_result<json_value> {
+    if (!match('[')) {
+        return std::unexpected(make_error(json_error_code::invalid_syntax,
+            "Expected '['"));
+    }
+    
+    ++depth_;
+    
+    skip_whitespace();
+    
+    if (match(']')) {
+        --depth_;
+        return json_value{json_array{}};
+    }
+    
+    // ALWAYS try parallel version - it will decide internally whether to fall back to sequential
+    return parse_array_parallel(0);  // 0 = unknown size, will be determined during scan
+}
+
+auto parser::parse_array_parallel(size_t estimated_size) -> json_result<json_value> {
+    // Phase 1: Scan to find element boundaries
+    // We need to identify where each array element starts and ends
+    // while respecting nested structures and strings
+    
+    struct element_span {
+        size_t start;
+        size_t end;
+    };
+    
+    std::vector<element_span> element_spans;
+    element_spans.reserve(estimated_size);
+    
+    // Scan forward to find element boundaries
+    size_t scan_pos = pos_;
+    int depth = 0;
+    bool in_string = false;
+    bool escape_next = false;
+    size_t element_start = scan_pos;
+    
+    while (scan_pos < input_.size()) {
+        char c = input_[scan_pos];
+        
+        if (in_string) {
+            if (escape_next) {
+                escape_next = false;
+            } else if (c == '\\') {
+                escape_next = true;
+            } else if (c == '"') {
+                in_string = false;
+            }
+        } else {
+            switch (c) {
+                case '"':
+                    in_string = true;
+                    break;
+                case '[':
+                case '{':
+                    depth++;
+                    break;
+                case ']':
+                    if (depth == 0) {
+                        // End of array - add final element if we have one
+                        if (element_start < scan_pos) {
+                            element_spans.push_back({element_start, scan_pos});
+                        }
+                        goto scan_complete;
+                    }
+                    depth--;
+                    break;
+                case '}':
+                    depth--;
+                    break;
+                case ',':
+                    if (depth == 0) {
+                        // Found element boundary at this level
+                        element_spans.push_back({element_start, scan_pos});
+                        element_start = scan_pos + 1;
+                    }
+                    break;
+            }
+        }
+        scan_pos++;
+    }
+    
+scan_complete:
+    
+    // If we found no elements or very few, fall back to sequential
+    // Debug: show when we use parallel vs sequential
+    #ifdef DEBUG_PARALLEL
+    std::cerr << "Array with " << element_spans.size() << " elements, threshold=" 
+              << (g_config.parallel_threshold / 100) << ", using "
+              << (element_spans.size() >= (g_config.parallel_threshold / 100) ? "PARALLEL" : "SEQUENTIAL") << "\n";
+    #endif
+    
+    if (element_spans.size() < static_cast<size_t>(g_config.parallel_threshold / 100)) {
+        // Sequential fallback: parse elements one by one
+        json_array array;
+        array.reserve(element_spans.size());
+        
+        for (auto& span : element_spans) {
+            std::string_view element_input = input_.substr(span.start, span.end - span.start);
+            
+            // Trim whitespace
+            while (!element_input.empty() && std::isspace(element_input.front())) {
+                element_input.remove_prefix(1);
+            }
+            while (!element_input.empty() && std::isspace(element_input.back())) {
+                element_input.remove_suffix(1);
+            }
+            
+            parser element_parser(element_input);
+            auto result = element_parser.parse_value();
+            
+            if (!result) {
+                --depth_;
+                return std::unexpected(result.error());
+            }
+            
+            array.emplace_back(std::move(*result));
+        }
+        
+        pos_ = scan_pos + 1;  // +1 to skip the ']'
+        --depth_;
+        return json_value{std::move(array)};
+    }
+    
+    // Phase 2: Parse elements in parallel using OpenMP
+    json_array array;
+    array.resize(element_spans.size());
+    
+    std::atomic<bool> has_error{false};
+    json_error first_error{};
+    
+    #pragma omp parallel for schedule(dynamic) if(element_spans.size() >= 4)
+    for (size_t i = 0; i < element_spans.size(); ++i) {
+        if (has_error.load(std::memory_order_relaxed)) {
+            continue;  // Skip if another thread hit an error
+        }
+        
+        // Create a thread-local parser for this element
+        auto& span = element_spans[i];
+        std::string_view element_input = input_.substr(span.start, span.end - span.start);
+        
+        // Trim whitespace from element
+        while (!element_input.empty() && std::isspace(element_input.front())) {
+            element_input.remove_prefix(1);
+        }
+        while (!element_input.empty() && std::isspace(element_input.back())) {
+            element_input.remove_suffix(1);
+        }
+        
+        parser element_parser(element_input);
+        auto result = element_parser.parse_value();
+        
+        if (!result) {
+            bool expected = false;
+            if (has_error.compare_exchange_strong(expected, true)) {
+                first_error = result.error();
+            }
+        } else {
+            array[i] = std::move(*result);
+        }
+    }
+    
+    if (has_error) {
+        --depth_;
+        return std::unexpected(first_error);
+    }
+    
+    // Update parser position to after the array
+    pos_ = scan_pos + 1;  // +1 to skip the ']'
+    
+    --depth_;
+    return json_value{std::move(array)};
+}
+
+// Sequential fallback is handled by calling parse_array() directly
+
+auto parser::parse_object() -> json_result<json_value> {
+    if (!match('{')) {
+        return std::unexpected(make_error(json_error_code::invalid_syntax,
+            "Expected '{'"));
+    }
+    
+    ++depth_;
+    
+    skip_whitespace();
+    
+    if (match('}')) {
+        --depth_;
+        return json_value{json_object{}};
+    }
+    
+    json_object object;
+    
+    while (true) {
+        skip_whitespace();
+        
+        if (peek() != '"') {
+            --depth_;
+            return std::unexpected(make_error(json_error_code::invalid_syntax,
+                "Expected string key in object"));
+        }
+        
+        auto key_result = parse_string();
+        if (!key_result) {
+            --depth_;
+            return std::unexpected(key_result.error());
+        }
+        
+        std::string key = key_result->as_string();
+        
+        skip_whitespace();
+        
+        if (!match(':')) {
+            --depth_;
+            return std::unexpected(make_error(json_error_code::invalid_syntax,
+                "Expected ':' after object key"));
+        }
+        
+        auto value_result = parse_value();
+        if (!value_result) {
+            --depth_;
+            return std::unexpected(value_result.error());
+        }
+        
+        object[std::move(key)] = std::move(*value_result);
+        
+        skip_whitespace();
+        
+        if (match('}')) {
+            break;
+        } else if (match(',')) {
+            skip_whitespace();
+            continue;
+        } else {
+            --depth_;
+            return std::unexpected(make_error(json_error_code::invalid_syntax,
+                "Expected ',' or '}' in object"));
+        }
+    }
+    
+    --depth_;
+    return json_value{std::move(object)};
+}
+
+auto parser::parse_object_parallel(size_t estimated_size) -> json_result<json_value> {
+    // Phase 1: Scan to find key-value pair boundaries
+    struct kv_span {
+        size_t key_start;
+        size_t key_end;
+        size_t value_start;
+        size_t value_end;
+    };
+    
+    std::vector<kv_span> kv_spans;
+    kv_spans.reserve(estimated_size);
+    
+    // Scan forward to find key-value boundaries
+    size_t scan_pos = pos_;
+    int depth = 0;
+    bool in_string = false;
+    bool escape_next = false;
+    
+    size_t key_start = 0, key_end = 0, value_start = 0;
+    enum class scan_state { need_key, need_colon, need_value, need_comma };
+    scan_state state = scan_state::need_key;
+    
+    while (scan_pos < input_.size()) {
+        char c = input_[scan_pos];
+        
+        if (in_string) {
+            if (escape_next) {
+                escape_next = false;
+            } else if (c == '\\') {
+                escape_next = true;
+            } else if (c == '"') {
+                in_string = false;
+                if (state == scan_state::need_key) {
+                    key_end = scan_pos;
+                    state = scan_state::need_colon;
+                }
+            }
+        } else {
+            if (std::isspace(c)) {
+                scan_pos++;
+                continue;
+            }
+            
+            switch (c) {
+                case '"':
+                    in_string = true;
+                    if (state == scan_state::need_key) {
+                        key_start = scan_pos + 1;
+                    }
+                    break;
+                case ':':
+                    if (state == scan_state::need_colon && depth == 0) {
+                        value_start = scan_pos + 1;
+                        state = scan_state::need_value;
+                    }
+                    break;
+                case '[':
+                case '{':
+                    depth++;
+                    break;
+                case ']':
+                    depth--;
+                    break;
+                case '}':
+                    if (depth == 0) {
+                        // End of object
+                        if (state == scan_state::need_value || state == scan_state::need_comma) {
+                            kv_spans.push_back({key_start, key_end, value_start, scan_pos});
+                        }
+                        goto scan_complete;
+                    }
+                    depth--;
+                    break;
+                case ',':
+                    if (depth == 0 && state == scan_state::need_value) {
+                        kv_spans.push_back({key_start, key_end, value_start, scan_pos});
+                        state = scan_state::need_key;
+                    }
+                    break;
+            }
+        }
+        scan_pos++;
+    }
+    
+scan_complete:
+    
+    // If we found very few pairs, fall back to sequential
+    if (kv_spans.size() < static_cast<size_t>(g_config.parallel_threshold / 100)) {
+        return parse_object();  // Use sequential version
+    }
+    
+    // Phase 2: Parse key-value pairs in parallel
+    json_object object;
+    
+    // We need to use a vector of pairs since unordered_map isn't thread-safe for concurrent inserts
+    std::vector<std::pair<std::string, json_value>> pairs(kv_spans.size());
+    
+    std::atomic<bool> has_error{false};
+    json_error first_error{};
+    
+    #pragma omp parallel for schedule(dynamic) if(kv_spans.size() >= 4)
+    for (size_t i = 0; i < kv_spans.size(); ++i) {
+        if (has_error.load(std::memory_order_relaxed)) {
+            continue;
+        }
+        
+        auto& span = kv_spans[i];
+        
+        // Extract key
+        std::string key = std::string(input_.substr(span.key_start, span.key_end - span.key_start));
+        
+        // Parse value
+        std::string_view value_input = input_.substr(span.value_start, span.value_end - span.value_start);
+        
+        // Trim whitespace
+        while (!value_input.empty() && std::isspace(value_input.front())) {
+            value_input.remove_prefix(1);
+        }
+        while (!value_input.empty() && std::isspace(value_input.back())) {
+            value_input.remove_suffix(1);
+        }
+        
+        parser value_parser(value_input);
+        auto result = value_parser.parse_value();
+        
+        if (!result) {
+            bool expected = false;
+            if (has_error.compare_exchange_strong(expected, true)) {
+                first_error = result.error();
+            }
+        } else {
+            pairs[i] = {std::move(key), std::move(*result)};
+        }
+    }
+    
+    if (has_error) {
+        --depth_;
+        return std::unexpected(first_error);
+    }
+    
+    // Move pairs into unordered_map
+    for (auto& pair : pairs) {
+        object[std::move(pair.first)] = std::move(pair.second);
+    }
+    
+    // Update parser position
+    pos_ = scan_pos + 1;  // +1 to skip the '}'
+    
+    --depth_;
+    return json_value{std::move(object)};
+}
+
+// ============================================================================
+// Public API
+// ============================================================================
+
+auto parse(std::string_view input) -> json_result<json_value> {
+    parser p(input);
+    return p.parse();
+}
+
+auto parse_with_config(std::string_view input, const parse_config& config) -> json_result<json_value> {
+    auto old_config = g_config;
+    g_config = config;
+    auto result = parse(input);
+    g_config = old_config;
+    return result;
+}
+
+// Helper functions for creating JSON values
+auto object() -> json_value { return json_value{json_object{}}; }
+auto array() -> json_value { return json_value{json_array{}}; }
+auto null() -> json_value { return json_value{}; }
+
+// Serialization stubs (to be implemented)
+auto stringify(const json_value& v) -> std::string { return "{}"; }
+auto prettify(const json_value& v, int indent) -> std::string { return "{}"; }
+
+} // namespace fastjson

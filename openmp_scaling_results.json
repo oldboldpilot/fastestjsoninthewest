@@ -1,0 +1,96 @@
+{
+  "benchmark": "OpenMP + SIMD Scaling",
+  "input_size_mb": 1.00012,
+  "results": [
+    {
+      "execution_mode": "CPU+OpenMP",
+      "num_threads": 1,
+      "simd_enabled": false,
+      "parse_time_ms": 973.107,
+      "throughput_mbs": 1.02776,
+      "speedup": 1,
+      "efficiency": 1
+    },
+    {
+      "execution_mode": "CPU+OpenMP",
+      "num_threads": 1,
+      "simd_enabled": true,
+      "parse_time_ms": 1035.56,
+      "throughput_mbs": 0.965779,
+      "speedup": 0.939695,
+      "efficiency": 0.939695
+    },
+    {
+      "execution_mode": "CPU+OpenMP",
+      "num_threads": 2,
+      "simd_enabled": false,
+      "parse_time_ms": 1139.92,
+      "throughput_mbs": 0.877356,
+      "speedup": 0.85366,
+      "efficiency": 0.42683
+    },
+    {
+      "execution_mode": "CPU+OpenMP",
+      "num_threads": 4,
+      "simd_enabled": false,
+      "parse_time_ms": 1080.6,
+      "throughput_mbs": 0.925525,
+      "speedup": 0.900529,
+      "efficiency": 0.225132
+    },
+    {
+      "execution_mode": "CPU+OpenMP",
+      "num_threads": 8,
+      "simd_enabled": false,
+      "parse_time_ms": 1154.04,
+      "throughput_mbs": 0.866627,
+      "speedup": 0.843221,
+      "efficiency": 0.105403
+    },
+    {
+      "execution_mode": "CPU+OpenMP",
+      "num_threads": 16,
+      "simd_enabled": false,
+      "parse_time_ms": 1194.18,
+      "throughput_mbs": 0.837494,
+      "speedup": 0.814875,
+      "efficiency": 0.0509297
+    },
+    {
+      "execution_mode": "CPU+OpenMP",
+      "num_threads": 2,
+      "simd_enabled": true,
+      "parse_time_ms": 1112.25,
+      "throughput_mbs": 0.899184,
+      "speedup": 0.874899,
+      "efficiency": 0.437449
+    },
+    {
+      "execution_mode": "CPU+OpenMP",
+      "num_threads": 4,
+      "simd_enabled": true,
+      "parse_time_ms": 1101,
+      "throughput_mbs": 0.908376,
+      "speedup": 0.883842,
+      "efficiency": 0.220961
+    },
+    {
+      "execution_mode": "CPU+OpenMP",
+      "num_threads": 8,
+      "simd_enabled": true,
+      "parse_time_ms": 1116.06,
+      "throughput_mbs": 0.896118,
+      "speedup": 0.871916,
+      "efficiency": 0.108989
+    },
+    {
+      "execution_mode": "CPU+OpenMP",
+      "num_threads": 16,
+      "simd_enabled": true,
+      "parse_time_ms": 1232.51,
+      "throughput_mbs": 0.811447,
+      "speedup": 0.789532,
+      "efficiency": 0.0493457
+    }
+  ]
+}
