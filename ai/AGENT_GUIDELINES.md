@@ -1,5 +1,28 @@
 # FastestJSONInTheWest - AI Agent Development Guidelines
 
+## ⚠️ CRITICAL: Git Author Policy (ENFORCE THIS!)
+
+### MANDATORY Author Configuration
+**Before ANY git commit, ensure:**
+```bash
+git config user.name "Olumuyiwa Oluwasanmi"
+git config --unset user.email  # Privacy - NO email
+```
+
+### Commit Message Rules:
+1. ✅ Author: Olumuyiwa Oluwasanmi ONLY
+2. ❌ NEVER add "Co-authored-by:" lines
+3. ❌ NEVER include email addresses
+4. ❌ NEVER attribute AI assistants (Claude, Copilot, etc.)
+5. ❌ NEVER add "with help from" or similar phrases
+
+### Why:
+- Privacy: No email exposure
+- Clean history: Single author for consistency
+- Professionalism: No AI assistant attribution
+
+**All agents MUST follow this policy. Non-compliance is a critical error.**
+
 ## ⚠️ CRITICAL: Compiler and Build System (NEVER FORGET!)
 
 ### Exact Toolchain Paths - MEMORIZE THESE!

@@ -1,5 +1,55 @@
 # FastestJSONInTheWest - Coding Standards
 
+## ⚠️ CRITICAL: Git Author Policy (MANDATORY)
+
+### Single Author Standard
+**All commits MUST use ONLY this author:**
+```bash
+Author: Olumuyiwa Oluwasanmi
+```
+
+### FORBIDDEN:
+- ❌ NO co-authors (no "Co-authored-by:" lines)
+- ❌ NO email addresses in commits (privacy)
+- ❌ NO AI assistant attribution (Claude, GitHub Copilot, etc.)
+- ❌ NO "with assistance from" messages
+
+### Git Configuration:
+```bash
+git config user.name "Olumuyiwa Oluwasanmi"
+git config --unset user.email  # No email for privacy
+```
+
+### Why This Matters:
+- **Privacy:** No personal email addresses exposed
+- **Consistency:** Single author for all commits
+- **Professionalism:** Clean commit history
+- **Accountability:** Clear ownership
+
+# FastestJSONInTheWest - Coding Standards
+
+## ⚠️ CRITICAL: Git Author Policy
+
+**MANDATORY:** All git commits MUST use the following author information:
+```bash
+Author: Olumuyiwa Oluwasanmi
+Email: (none - privacy)
+```
+
+**Configuration:**
+```bash
+git config user.name "Olumuyiwa Oluwasanmi"
+# Do NOT set user.email - privacy reasons
+```
+
+**NEVER** include:
+- Co-authored-by tags
+- Multiple authors  
+- Email addresses in commits
+- Any other author attribution
+
+This is non-negotiable. All commits, documentation, and code must follow this standard.
+
 ## ⚠️ CRITICAL: Compiler and Toolchain Configuration (READ THIS FIRST!)
 
 ### Primary Toolchain Locations

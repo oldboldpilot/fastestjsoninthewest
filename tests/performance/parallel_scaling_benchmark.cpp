@@ -129,7 +129,7 @@ auto benchmark_parse(const std::string& json_data, int num_threads, bool enable_
     {
         auto warmup_result = fastjson::parse_with_config(json_data, config);
         if (!warmup_result) {
-            std::cerr << "Warmup parse failed\n";
+            std::cerr << "Warmup parse failed: " << warmup_result.error().message << "\n";
             result.parse_time_ms = -1.0;
             return result;
         }
