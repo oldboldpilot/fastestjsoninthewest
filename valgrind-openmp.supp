@@ -1,0 +1,66 @@
+# Valgrind suppression file for OpenMP runtime
+# These are known false positives from OpenMP's thread-local storage
+# and runtime initialization that persist for the process lifetime
+
+{
+   OpenMP-initialization-malloc
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:malloc
+   fun:___kmp_allocate
+   ...
+   fun:__kmp_do_serial_initialize
+}
+
+{
+   OpenMP-thread-local-storage
+   Memcheck:Leak
+   match-leak-kinds: possible,reachable
+   fun:calloc
+   fun:allocate_dtv
+   fun:_dl_allocate_tls
+}
+
+{
+   OpenMP-env-dump
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:malloc
+   fun:___kmp_allocate
+   fun:__kmp_env_dump
+}
+
+{
+   OpenMP-dynamic-locks
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:malloc
+   fun:___kmp_allocate
+   fun:__kmp_init_dynamic_user_locks
+}
+
+{
+   OpenMP-affinity-masks
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:malloc
+   fun:___kmp_allocate
+   fun:*allocate_mask*
+}
+
+{
+   OpenMP-affinity-initialize
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:malloc
+   fun:___kmp_allocate
+   ...
+   fun:__kmp_aux_affinity_initialize*
+}
+
+{
+   OpenMP-reachable
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   obj:*/libomp.so*
+}

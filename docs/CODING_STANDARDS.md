@@ -511,5 +511,257 @@ TEST(JsonParser, ParsesSimpleObject) {
 - **No Leaks**: Zero memory leaks tolerated
 - **Efficient Copying**: Minimize unnecessary copies
 
+## Memory Leak Detection Policy (MANDATORY)
+
+### ⚠️ CRITICAL: Valgrind Verification Required
+
+**ALL major new code MUST be checked for memory leaks with valgrind before commit.**
+
+### What Qualifies as "Major New Code"
+1. New parser implementations or significant parser modifications
+2. New data structures (containers, caches, buffers)
+3. Any code using dynamic memory allocation
+4. SIMD implementations with manual memory management
+5. GPU kernel interfaces and buffer management
+6. Multi-threaded or OpenMP parallel code
+7. Any code involving recursive data structures (e.g., json_value with variant)
+8. File I/O operations with buffers
+9. Network code with buffer management
+10. Third-party library integrations
+
+### Required Valgrind Checks
+
+#### 1. Basic Memory Leak Check
+```bash
+# MANDATORY before every commit of major code
+valgrind --leak-check=full --show-leak-kinds=all \
+         --track-origins=yes \
+         --log-file=valgrind_report.txt \
+         ./your_test_binary
+```
+
+**Success Criteria:**
+- Zero "definitely lost" bytes
+- Zero "indirectly lost" bytes  
+- Zero "possibly lost" bytes (investigate and fix)
+- No invalid read/write operations
+- No invalid free/delete operations
+
+#### 2. Parser-Specific Check
+```bash
+# For JSON parser code
+valgrind --leak-check=full --track-origins=yes \
+         --suppressions=./valgrind_openmp.supp \
+         ./parser_test
+```
+
+#### 3. Multi-threaded Code Check
+```bash
+# For OpenMP/parallel code
+valgrind --tool=helgrind \
+         --log-file=helgrind_report.txt \
+         ./parallel_benchmark
+         
+# Memory leaks in parallel code
+valgrind --leak-check=full --show-leak-kinds=all \
+         --suppressions=./valgrind_openmp.supp \
+         ./parallel_benchmark
+```
+
+### Valgrind Suppression File
+Create `valgrind_openmp.supp` for known false positives:
+```
+{
+   OpenMP_Thread_Pool
+   Memcheck:Leak
+   match-leak-kinds: possible
+   ...
+   fun:__kmp_allocate_team
+   fun:__kmp_register_root
+}
+
+{
+   OpenMP_Dynamic_Locks
+   Memcheck:Leak
+   match-leak-kinds: possible
+   ...
+   fun:__kmp_init_dynamic_user_locks
+}
+```
+
+### Integration with Build System
+
+#### CMake Target
+```cmake
+# Add valgrind target
+find_program(VALGRIND_PATH valgrind)
+if(VALGRIND_PATH)
+    add_custom_target(valgrind_check
+        COMMAND ${VALGRIND_PATH} 
+                --leak-check=full 
+                --show-leak-kinds=all
+                --track-origins=yes
+                --error-exitcode=1
+                --suppressions=${CMAKE_SOURCE_DIR}/valgrind_openmp.supp
+                $<TARGET_FILE:${TEST_TARGET}>
+        DEPENDS ${TEST_TARGET}
+        COMMENT "Running valgrind memory leak detection"
+    )
+endif()
+```
+
+#### Pre-commit Hook
+Create `.git/hooks/pre-commit`:
+```bash
+#!/bin/bash
+# Auto-run valgrind on major code changes
+
+changed_files=$(git diff --cached --name-only | grep -E '\.(cpp|cc)$')
+
+if [[ ! -z "$changed_files" ]]; then
+    echo "Running valgrind checks on modified code..."
+    
+    cd build_tests
+    ninja || exit 1
+    
+    for test in parser_test parallel_scaling_benchmark simd_optimization_benchmark; do
+        if [ -f "./$test" ]; then
+            echo "Checking $test for memory leaks..."
+            valgrind --leak-check=full \
+                     --error-exitcode=1 \
+                     --suppressions=../valgrind_openmp.supp \
+                     ./$test > /dev/null 2>&1
+            
+            if [ $? -ne 0 ]; then
+                echo "❌ Memory leak detected in $test!"
+                echo "Run: valgrind --leak-check=full ./$test"
+                exit 1
+            fi
+        fi
+    done
+    
+    echo "✅ All valgrind checks passed"
+fi
+```
+
+### Continuous Integration
+
+#### GitHub Actions Workflow
+```yaml
+name: Memory Leak Detection
+
+on: [push, pull_request]
+
+jobs:
+  valgrind:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Install Valgrind
+        run: sudo apt-get install -y valgrind
+      
+      - name: Build Tests
+        run: |
+          mkdir build_tests && cd build_tests
+          cmake -G Ninja ..
+          ninja
+      
+      - name: Run Valgrind Checks
+        run: |
+          cd build_tests
+          for test in $(find . -type f -executable); do
+            echo "Checking $test..."
+            valgrind --leak-check=full \
+                     --error-exitcode=1 \
+                     --suppressions=../valgrind_openmp.supp \
+                     $test
+          done
+```
+
+### Interpreting Valgrind Output
+
+#### Leak Categories
+1. **"definitely lost"** - MUST FIX: Direct memory leak
+2. **"indirectly lost"** - MUST FIX: Leaked due to leaked parent
+3. **"possibly lost"** - INVESTIGATE: Might be false positive
+4. **"still reachable"** - ACCEPTABLE: Cleaned up at exit
+
+#### Common Issues
+```cpp
+// ❌ Invalid free detected
+==12345== Invalid free() / delete / delete[] / realloc()
+==12345==    at 0x484A61D: operator delete(void*, unsigned long)
+==12345==  Address 0xd is not stack'd, malloc'd or (recently) free'd
+
+// Root Cause: Uninitialized pointer or double-free
+// Solution: Initialize all pointers, use smart pointers
+```
+
+### Exemptions (Rare)
+Exemptions from valgrind checks require:
+1. Written justification in code comments
+2. Documented in commit message
+3. Approved by senior reviewer
+4. Added to suppression file if false positive
+
+### Failure Response
+If valgrind detects leaks:
+1. **DO NOT COMMIT** - Fix immediately
+2. Run with `--track-origins=yes` to find source
+3. Use `--show-leak-kinds=all` for full detail
+4. Check for:
+   - Uninitialized struct members
+   - Missing destructors
+   - Raw pointer usage
+   - Incorrect variant/optional handling
+   - Missing moves in return statements
+
+### Tools and Resources
+```bash
+# Install valgrind
+sudo apt install valgrind  # Ubuntu/Debian
+brew install valgrind      # macOS (limited support)
+
+# Common valgrind options
+--leak-check=full          # Detailed leak info
+--track-origins=yes        # Track uninitialized values
+--show-leak-kinds=all      # Show all leak types
+--verbose                  # Extra diagnostic info
+--log-file=output.txt      # Save to file
+--error-exitcode=1         # Exit code for CI
+
+# Performance profiling
+valgrind --tool=callgrind ./program
+kcachegrind callgrind.out.*
+```
+
+### Documentation Requirements
+For each major code change, document in commit message:
+```
+fix: Implement parallel JSON parser with OpenMP
+
+- Added configurable threading (num_threads parameter)
+- SIMD optimizations for SSE/AVX/AVX-512
+- GPU support infrastructure
+
+Memory Safety:
+✅ Valgrind clean: 0 bytes leaked, 0 errors
+✅ Helgrind: No data races detected
+✅ All struct members initialized
+✅ Smart pointers used throughout
+✅ No raw pointer usage
+
+Valgrind Report:
+==12345== HEAP SUMMARY:
+==12345==     in use at exit: 0 bytes in 0 blocks
+==12345==   total heap usage: 45,321 allocs, 45,321 frees
+==12345== All heap blocks were freed -- no leaks are possible
+```
+
+---
+
+**ENFORCEMENT: Pull requests with memory leaks will be rejected immediately.**
+
 ---
 *These standards are mandatory for all FastestJSONInTheWest development. Non-compliance will result in code rejection.*

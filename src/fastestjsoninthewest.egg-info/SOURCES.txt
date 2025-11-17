@@ -1,8 +1,0 @@
-LICENSE
-README.md
-pyproject.toml
-src/fastestjsoninthewest.egg-info/PKG-INFO
-src/fastestjsoninthewest.egg-info/SOURCES.txt
-src/fastestjsoninthewest.egg-info/dependency_links.txt
-src/fastestjsoninthewest.egg-info/requires.txt
-src/fastestjsoninthewest.egg-info/top_level.txt
