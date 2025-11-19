@@ -2,6 +2,8 @@
 // Copyright (c) 2025 - High-performance JSON parsing with OpenMP, SIMD, and GPU support
 // ============================================================================
 
+import logger;
+
 #include <string>
 #include <string_view>
 #include <vector>
@@ -179,16 +181,20 @@ public:
         static std::atomic<size_t> destroy_count{0};
         size_t count = ++destroy_count;
         
-        std::visit([count](auto&& arg) {
+        auto& log = logger::Logger::getInstance();
+        std::visit([&log, count](auto&& arg) {
             using T = std::decay_t<decltype(arg)>;
             if constexpr (std::is_same_v<T, json_array>) {
-                std::cerr << "Destroying json_array #" << count << " with " << arg.size() << " elements\n";
+                log.debug("Destroying json_array {} with {} elements", 
+                    logger::Logger::named_args("count", count, "size", arg.size()));
             } else if constexpr (std::is_same_v<T, json_object>) {
-                std::cerr << "Destroying json_object #" << count << " with " << arg.size() << " keys\n";
+                log.debug("Destroying json_object {} with {} keys", 
+                    logger::Logger::named_args("count", count, "size", arg.size()));
             } else if constexpr (std::is_same_v<T, json_string>) {
-                std::cerr << "Destroying json_string #" << count << " length=" << arg.length() << "\n";
+                log.debug("Destroying json_string {} length={}", 
+                    logger::Logger::named_args("count", count, "length", arg.length()));
             } else {
-                std::cerr << "Destroying json_value #" << count << " (primitive)\n";
+                log.debug("Destroying json_value {} (primitive)", count);
             }
         }, data_);
 #endif
@@ -1702,9 +1708,13 @@ parallel_parse:
     // If we found no elements or very few, fall back to sequential
     // Debug: show when we use parallel vs sequential
     #ifdef DEBUG_PARALLEL
-    std::cerr << "Array with " << element_spans.size() << " elements, threshold=" 
-              << (g_config.parallel_threshold / 100) << ", using "
-              << (element_spans.size() >= (g_config.parallel_threshold / 100) ? "PARALLEL" : "SEQUENTIAL") << "\n";
+    auto& log = logger::Logger::getInstance();
+    log.debug("Array with {elements} elements, threshold={threshold}, using {mode}",
+        logger::Logger::named_args(
+            "elements", element_spans.size(),
+            "threshold", g_config.parallel_threshold / 100,
+            "mode", (element_spans.size() >= (g_config.parallel_threshold / 100) ? "PARALLEL" : "SEQUENTIAL")
+        ));
     #endif
     
     if (element_spans.size() < static_cast<size_t>(g_config.parallel_threshold / 100)) {

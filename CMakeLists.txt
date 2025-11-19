@@ -49,6 +49,12 @@ include_directories(
     /opt/clang-21/lib/clang/21/include
 )
 
+# ============================================================================
+# Integrate cpp23-logger submodule
+# ============================================================================
+message(STATUS "Integrating cpp23-logger from submodule")
+add_subdirectory(external/cpp23-logger EXCLUDE_FROM_ALL)
+
 # Find clang-tidy
 find_program(CLANG_TIDY_EXE NAMES clang-tidy-21 clang-tidy
     PATHS /opt/clang-21/bin /usr/local/bin /usr/bin
@@ -195,10 +201,11 @@ else()
     message(STATUS "SIMD Optimizations: Scalar fallback only (no advanced instruction sets detected)")
 endif()
 
-# Link required libraries
+# Link required libraries including logger
 target_link_libraries(fastjson PRIVATE
     OpenMP::OpenMP_CXX
     Threads::Threads
+    logger
 )
 
 # Set runtime library path for Homebrew libraries
@@ -207,59 +214,60 @@ set_target_properties(fastjson PROPERTIES
     INSTALL_RPATH "/home/linuxbrew/.linuxbrew/lib;/home/linuxbrew/.linuxbrew/Cellar/libomp/21.1.5/lib"
 )
 
-# Create test executable for C++23 modules
-add_executable(module_test tests/module_test.cpp)
-target_link_libraries(module_test fastjson)
+# Create test executable for C++23 modules (COMMENTED - file doesn't exist)
+# add_executable(module_test tests/module_test.cpp)
+# target_link_libraries(module_test fastjson logger)
 
-# Trail calling syntax verification test
-add_executable(trail_calling_test tests/trail_calling_test.cpp)
+# Trail calling syntax verification test (COMMENTED - file doesn't exist)
+# add_executable(trail_calling_test tests/trail_calling_test.cpp)
+# target_link_libraries(trail_calling_test logger)
 
-# Comprehensive feature test (SIMD, OpenMP, threading)
-add_executable(feature_test tests/feature_test.cpp)
-target_link_libraries(feature_test OpenMP::OpenMP_CXX Threads::Threads)
-set_target_properties(feature_test PROPERTIES
-    BUILD_RPATH "/home/linuxbrew/.linuxbrew/lib;/home/linuxbrew/.linuxbrew/Cellar/libomp/21.1.5/lib"
-    INSTALL_RPATH "/home/linuxbrew/.linuxbrew/lib;/home/linuxbrew/.linuxbrew/Cellar/libomp/21.1.5/lib"
-)
+# Comprehensive feature test (SIMD, OpenMP, threading) (COMMENTED - file doesn't exist)
+# add_executable(feature_test tests/feature_test.cpp)
+# target_link_libraries(feature_test OpenMP::OpenMP_CXX Threads::Threads logger)
+# set_target_properties(feature_test PROPERTIES
+#     BUILD_RPATH "/home/linuxbrew/.linuxbrew/lib;/home/linuxbrew/.linuxbrew/Cellar/libomp/21.1.5/lib"
+#     INSTALL_RPATH "/home/linuxbrew/.linuxbrew/lib;/home/linuxbrew/.linuxbrew/Cellar/libomp/21.1.5/lib"
+# )
 
-# Add MVP test executable
-add_executable(mvp_test tests/mvp_test.cpp)
-target_link_libraries(mvp_test PRIVATE fastjson ${OpenMP_CXX_LIBRARIES})
+# Add MVP test executable (COMMENTED - file doesn't exist)
+# add_executable(mvp_test tests/mvp_test.cpp)
+# target_link_libraries(mvp_test PRIVATE fastjson ${OpenMP_CXX_LIBRARIES} logger)
 
-# Add SIMD benchmark executable
-add_executable(simd_benchmark tests/simd_benchmark.cpp)
-target_link_libraries(simd_benchmark PRIVATE fastjson ${OpenMP_CXX_LIBRARIES})
+# Add SIMD benchmark executable (COMMENTED - file doesn't exist)
+# add_executable(simd_benchmark tests/simd_benchmark.cpp)
+# target_link_libraries(simd_benchmark PRIVATE fastjson ${OpenMP_CXX_LIBRARIES} logger)
 
 # Apply same compilation options as the library
-target_compile_options(mvp_test PRIVATE
-    -std=c++23
-    -fopenmp
-    -O3
-    -ffast-math
-    -funroll-loops
-    -fvectorize
-    -fslp-vectorize
-    -Wall
-    -Wextra
-    -Wpedantic
-    -Wno-unused-parameter
-    -pthread
-)
+# target_compile_options(mvp_test PRIVATE
+#     -std=c++23
+#     -fopenmp
+#     -O3
+#     -ffast-math
+#     -funroll-loops
+#     -fvectorize
+#     -fslp-vectorize
+#     -Wall
+#     -Wextra
+#     -Wpedantic
+#     -Wno-unused-parameter
+#     -pthread
+# )
 
 # Same comprehensive SIMD options as library
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
-    target_compile_options(mvp_test PRIVATE ${SIMD_FLAGS})
-    target_compile_definitions(mvp_test PRIVATE ${SIMD_DEFINES} FASTJSON_ENABLE_SIMD)
-endif()
+# if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
+#     target_compile_options(mvp_test PRIVATE ${SIMD_FLAGS})
+#     target_compile_definitions(mvp_test PRIVATE ${SIMD_DEFINES} FASTJSON_ENABLE_SIMD)
+# endif()
 
-set_target_properties(mvp_test PROPERTIES
-    BUILD_RPATH "/home/linuxbrew/.linuxbrew/lib;/home/linuxbrew/.linuxbrew/Cellar/libomp/21.1.5/lib"
-    INSTALL_RPATH "/home/linuxbrew/.linuxbrew/lib;/home/linuxbrew/.linuxbrew/Cellar/libomp/21.1.5/lib"
-)
+# set_target_properties(mvp_test PROPERTIES
+#     BUILD_RPATH "/home/linuxbrew/.linuxbrew/lib;/home/linuxbrew/.linuxbrew/Cellar/libomp/21.1.5/lib"
+#     INSTALL_RPATH "/home/linuxbrew/.linuxbrew/lib;/home/linuxbrew/.linuxbrew/Cellar/libomp/21.1.5/lib"
+# )
 
 # Comparative benchmark: FastestJSONInTheWest vs simdjson
 add_executable(comparative_benchmark benchmarks/comparative_benchmark.cpp)
-target_link_libraries(comparative_benchmark PRIVATE ${OpenMP_CXX_LIBRARIES})
+target_link_libraries(comparative_benchmark PRIVATE ${OpenMP_CXX_LIBRARIES} logger)
 target_compile_options(comparative_benchmark PRIVATE
     -std=c++23
     -fopenmp
@@ -275,80 +283,80 @@ target_compile_options(comparative_benchmark PRIVATE
     -pthread
 )
 
-# Simple performance demo using modules
-add_executable(performance_demo tests/performance_demo.cpp)
-target_link_libraries(performance_demo fastjson)
+# Simple performance demo using modules (COMMENTED - file doesn't exist)
+# add_executable(performance_demo tests/performance_demo.cpp)
+# target_link_libraries(performance_demo fastjson logger)
 
-# Comprehensive test using modules
-add_executable(comprehensive_test tests/comprehensive_test.cpp)
-target_link_libraries(comprehensive_test fastjson)
+# Comprehensive test using modules (COMMENTED - file doesn't exist)
+# add_executable(comprehensive_test tests/comprehensive_test.cpp)
+# target_link_libraries(comprehensive_test fastjson logger)
 
-# C++17 Compatible Header-Only Test
-add_executable(test_cpp17
-    test_cpp17.cpp
-)
+# C++17 Compatible Header-Only Test (COMMENTED - file doesn't exist)
+# add_executable(test_cpp17
+#     test_cpp17.cpp
+# )
 
-set_target_properties(test_cpp17 PROPERTIES
-    CXX_STANDARD 17
-    CXX_STANDARD_REQUIRED ON
-    CXX_EXTENSIONS OFF
-)
+# set_target_properties(test_cpp17 PROPERTIES
+#     CXX_STANDARD 17
+#     CXX_STANDARD_REQUIRED ON
+#     CXX_EXTENSIONS OFF
+# )
 
-target_include_directories(test_cpp17 PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+# target_include_directories(test_cpp17 PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
-if(OpenMP_CXX_FOUND)
-    target_link_libraries(test_cpp17 PRIVATE ${OpenMP_CXX_LIBRARIES})
-    target_compile_options(test_cpp17 PRIVATE ${OpenMP_CXX_FLAGS})
-endif()
+# if(OpenMP_CXX_FOUND)
+#     target_link_libraries(test_cpp17 PRIVATE ${OpenMP_CXX_LIBRARIES})
+#     target_compile_options(test_cpp17 PRIVATE ${OpenMP_CXX_FLAGS})
+# endif()
 
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
-    target_compile_options(test_cpp17 PRIVATE ${SIMD_FLAGS})
-    target_compile_definitions(test_cpp17 PRIVATE ${SIMD_DEFINES} FASTJSON_ENABLE_SIMD)
-endif()
+# if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
+#     target_compile_options(test_cpp17 PRIVATE ${SIMD_FLAGS})
+#     target_compile_definitions(test_cpp17 PRIVATE ${SIMD_DEFINES} FASTJSON_ENABLE_SIMD)
+# endif()
 
-target_compile_options(test_cpp17 PRIVATE
-    -O3
-    -ffast-math
-    -funroll-loops
-    -fvectorize
-    -fslp-vectorize
-    -Wall
-    -Wextra
-    -Wpedantic
-    -Wno-unused-parameter
-    -pthread
-)
+# target_compile_options(test_cpp17 PRIVATE
+#     -O3
+#     -ffast-math
+#     -funroll-loops
+#     -fvectorize
+#     -fslp-vectorize
+#     -Wall
+#     -Wextra
+#     -Wpedantic
+#     -Wno-unused-parameter
+#     -pthread
+# )
 
-set_target_properties(test_cpp17 PROPERTIES
-    BUILD_RPATH "/home/linuxbrew/.linuxbrew/lib;/home/linuxbrew/.linuxbrew/Cellar/libomp/21.1.5/lib"
-    INSTALL_RPATH "/home/linuxbrew/.linuxbrew/lib;/home/linuxbrew/.linuxbrew/Cellar/libomp/21.1.5/lib"
-)
+# set_target_properties(test_cpp17 PROPERTIES
+#     BUILD_RPATH "/home/linuxbrew/.linuxbrew/lib;/home/linuxbrew/.linuxbrew/Cellar/libomp/21.1.5/lib"
+#     INSTALL_RPATH "/home/linuxbrew/.linuxbrew/lib;/home/linuxbrew/.linuxbrew/Cellar/libomp/21.1.5/lib"
+# )
 
-# Legacy GCC Support Test (C++17 without SIMD)
-add_executable(test_legacy_cpp17
-    test_cpp17.cpp
-)
+# Legacy GCC Support Test (C++17 without SIMD) (COMMENTED - file doesn't exist)
+# add_executable(test_legacy_cpp17
+#     test_cpp17.cpp
+# )
 
-set_target_properties(test_legacy_cpp17 PROPERTIES
-    CXX_STANDARD 17
-    CXX_STANDARD_REQUIRED ON
-    CXX_EXTENSIONS OFF
-)
+# set_target_properties(test_legacy_cpp17 PROPERTIES
+#     CXX_STANDARD 17
+#     CXX_STANDARD_REQUIRED ON
+#     CXX_EXTENSIONS OFF
+# )
 
-target_include_directories(test_legacy_cpp17 PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+# target_include_directories(test_legacy_cpp17 PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 # Disable SIMD for legacy compatibility test
-target_compile_definitions(test_legacy_cpp17 PRIVATE
-    FASTJSON_LEGACY_MODE
-)
+# target_compile_definitions(test_legacy_cpp17 PRIVATE
+#     FASTJSON_LEGACY_MODE
+# )
 
-target_compile_options(test_legacy_cpp17 PRIVATE
-    -O2
-    -Wall
-    -Wextra
-    -Wpedantic
-    -Wno-unused-parameter
-)
+# target_compile_options(test_legacy_cpp17 PRIVATE
+#     -O2
+#     -Wall
+#     -Wextra
+#     -Wpedantic
+#     -Wno-unused-parameter
+# )
 
 # Print configuration summary
 message(STATUS "=== FastestJSONInTheWest Configuration ===")

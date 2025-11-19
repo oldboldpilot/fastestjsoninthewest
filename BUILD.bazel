@@ -1,0 +1,194 @@
+# FastestJSONInTheWest - Root Bazel Build Configuration
+# Author: Olumuyiwa Oluwasanmi
+# High-Performance C++23 JSON Library with Modules
+
+load("@rules_cc//cc:defs.bzl", "cc_library", "cc_binary", "cc_test")
+
+# FastJSON C++23 module library
+cc_library(
+    name = "fastjson",
+    srcs = [
+        "modules/fastjson.cpp",
+        "modules/fastjson.cppm",
+    ],
+    copts = [
+        "-std=c++23",
+        "-stdlib=libc++",
+        "-fopenmp",
+        "-O3",
+        "-ffast-math",
+        "-funroll-loops",
+        "-fvectorize",
+        "-fslp-vectorize",
+        "-mpopcnt",
+        "-mbmi",
+        "-mbmi2",
+        "-mlzcnt",
+        "-mtune=native",
+        "-fno-omit-frame-pointer",
+        "-fstack-protector-strong",
+        "-D_FORTIFY_SOURCE=2",
+        "-DFASTJSON_ENABLE_SIMD",
+        "-DFASTJSON_THREAD_SAFE",
+    ],
+    linkopts = [
+        "-lc++",
+        "-lpthread",
+        "-fopenmp",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        "@cpp23_logger//:logger",
+    ],
+)
+
+# Module test
+cc_test(
+    name = "module_test",
+    srcs = ["tests/module_test.cpp"],
+    copts = [
+        "-std=c++23",
+        "-stdlib=libc++",
+    ],
+    linkopts = ["-lc++"],
+    deps = [
+        ":fastjson",
+        "@cpp23_logger//:logger",
+    ],
+)
+
+# Trail calling syntax test
+cc_test(
+    name = "trail_calling_test",
+    srcs = ["tests/trail_calling_test.cpp"],
+    copts = [
+        "-std=c++23",
+        "-stdlib=libc++",
+    ],
+    linkopts = ["-lc++"],
+    deps = [
+        "@cpp23_logger//:logger",
+    ],
+)
+
+# Feature test
+cc_test(
+    name = "feature_test",
+    srcs = ["tests/feature_test.cpp"],
+    copts = [
+        "-std=c++23",
+        "-stdlib=libc++",
+        "-fopenmp",
+    ],
+    linkopts = [
+        "-lc++",
+        "-lpthread",
+        "-fopenmp",
+    ],
+    deps = [
+        "@cpp23_logger//:logger",
+    ],
+)
+
+# MVP test
+cc_test(
+    name = "mvp_test",
+    srcs = ["tests/mvp_test.cpp"],
+    copts = [
+        "-std=c++23",
+        "-stdlib=libc++",
+        "-fopenmp",
+        "-O3",
+        "-ffast-math",
+        "-funroll-loops",
+        "-fvectorize",
+        "-fslp-vectorize",
+        "-DFASTJSON_ENABLE_SIMD",
+    ],
+    linkopts = [
+        "-lc++",
+        "-fopenmp",
+    ],
+    deps = [
+        ":fastjson",
+        "@cpp23_logger//:logger",
+    ],
+)
+
+# SIMD benchmark
+cc_binary(
+    name = "simd_benchmark",
+    srcs = ["tests/simd_benchmark.cpp"],
+    copts = [
+        "-std=c++23",
+        "-stdlib=libc++",
+        "-fopenmp",
+        "-O3",
+        "-ffast-math",
+        "-funroll-loops",
+        "-fvectorize",
+        "-fslp-vectorize",
+        "-DFASTJSON_ENABLE_SIMD",
+    ],
+    linkopts = [
+        "-lc++",
+        "-fopenmp",
+    ],
+    deps = [
+        ":fastjson",
+        "@cpp23_logger//:logger",
+    ],
+)
+
+# Performance demo
+cc_binary(
+    name = "performance_demo",
+    srcs = ["tests/performance_demo.cpp"],
+    copts = [
+        "-std=c++23",
+        "-stdlib=libc++",
+    ],
+    linkopts = ["-lc++"],
+    deps = [
+        ":fastjson",
+        "@cpp23_logger//:logger",
+    ],
+)
+
+# Comprehensive test
+cc_test(
+    name = "comprehensive_test",
+    srcs = ["tests/comprehensive_test.cpp"],
+    copts = [
+        "-std=c++23",
+        "-stdlib=libc++",
+    ],
+    linkopts = ["-lc++"],
+    deps = [
+        ":fastjson",
+        "@cpp23_logger//:logger",
+    ],
+)
+
+# Comparative benchmark
+cc_binary(
+    name = "comparative_benchmark",
+    srcs = ["benchmarks/comparative_benchmark.cpp"],
+    copts = [
+        "-std=c++23",
+        "-stdlib=libc++",
+        "-fopenmp",
+        "-O3",
+        "-ffast-math",
+        "-funroll-loops",
+        "-fvectorize",
+        "-fslp-vectorize",
+    ],
+    linkopts = [
+        "-lc++",
+        "-fopenmp",
+    ],
+    deps = [
+        "@cpp23_logger//:logger",
+    ],
+)

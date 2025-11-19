@@ -1,0 +1,58 @@
+# C++23 Logger - Bazel Build Configuration
+#
+# Production-grade thread-safe logger with Mustache templates and fluent API
+#
+# Usage:
+#   bazel build //:logger
+#   bazel test //tests:test_logger
+#
+# Requirements:
+#   - Bazel 7.0+ (for C++23 module support)
+#   - Clang 17+, GCC 14+, or MSVC 19.34+
+#
+# Integration:
+#   In your WORKSPACE file:
+#   ```
+#   load("@bazel_tools//tools/build_defs/repo:git.bzl", "git_repository")
+#
+#   git_repository(
+#       name = "cpp23_logger",
+#       remote = "https://github.com/YOUR_USERNAME/cpp23-logger.git",
+#       tag = "v1.0.0",
+#   )
+#   ```
+#
+#   In your BUILD file:
+#   ```
+#   cc_binary(
+#       name = "my_app",
+#       srcs = ["main.cpp"],
+#       deps = ["@cpp23_logger//:logger"],
+#   )
+#   ```
+
+load("@rules_cc//cc:defs.bzl", "cc_library")
+
+# Logger library
+cc_library(
+    name = "logger",
+    srcs = ["include/logger/logger.cppm"],
+    hdrs = [],
+    copts = [
+        "-std=c++23",
+        "-stdlib=libc++",
+    ],
+    linkopts = [
+        "-lc++",
+        "-lpthread",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [],
+)
+
+# Alias for easier referencing
+alias(
+    name = "cpp23-logger",
+    actual = ":logger",
+    visibility = ["//visibility:public"],
+)
