@@ -313,10 +313,10 @@ target_link_libraries(fastjson PRIVATE
     logger
 )
 
-# Set runtime library path for Homebrew libraries
+# Set runtime library path for Clang 21 libraries
 set_target_properties(fastjson PROPERTIES
-    BUILD_RPATH "/home/linuxbrew/.linuxbrew/lib;/home/linuxbrew/.linuxbrew/Cellar/libomp/21.1.5/lib"
-    INSTALL_RPATH "/home/linuxbrew/.linuxbrew/lib;/home/linuxbrew/.linuxbrew/Cellar/libomp/21.1.5/lib"
+    BUILD_RPATH "/opt/clang-21/lib;/opt/clang-21/lib/x86_64-unknown-linux-gnu"
+    INSTALL_RPATH "/opt/clang-21/lib;/opt/clang-21/lib/x86_64-unknown-linux-gnu"
 )
 
 # Create test executable for C++23 modules (COMMENTED - file doesn't exist)
@@ -386,6 +386,12 @@ target_compile_options(comparative_benchmark PRIVATE
     -Wpedantic
     -Wno-unused-parameter
     -pthread
+)
+
+# Set RPATH for runtime library loading
+set_target_properties(comparative_benchmark PROPERTIES
+    BUILD_RPATH "/opt/clang-21/lib;/opt/clang-21/lib/x86_64-unknown-linux-gnu"
+    INSTALL_RPATH "/opt/clang-21/lib;/opt/clang-21/lib/x86_64-unknown-linux-gnu"
 )
 
 # Simple performance demo using modules (COMMENTED - file doesn't exist)
