@@ -4,6 +4,7 @@
 #include <iostream>
 #include <string>
 #include <vector>
+import logger;
 #include "../modules/fastjson_parallel.cpp"
 
 struct test_case {
@@ -13,6 +14,8 @@ struct test_case {
 };
 
 auto main() -> int {
+    auto& log = logger::Logger::getInstance();
+    
     std::vector<test_case> tests = {
         // Valid UTF-8
         {"ASCII only", R"({"text": "Hello World"})", true},
@@ -35,7 +38,7 @@ auto main() -> int {
     int passed = 0;
     int failed = 0;
     
-    std::cout << "Running UTF-8 validation tests...\n\n";
+    log.info("Running UTF-8 validation tests...\n");
     
     for (const auto& test : tests) {
         try {
@@ -49,37 +52,36 @@ auto main() -> int {
             }
             
             if (test_passed) {
-                std::cout << "✓ PASS: " << test.name << "\n";
+                log.info("✓ PASS: {}", test.name);
                 passed++;
             } else {
-                std::cout << "✗ FAIL: " << test.name << "\n";
+                log.error("✗ FAIL: {}", test.name);
                 if (test.should_pass) {
-                    std::cout << "  Expected: success\n";
-                    std::cout << "  Got: " << (result.has_value() ? "success" : "error") << "\n";
+                    log.error("  Expected: success");
+                    log.error("  Got: {}", (result.has_value() ? "success" : "error"));
                     if (!result.has_value()) {
-                        std::cout << "  Error: " << result.error().message << "\n";
+                        log.error("  Error: {}", result.error().message);
                     }
                 } else {
-                    std::cout << "  Expected: error\n";
-                    std::cout << "  Got: success\n";
+                    log.error("  Expected: error");
+                    log.error("  Got: success");
                 }
                 failed++;
             }
         } catch (const std::exception& e) {
             if (!test.should_pass) {
-                std::cout << "✓ PASS: " << test.name << " (caught exception)\n";
+                log.info("✓ PASS: {} (caught exception)", test.name);
                 passed++;
             } else {
-                std::cout << "✗ FAIL: " << test.name << " (unexpected exception: " 
-                         << e.what() << ")\n";
+                log.error("✗ FAIL: {} (unexpected exception: {})", test.name, e.what());
                 failed++;
             }
         }
     }
     
-    std::cout << "\n========================================\n";
-    std::cout << "Results: " << passed << " passed, " << failed << " failed\n";
-    std::cout << "========================================\n";
+    log.info("\n========================================");
+    log.info("Results: {} passed, {} failed", passed, failed);
+    log.info("========================================");
     
     return failed > 0 ? 1 : 0;
 }
