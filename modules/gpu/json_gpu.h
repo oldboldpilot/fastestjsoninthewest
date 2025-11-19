@@ -4,10 +4,10 @@
 
 #pragma once
 
+#include <cstdint>
+#include <memory>
 #include <string_view>
 #include <vector>
-#include <memory>
-#include <cstdint>
 
 namespace fastjson {
 namespace gpu {
@@ -18,9 +18,9 @@ namespace gpu {
 
 enum class gpu_backend {
     none,
-    cuda,      // NVIDIA CUDA
-    rocm,      // AMD ROCm/HIP
-    sycl,      // Intel oneAPI/SYCL
+    cuda,  // NVIDIA CUDA
+    rocm,  // AMD ROCm/HIP
+    sycl,  // Intel oneAPI/SYCL
     auto_detect
 };
 
@@ -51,26 +51,28 @@ class gpu_buffer {
 public:
     gpu_buffer(size_t size, gpu_backend backend);
     ~gpu_buffer();
-    
+
     // No copy, move only
     gpu_buffer(const gpu_buffer&) = delete;
     gpu_buffer& operator=(const gpu_buffer&) = delete;
     gpu_buffer(gpu_buffer&&) noexcept;
     gpu_buffer& operator=(gpu_buffer&&) noexcept;
-    
+
     // Copy data to/from GPU
     auto copy_to_device(const void* host_ptr, size_t size, size_t offset = 0) -> bool;
     auto copy_from_device(void* host_ptr, size_t size, size_t offset = 0) -> bool;
-    
+
     // Async transfers
     auto copy_to_device_async(const void* host_ptr, size_t size, size_t offset = 0) -> bool;
     auto copy_from_device_async(void* host_ptr, size_t size, size_t offset = 0) -> bool;
-    
+
     // Accessors
     auto device_ptr() -> void* { return device_ptr_; }
+
     auto size() const -> size_t { return size_; }
+
     auto backend() const -> gpu_backend { return backend_; }
-    
+
 private:
     void* device_ptr_ = nullptr;
     size_t size_ = 0;
@@ -95,12 +97,12 @@ struct gpu_parse_config {
 struct gpu_parse_result {
     bool success = false;
     std::string error_message;
-    
+
     // Parsed structure (indices into input for each token)
     std::vector<uint32_t> token_positions;
     std::vector<uint8_t> token_types;
     std::vector<uint32_t> token_lengths;
-    
+
     // Performance metrics
     double transfer_to_gpu_ms = 0.0;
     double kernel_execution_ms = 0.0;
@@ -116,16 +118,16 @@ auto parse_on_gpu(std::string_view input, const gpu_parse_config& config = {}) -
 // ============================================================================
 
 // Whitespace detection kernel
-auto gpu_find_whitespace(const char* input, size_t size, uint32_t* positions, 
-                        size_t* count, gpu_backend backend) -> bool;
+auto gpu_find_whitespace(const char* input, size_t size, uint32_t* positions, size_t* count,
+                         gpu_backend backend) -> bool;
 
-// String scanning kernel  
-auto gpu_find_strings(const char* input, size_t size, uint32_t* positions,
-                     size_t* count, gpu_backend backend) -> bool;
+// String scanning kernel
+auto gpu_find_strings(const char* input, size_t size, uint32_t* positions, size_t* count,
+                      gpu_backend backend) -> bool;
 
 // Number scanning kernel
-auto gpu_find_numbers(const char* input, size_t size, uint32_t* positions,
-                     size_t* count, gpu_backend backend) -> bool;
+auto gpu_find_numbers(const char* input, size_t size, uint32_t* positions, size_t* count,
+                      gpu_backend backend) -> bool;
 
 // Structural character scanning ({}[]:,)
 auto gpu_find_structural_chars(const char* input, size_t size, uint32_t* positions,
@@ -149,5 +151,5 @@ auto benchmark_gpu_vs_cpu(size_t test_size) -> std::vector<gpu_benchmark_result>
 // Get optimal configuration for given input size
 auto get_optimal_gpu_config(size_t input_size, gpu_backend backend) -> gpu_parse_config;
 
-} // namespace gpu
-} // namespace fastjson
+}  // namespace gpu
+}  // namespace fastjson

@@ -4,7 +4,7 @@
 
 ---
 Language: Cpp
-Standard: c++23
+Standard: Latest
 BasedOnStyle: LLVM
 
 # Indentation
