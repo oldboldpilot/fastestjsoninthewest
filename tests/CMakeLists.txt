@@ -1,7 +1,23 @@
 cmake_minimum_required(VERSION 3.20)
+
+# ============================================================================
+# Toolchain Configuration (before project())
+# ============================================================================
+# Configurable toolchain paths - same convention as parent project
+# Can be overridden via: cmake -DCLANG_DEFAULT_PATH=/custom/path ...
+
+# Default toolchain paths (can be overridden)
+set(CLANG_DEFAULT_PATH "/opt/clang-21/bin" CACHE STRING "Default path for Clang binaries")
+set(LIBCXX_DEFAULT_INCLUDE "/opt/clang-21/include/c++/v1" CACHE STRING "Default path for libc++ headers")
+set(LIBCXX_DEFAULT_LIB "/opt/clang-21/lib" CACHE STRING "Default path for libc++ libraries")
+
+# Set compilers using the configurable paths
+set(CMAKE_CXX_COMPILER "${CLANG_DEFAULT_PATH}/clang++")
+set(CMAKE_C_COMPILER "${CLANG_DEFAULT_PATH}/clang")
+
 project(FastestJSONInTheWest_Tests CXX)
 
-# Use system archiver tools (llvm-ar not available in current Clang build)
+# Use system archiver tools
 set(CMAKE_AR "/usr/bin/ar")
 set(CMAKE_RANLIB "/usr/bin/ranlib")
 

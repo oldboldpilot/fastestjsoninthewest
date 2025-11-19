@@ -1,4 +1,18 @@
 cmake_minimum_required(VERSION 3.28)
+
+# ============================================================================
+# Toolchain Configuration (before project())
+# ============================================================================
+# Configurable toolchain paths with fallback detection
+# Can be overridden via: cmake -DCLANG_DEFAULT_PATH=/custom/path ...
+# Or via environment: CC=/custom/clang CXX=/custom/clang++ cmake ...
+# These variables are typically inherited from parent project when using FetchContent
+
+# Default toolchain paths (can be overridden)
+set(CLANG_DEFAULT_PATH "/usr/local/bin" CACHE STRING "Default path for Clang binaries")
+set(LIBCXX_DEFAULT_INCLUDE "/usr/local/include/c++/v1" CACHE STRING "Default path for libc++ headers")
+set(LIBCXX_DEFAULT_LIB "/usr/local/lib" CACHE STRING "Default path for libc++ libraries")
+
 project(cpp23-logger
     VERSION 1.0.0
     DESCRIPTION "Production-grade C++23 logger with Mustache templates and fluent API"
@@ -58,9 +72,15 @@ message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
 # ============================================================================
 # Clang-Tidy Configuration (Optional)
 # ============================================================================
+# Configurable clang-tidy search paths
+set(CLANG_TIDY_SEARCH_PATHS "${CLANG_DEFAULT_PATH}" "/usr/lib/llvm-21/bin" "/usr/lib/llvm-19/bin" CACHE STRING "Search paths for clang-tidy")
 
 if(ENABLE_CLANG_TIDY)
-    find_program(CLANG_TIDY_EXE NAMES clang-tidy)
+    find_program(CLANG_TIDY_EXE
+        NAMES clang-tidy-21 clang-tidy
+        PATHS ${CLANG_TIDY_SEARCH_PATHS}
+        DOC "Path to clang-tidy executable"
+    )
     if(CLANG_TIDY_EXE)
         set(CMAKE_CXX_CLANG_TIDY "${CLANG_TIDY_EXE}")
         message(STATUS "clang-tidy enabled: ${CLANG_TIDY_EXE}")
@@ -169,8 +189,11 @@ install(EXPORT loggerTargets
 
 message(STATUS "")
 message(STATUS "cpp23-logger Configuration:")
-message(STATUS "  Version:         ${PROJECT_VERSION}")
-message(STATUS "  Build tests:     ${BUILD_TESTS}")
-message(STATUS "  Build examples:  ${BUILD_EXAMPLES}")
+message(STATUS "  Version:           ${PROJECT_VERSION}")
+message(STATUS "  Build tests:       ${BUILD_TESTS}")
+message(STATUS "  Build examples:    ${BUILD_EXAMPLES}")
 message(STATUS "  Enable clang-tidy: ${ENABLE_CLANG_TIDY}")
+message(STATUS "  Clang path:        ${CLANG_DEFAULT_PATH}")
+message(STATUS "  libc++ include:    ${LIBCXX_DEFAULT_INCLUDE}")
+message(STATUS "  libc++ lib:        ${LIBCXX_DEFAULT_LIB}")
 message(STATUS "")

@@ -17,6 +17,8 @@ import logger;
 #include <string>
 
 using namespace logger;
+using TemplateValue = Logger::TemplateValue;
+using TemplateParams = Logger::TemplateParams;
 
 // Test 1: Basic array iteration
 auto test_array_iteration() -> void {
@@ -208,6 +210,46 @@ auto test_zip_operation() -> void {
     assert(result == "Alice:25 Bob:30 Charlie:35 ");
 
     std::cout << "  ✓ Zip operation test passed\n";
+}
+
+// Test 8.5: Split operation
+auto test_split_operation() -> void {
+    std::cout << "Testing split operation...\n";
+
+    // Test CSV splitting
+    auto const csv = TemplateValue{"red,green,blue,yellow"};
+    auto const colors = Logger::split(csv, ",");
+
+    TemplateParams params;
+    params["colors"] = colors;
+
+    auto const result = Logger::processTemplate("{{#colors}}{@value} {{/colors}}", params);
+    std::cout << "  Result: " << result << "\n";
+    assert(result == "red green blue yellow ");
+
+    // Test path splitting
+    auto const path = TemplateValue{"/usr/local/bin"};
+    auto const parts = Logger::split(path, "/");
+
+    TemplateParams params2;
+    params2["parts"] = parts;
+
+    auto const result2 = Logger::processTemplate("{{#parts}}[{@value}]{{/parts}}", params2);
+    std::cout << "  Path split: " << result2 << "\n";
+    assert(result2 == "[][usr][local][bin]");
+
+    // Test splitting with multi-character delimiter
+    auto const sentence = TemplateValue{"hello::world::test"};
+    auto const words = Logger::split(sentence, "::");
+
+    TemplateParams params3;
+    params3["words"] = words;
+
+    auto const result3 = Logger::processTemplate("{{#words}}{@value} {{/words}}", params3);
+    std::cout << "  Multi-char delimiter: " << result3 << "\n";
+    assert(result3 == "hello world test ");
+
+    std::cout << "  ✓ Split operation test passed\n";
 }
 
 // Test 9: All operation
@@ -420,6 +462,7 @@ auto main() -> int {
         test_reverse_filter();
         test_slice_filter();
         test_zip_operation();
+        test_split_operation();
         test_all_operation();
         test_none_operation();
         test_not_operation();

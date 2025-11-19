@@ -4,9 +4,21 @@
 
 cmake_minimum_required(VERSION 3.28)
 
-# Force use of our custom built Clang 21.1.5 BEFORE project() call
-set(CMAKE_CXX_COMPILER "/opt/clang-21/bin/clang++")
-set(CMAKE_C_COMPILER "/opt/clang-21/bin/clang")
+# ============================================================================
+# Toolchain Configuration (before project())
+# ============================================================================
+# Configurable toolchain paths with fallback detection
+# Can be overridden via: cmake -DCLANG_DEFAULT_PATH=/custom/path ...
+# Or via environment: CC=/custom/clang CXX=/custom/clang++ cmake ...
+
+# Default toolchain paths (can be overridden)
+set(CLANG_DEFAULT_PATH "/opt/clang-21/bin" CACHE STRING "Default path for Clang binaries")
+set(LIBCXX_DEFAULT_INCLUDE "/opt/clang-21/include/c++/v1" CACHE STRING "Default path for libc++ headers")
+set(LIBCXX_DEFAULT_LIB "/opt/clang-21/lib" CACHE STRING "Default path for libc++ libraries")
+
+# Set compilers using the configurable paths
+set(CMAKE_CXX_COMPILER "${CLANG_DEFAULT_PATH}/clang++")
+set(CMAKE_C_COMPILER "${CLANG_DEFAULT_PATH}/clang")
 
 project(FastestJSONInTheWest 
     VERSION 1.0.0
@@ -38,15 +50,10 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 find_package(OpenMP REQUIRED)
 find_package(Threads REQUIRED)
 
-# Add Clang 21 library paths
+# Add Clang library paths using configurable variables
 link_directories(
-    /opt/clang-21/lib
-    /opt/clang-21/lib/x86_64-unknown-linux-gnu
-)
-
-include_directories(
-    /opt/clang-21/include
-    /opt/clang-21/lib/clang/21/include
+    ${LIBCXX_DEFAULT_LIB}
+    ${LIBCXX_DEFAULT_LIB}/x86_64-unknown-linux-gnu
 )
 
 # ============================================================================
@@ -54,6 +61,13 @@ include_directories(
 # ============================================================================
 # Option to use FetchContent or submodule
 option(USE_FETCHCONTENT_LOGGER "Use FetchContent to fetch cpp23-logger instead of submodule" OFF)
+
+# Pass toolchain configuration to logger submodule
+# These ensure the submodule uses the same compiler and library paths
+set(CLANG_DEFAULT_PATH "${CLANG_DEFAULT_PATH}" CACHE STRING "Clang binary path for submodules" FORCE)
+set(LIBCXX_DEFAULT_INCLUDE "${LIBCXX_DEFAULT_INCLUDE}" CACHE STRING "libc++ include path for submodules" FORCE)
+set(LIBCXX_DEFAULT_LIB "${LIBCXX_DEFAULT_LIB}" CACHE STRING "libc++ library path for submodules" FORCE)
+set(CLANG_TIDY_SEARCH_PATHS "${CLANG_DEFAULT_PATH}" CACHE STRING "clang-tidy search paths for submodules" FORCE)
 
 if(USE_FETCHCONTENT_LOGGER)
     message(STATUS "Using FetchContent to fetch cpp23-logger")
@@ -74,9 +88,9 @@ else()
     endif()
 endif()
 
-# Find clang-tidy
+# Find clang-tidy using configurable path
 find_program(CLANG_TIDY_EXE NAMES clang-tidy-21 clang-tidy
-    PATHS /opt/clang-21/bin /usr/local/bin /usr/bin
+    PATHS ${CLANG_DEFAULT_PATH} /usr/local/bin /usr/bin
     DOC "Path to clang-tidy executable")
 
 # Create FastJSON C++23 module library
@@ -313,10 +327,11 @@ target_link_libraries(fastjson PRIVATE
     logger
 )
 
-# Set runtime library path for Clang 21 libraries
+# Set module output directory and enable position-independent code
 set_target_properties(fastjson PROPERTIES
-    BUILD_RPATH "/opt/clang-21/lib;/opt/clang-21/lib/x86_64-unknown-linux-gnu"
-    INSTALL_RPATH "/opt/clang-21/lib;/opt/clang-21/lib/x86_64-unknown-linux-gnu"
+    POSITION_INDEPENDENT_CODE ON
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
+    ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
 )
 
 # Create test executable for C++23 modules (COMMENTED - file doesn't exist)
@@ -386,12 +401,6 @@ target_compile_options(comparative_benchmark PRIVATE
     -Wpedantic
     -Wno-unused-parameter
     -pthread
-)
-
-# Set RPATH for runtime library loading
-set_target_properties(comparative_benchmark PROPERTIES
-    BUILD_RPATH "/opt/clang-21/lib;/opt/clang-21/lib/x86_64-unknown-linux-gnu"
-    INSTALL_RPATH "/opt/clang-21/lib;/opt/clang-21/lib/x86_64-unknown-linux-gnu"
 )
 
 # Simple performance demo using modules (COMMENTED - file doesn't exist)

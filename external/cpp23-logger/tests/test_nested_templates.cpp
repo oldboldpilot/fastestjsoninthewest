@@ -21,6 +21,8 @@ import logger;
 #include <unordered_map>
 
 using namespace logger;
+using TemplateValue = Logger::TemplateValue;
+using TemplateParams = Logger::TemplateParams;
 
 // Test 1: Simple flat dictionary with std::unordered_map
 auto test_flat_unordered_map() -> void {

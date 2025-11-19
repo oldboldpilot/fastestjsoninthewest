@@ -1199,6 +1199,50 @@ class Logger {
     }
 
     /**
+     * Split a string into an array
+     *
+     * Splits a string value into an array of substrings based on a delimiter.
+     * If the value is not a string, returns an empty array.
+     *
+     * @param value String value to split
+     * @param delimiter Delimiter to split on (default: ",")
+     * @return New TemplateValue with array of split strings
+     *
+     * Examples:
+     * ```cpp
+     * auto str = TemplateValue{"red,green,blue"};
+     * auto colors = Logger::split(str, ",");
+     * // colors is array: ["red", "green", "blue"]
+     *
+     * auto path = TemplateValue{"/home/user/documents"};
+     * auto parts = Logger::split(path, "/");
+     * // parts is array: ["", "home", "user", "documents"]
+     * ```
+     */
+    [[nodiscard]] static auto split(TemplateValue const& value, std::string_view delimiter = ",")
+        -> TemplateValue {
+        auto const str = value.toString();
+        if (str.empty()) {
+            return TemplateValue{TemplateValue::NestedArray{}};
+        }
+
+        TemplateValue::NestedArray result;
+        std::size_t start = 0;
+        std::size_t end = str.find(delimiter);
+
+        while (end != std::string::npos) {
+            result.push_back(TemplateValue{str.substr(start, end - start)});
+            start = end + delimiter.length();
+            end = str.find(delimiter, start);
+        }
+
+        // Add the last part
+        result.push_back(TemplateValue{str.substr(start)});
+
+        return TemplateValue{std::move(result)};
+    }
+
+    /**
      * Zip two arrays together
      *
      * Creates an array of pairs from two input arrays.
