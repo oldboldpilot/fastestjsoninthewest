@@ -127,9 +127,11 @@ module;
 #include <iomanip>
 #include <iostream>
 #include <locale>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <source_location>
+#include <span>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -137,6 +139,7 @@ module;
 #include <type_traits>
 #include <unordered_map>
 #include <utility>
+#include <variant>
 #include <vector>
 
 // ============================================================================
@@ -161,9 +164,7 @@ export namespace logger {
  * Ensures type T can be output to an ostream (required for format())
  */
 template <typename T>
-concept Streamable = requires(std::ostringstream& os, T const& value) {
-    { os << value } -> std::convertible_to<std::ostringstream&>;
-};
+concept Streamable = requires(std::ostringstream& os, T value) { os << value; };
 
 /**
  * Concept: StringConvertible
@@ -175,21 +176,24 @@ concept StringConvertible =
     std::is_fundamental_v<std::remove_cvref_t<T>> ||
     std::is_convertible_v<std::remove_cvref_t<T>, std::string_view> ||
     std::is_convertible_v<std::remove_cvref_t<T>, std::string> ||
-    std::is_same_v<std::remove_cvref_t<T>, char const*> ||
-    Streamable<std::remove_cvref_t<T>>;
+    std::is_same_v<std::remove_cvref_t<T>, char const*> || Streamable<std::remove_cvref_t<T>>;
 
 /**
  * Concept: LoggableValue
  * Top-level constraint for values that can be logged
  * Combines StringConvertible with additional safety checks
+ * Allows: fundamental types, strings, const char*, char* (for C APIs), char arrays (string
+ * literals), and streamable types Prevents: arbitrary pointer types (security risk)
  */
 template <typename T>
 concept LoggableValue =
     StringConvertible<T> &&
-    (std::is_copy_constructible_v<std::remove_cvref_t<T>> ||
+    (std::is_array_v<std::remove_cvref_t<T>> || // Allow string literals (char[N])
+     std::is_copy_constructible_v<std::remove_cvref_t<T>> ||
      std::is_move_constructible_v<std::remove_cvref_t<T>>) &&
     (!std::is_pointer_v<std::remove_cvref_t<T>> ||
-     std::is_same_v<std::remove_cvref_t<T>, char const*>);
+     std::is_same_v<std::remove_cvref_t<T>, char const*> ||
+     std::is_same_v<std::remove_cvref_t<T>, char*>);
 
 /**
  * ============================================================================
@@ -566,24 +570,67 @@ class Logger {
      */
 
     /**
-     * Type-safe template parameter value wrapper
+     * Type-safe template parameter value wrapper with nested map and array support
      *
-     * Wraps any type that can be converted to string, storing it as a
-     * shared_ptr for thread-safe value sharing and zero-copy semantics.
+     * Wraps any type that can be converted to string, OR a nested map, OR an array of values,
+     * storing it as a variant for flexible hierarchical data structures.
      *
      * Design Rationale:
-     * - std::shared_ptr provides thread-safe reference counting
-     * - Const string prevents accidental modification
+     * - std::shared_ptr provides thread-safe reference counting for string values
+     * - std::variant enables simple values, nested dictionaries, and arrays
+     * - Supports dot notation like {user.name} or {items.0} for accessing nested/indexed values
      * - Perfect forwarding enables efficient value construction
-     * - Explicit constructor prevents implicit conversions
+     * - Explicit constructors prevent implicit conversions
      *
      * Memory Model:
-     * - Shared ownership: Multiple TemplateValue instances can share same value
+     * - Shared ownership: Multiple TemplateValue instances can share same string value
      * - Thread-safe: Reference counting is atomic
-     * - Heap allocation: String stored on heap (acceptable for logging use case)
+     * - Recursive structure: Maps/arrays contain TemplateValues which can contain more maps/arrays
+     * - Heap allocation: Acceptable for logging use case with structured data
+     *
+     * Usage Examples:
+     * ```cpp
+     * // Simple value
+     * TemplateValue simple_val{42};
+     *
+     * // Nested dictionary
+     * TemplateValue::NestedMap user_map;
+     * user_map["name"] = TemplateValue{"Alice"};
+     * user_map["id"] = TemplateValue{12345};
+     * TemplateValue nested_val{std::move(user_map)};
+     *
+     * // Array of values (std::vector)
+     * TemplateValue::NestedArray items;
+     * items.push_back(TemplateValue{"Item1"});
+     * items.push_back(TemplateValue{"Item2"});
+     * TemplateValue array_val{std::move(items)};
+     *
+     * // Span view (std::span - non-owning)
+     * std::span<TemplateValue> span_view{items};
+     * TemplateValue span_val{span_view};  // Copies elements from span
+     *
+     * // Access nested value by key
+     * auto* name = nested_val.get("name");  // Returns TemplateValue* pointing to "Alice"
+     *
+     * // Access array value by index
+     * auto* item = array_val.get(0);  // Returns TemplateValue* pointing to "Item1"
+     * ```
      */
     class TemplateValue {
       public:
+        /// Nested map type for hierarchical data structures
+        using NestedMap = std::unordered_map<std::string, TemplateValue>;
+
+        /// Nested array type for sequential data structures
+        using NestedArray = std::vector<TemplateValue>;
+
+        /**
+         * Default constructor - creates empty string value
+         *
+         * Required for use with std::unordered_map::operator[]
+         */
+        TemplateValue() : value_{std::make_shared<std::string const>("")} {}
+
         /**
          * Type-safe constructor for loggable values
          *
@@ -599,11 +646,243 @@ class Logger {
             : value_{std::make_shared<std::string const>(to_string(std::forward<T>(value)))} {}
 
         /**
+         * Constructor for nested map values (std::unordered_map or std::map)
+         *
+         * Enables hierarchical data structures for complex logging scenarios.
+         * Supports dot notation access like {user.name} or {config.database.host}.
+         *
+         * Accepts both std::unordered_map and std::map with string keys and TemplateValue values.
+         * Internally stores as NestedMap (std::unordered_map) for O(1) lookup performance.
+         *
+         * @tparam MapType Either std::unordered_map or std::map with string keys
+         * @param map Nested map of string keys to TemplateValue children
+         *
+         * Examples:
+         * ```cpp
+         * // Using std::unordered_map
+         * TemplateValue::NestedMap unordered_user{
+         *     {"name", TemplateValue{"Alice"}},
+         *     {"id", TemplateValue{12345}}
+         * };
+         * TemplateValue user_val{std::move(unordered_user)};
+         *
+         * // Using std::map (ordered)
+         * std::map<std::string, TemplateValue> ordered_config{
+         *     {"host", TemplateValue{"localhost"}},
+         *     {"port", TemplateValue{5432}}
+         * };
+         * TemplateValue config_val{std::move(ordered_config)};
+         * ```
+         */
+        template <typename MapType>
+            requires(std::is_same_v<typename MapType::key_type, std::string> &&
+                     std::is_same_v<typename MapType::mapped_type, TemplateValue>)
+        explicit TemplateValue(MapType map) {
+            if constexpr (std::is_same_v<MapType, NestedMap>) {
+                // Already a NestedMap - direct move
+                value_ = std::move(map);
+            } else {
+                // Convert from std::map or other map type to NestedMap
+                NestedMap nested;
+                nested.reserve(map.size());
+                for (auto& [key, value] : map) {
+                    nested.emplace(key, std::move(value));
+                }
+                value_ = std::move(nested);
+            }
+        }
+
+        /**
+         * Constructor for array values (std::vector, std::array, std::span)
+         *
+         * Enables array/list structures for sequential data logging.
+         * Supports index notation access like {items.0} or {users.1}.
+         *
+         * Accepts any contiguous container with TemplateValue elements:
+         * - std::vector<TemplateValue>: Dynamic arrays
+         * - std::array<TemplateValue, N>: Fixed-size arrays
+         * - std::span<TemplateValue>: Non-owning views over contiguous sequences
+         *
+         * Internally stores as NestedArray (std::vector) for consistent interface.
+         *
+         * @tparam ArrayType std::vector, std::array, std::span, or any container with value_type =
+         * TemplateValue
+         * @param arr Array or span of TemplateValue elements
+         *
+         * Examples:
+         * ```cpp
+         * // Using std::vector
+         * TemplateValue::NestedArray items;
+         * items.push_back(TemplateValue{"Item1"});
+         * items.push_back(TemplateValue{"Item2"});
+         * items.push_back(TemplateValue{"Item3"});
+         * TemplateValue items_val{std::move(items)};
+         *
+         * // Using std::array
+         * std::array<TemplateValue, 3> users{
+         *     TemplateValue{"Alice"},
+         *     TemplateValue{"Bob"},
+         *     TemplateValue{"Charlie"}
+         * };
+         * TemplateValue users_val{users};  // Copied from std::array
+         *
+         * // Using std::span (non-owning view)
+         * std::vector<TemplateValue> data = {...};
+         * std::span<TemplateValue> view{data};
+         * TemplateValue span_val{view};  // Copied from span
+         * ```
+         */
+        template <typename ArrayType>
+            requires(std::is_same_v<typename ArrayType::value_type, TemplateValue>)
+        explicit TemplateValue(ArrayType arr) {
+            if constexpr (std::is_same_v<ArrayType, NestedArray>) {
+                // Already a NestedArray - direct move
+                value_ = std::move(arr);
+            } else {
+                // Convert from std::array or other container to NestedArray
+                NestedArray array;
+                array.reserve(arr.size());
+                for (auto& elem : arr) {
+                    array.push_back(std::move(elem));
+                }
+                value_ = std::move(array);
+            }
+        }
+
+        /**
          * Get string representation of value
          *
          * @return Const reference to stored string (zero-copy)
+         * @note Returns empty string if this is a nested map (use get() for map access)
          */
-        [[nodiscard]] auto toString() const -> std::string const& { return *value_; }
+        [[nodiscard]] auto toString() const -> std::string const& {
+            if (std::holds_alternative<std::shared_ptr<std::string const>>(value_)) {
+                return *std::get<std::shared_ptr<std::string const>>(value_);
+            }
+            // If this is a map, return empty string (maps aren't directly stringifiable)
+            static std::string const empty;
+            return empty;
+        }
+
+        /**
+         * Check if this value is a nested map
+         *
+         * @return true if this TemplateValue contains a NestedMap, false otherwise
+         */
+        [[nodiscard]] auto isMap() const -> bool {
+            return std::holds_alternative<NestedMap>(value_);
+        }
+
+        /**
+         * Check if this value is a nested array
+         *
+         * @return true if this TemplateValue contains a NestedArray, false otherwise
+         */
+        [[nodiscard]] auto isArray() const -> bool {
+            return std::holds_alternative<NestedArray>(value_);
+        }
+
+        /**
+         * Get nested value by key (for dot notation support)
+         *
+         * Enables hierarchical access like:
+         * ```cpp
+         * auto* name = user_value.get("name");
+         * auto* port = config_value.get("database")->get("port");
+         * ```
+         *
+         * @param key Key to look up in nested map
+         * @return Pointer to TemplateValue if found and this is a map, nullptr otherwise
+         */
+        [[nodiscard]] auto get(std::string_view key) const -> TemplateValue const* {
+            if (!isMap()) {
+                return nullptr;
+            }
+
+            auto const& map = std::get<NestedMap>(value_);
+            auto const key_str = std::string(key);
+            auto const it = map.find(key_str);
+            return (it != map.end()) ? &it->second : nullptr;
+        }
+
+        /**
+         * Get nested value by index (for array notation support)
+         *
+         * Enables array access like:
+         * ```cpp
+         * auto* first = items_value.get(0);  // First item
+         * auto* second = items_value.get(1); // Second item
+         * ```
+         *
+         * @param index Zero-based index into nested array
+         * @return Pointer to TemplateValue if index valid and this is an array, nullptr otherwise
+         */
+        [[nodiscard]] auto get(std::size_t index) const -> TemplateValue const* {
+            if (!isArray()) {
+                return nullptr;
+            }
+
+            auto const& array = std::get<NestedArray>(value_);
+            return (index < array.size()) ? &array[index] : nullptr;
+        }
+
+        /**
+         * Get size of nested collection (array or map)
+         *
+         * Returns the number of elements in the collection.
+         * For non-collection types, returns 0.
+         *
+         * @return Size of array/map, or 0 for simple values
+         */
+        [[nodiscard]] auto size() const -> std::size_t {
+            if (isArray()) {
+                return std::get<NestedArray>(value_).size();
+            }
+            if (isMap()) {
+                return std::get<NestedMap>(value_).size();
+            }
+            return 0;
+        }
+
+        /**
+         * Check if collection is empty
+         *
+         * Returns true if:
+         * - This is an array with 0 elements
+         * - This is a map with 0 entries
+         * - This is a simple value (not a collection)
+         *
+         * @return true if empty or not a collection, false if non-empty collection
+         */
+        [[nodiscard]] auto empty() const -> bool {
+            if (isArray()) {
+                return std::get<NestedArray>(value_).empty();
+            }
+            if (isMap()) {
+                return std::get<NestedMap>(value_).empty();
+            }
+            return true;
+        }
+
+        /**
+         * Get const reference to underlying array
+         *
+         * @return Const reference to NestedArray
+         * @throws std::bad_variant_access if this is not an array
+         */
+        [[nodiscard]] auto getArray() const -> NestedArray const& {
+            return std::get<NestedArray>(value_);
+        }
+
+        /**
+         * Get const reference to underlying map
+         *
+         * @return Const reference to NestedMap
+         * @throws std::bad_variant_access if this is not a map
+         */
+        [[nodiscard]] auto getMap() const -> NestedMap const& {
+            return std::get<NestedMap>(value_);
+        }
 
       private:
         /// Convert value to string using ostringstream (type-safe with concept check)
@@ -611,16 +890,19 @@ class Logger {
         [[nodiscard]] static auto to_string(T&& val) -> std::string {
             // Compile-time type safety check with helpful error message
             static_assert(Streamable<T>,
-                "Type must be streamable (support operator<<) to be logged. "
-                "Consider providing operator<< for your custom type.");
+                          "Type must be streamable (support operator<<) to be logged. "
+                          "Consider providing operator<< for your custom type.");
 
             std::ostringstream oss;
             oss << std::forward<T>(val);
             return oss.str();
         }
 
-        /// Shared pointer to const string (thread-safe, zero-copy)
-        std::shared_ptr<std::string const> value_;
+        /// Variant holding either a simple string value, nested map, or nested array
+        /// - String values: Thread-safe shared ownership via std::shared_ptr
+        /// - Nested maps: Recursive structure for hierarchical key-value data
+        /// - Nested arrays: Recursive structure for sequential indexed data
+        std::variant<std::shared_ptr<std::string const>, NestedMap, NestedArray> value_;
     };
 
     /**
@@ -632,10 +914,446 @@ class Logger {
     using TemplateParams = std::unordered_map<std::string, TemplateValue>;
 
     /**
-     * Process Mustache-style template with named parameters
+     * Helper to check if a string represents a valid numeric index
+     *
+     * @param str String to check
+     * @return true if str is a valid non-negative integer, false otherwise
+     */
+    [[nodiscard]] static auto isNumericIndex(std::string_view str) -> bool {
+        if (str.empty()) {
+            return false;
+        }
+
+        for (char const c : str) {
+            if (c < '0' || c > '9') {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Helper to convert string to size_t index
+     *
+     * @param str String representation of index (must be valid numeric)
+     * @return Converted size_t value
+     */
+    [[nodiscard]] static auto parseIndex(std::string_view str) -> std::size_t {
+        std::size_t result = 0;
+        for (char const c : str) {
+            result = result * 10 + static_cast<std::size_t>(c - '0');
+        }
+        return result;
+    }
+
+    /**
+     * Resolve nested value using dot notation path with map and array support
+     *
+     * Navigates through nested maps and arrays to find the final value.
+     * Supports paths like:
+     * - "user.name" (map key access)
+     * - "items.0" (array index access)
+     * - "config.servers.0.host" (mixed map and array access)
+     *
+     * Algorithm:
+     * - Split path by dots: "items.0.name" → ["items", "0", "name"]
+     * - Navigate step by step through nested structures
+     * - Use numeric indices for arrays, string keys for maps
+     * - Return nullptr if any step fails
+     *
+     * @param params Root parameter map
+     * @param path Dot-separated path (e.g., "user.name" or "items.0")
+     * @return Pointer to final TemplateValue if found, nullptr otherwise
+     *
+     * Examples:
+     * ```cpp
+     * // Map access
+     * // params = {{"user", NestedMap{{"name", "Alice"}, {"id", 123}}}}
+     * auto* value = resolveNestedValue(params, "user.name");
+     * // value->toString() == "Alice"
+     *
+     * // Array access
+     * // params = {{"items", NestedArray{TemplateValue{"Item1"}, TemplateValue{"Item2"}}}}
+     * auto* value = resolveNestedValue(params, "items.0");
+     * // value->toString() == "Item1"
+     *
+     * // Mixed access
+     * // params = {{"servers", NestedArray{NestedMap{{"host", "localhost"}}}}}
+     * auto* value = resolveNestedValue(params, "servers.0.host");
+     * // value->toString() == "localhost"
+     * ```
+     */
+    [[nodiscard]] static auto resolveNestedValue(TemplateParams const& params,
+                                                 std::string_view path) -> TemplateValue const* {
+        // Find first dot to split path
+        auto const dot_pos = path.find('.');
+
+        if (dot_pos == std::string_view::npos) {
+            // No dots - simple lookup
+            auto const it = params.find(std::string(path));
+            return (it != params.end()) ? &it->second : nullptr;
+        }
+
+        // Split path into first key and remaining path
+        auto const first_key = path.substr(0, dot_pos);
+        auto const remaining_path = path.substr(dot_pos + 1);
+
+        // Lookup first key in params
+        auto const it = params.find(std::string(first_key));
+        if (it == params.end()) {
+            return nullptr;
+        }
+
+        // Navigate through remaining path
+        TemplateValue const* current = &it->second;
+
+        // Process each key/index in the path
+        std::string_view remaining = remaining_path;
+        while (!remaining.empty() && current != nullptr) {
+            auto const next_dot = remaining.find('.');
+            auto const key =
+                (next_dot == std::string_view::npos) ? remaining : remaining.substr(0, next_dot);
+
+            // Navigate to next level - check if key is numeric index for array access
+            if (isNumericIndex(key)) {
+                auto const index = parseIndex(key);
+                current = current->get(index); // Array access
+            } else {
+                current = current->get(key); // Map access
+            }
+
+            // Move to next part of path
+            if (next_dot == std::string_view::npos) {
+                break;
+            }
+            remaining = remaining.substr(next_dot + 1);
+        }
+
+        return current;
+    }
+
+    /**
+     * Find matching closing section tag for a section
+     *
+     * Given a template string starting after the opening {{#name}}, finds
+     * the matching {{/name}} closing tag, handling nested sections correctly.
+     *
+     * @param template_str Template string to search
+     * @param section_name Name of the section to match
+     * @return Position of the matching {{/ tag, or npos if not found
+     */
+    [[nodiscard]] static auto findMatchingClosingTag(std::string_view template_str,
+                                                     std::string_view section_name) -> std::size_t {
+        std::size_t pos = 0;
+        int depth = 1; // We're already inside one section
+
+        while (pos < template_str.size() && depth > 0) {
+            auto const open_pos = template_str.find("{{#", pos);
+            auto const close_pos = template_str.find("{{/", pos);
+
+            if (close_pos == std::string_view::npos) {
+                // No closing tag found
+                return std::string_view::npos;
+            }
+
+            if (open_pos != std::string_view::npos && open_pos < close_pos) {
+                // Found nested opening tag first
+                depth++;
+                pos = open_pos + 3;
+            } else {
+                // Found closing tag
+                // Verify it matches our section name
+                auto const tag_end = template_str.find("}}", close_pos + 3);
+                if (tag_end != std::string_view::npos) {
+                    auto const tag_name =
+                        template_str.substr(close_pos + 3, tag_end - close_pos - 3);
+                    if (tag_name == section_name) {
+                        depth--;
+                        if (depth == 0) {
+                            return close_pos;
+                        }
+                    }
+                }
+                pos = close_pos + 3;
+            }
+        }
+
+        return std::string_view::npos;
+    }
+
+    /**
+     * Process a section iteration ({{#name}}...{{/name}})
+     *
+     * Renders the section content once for each item in the collection,
+     * providing context variables for iteration state.
+     *
+     * Context variables available during iteration:
+     * - @index: Current 0-based index (for arrays)
+     * - @first: true if this is the first iteration
+     * - @last: true if this is the last iteration
+     * - @key: Current key (for map iteration)
+     * - @value: Current item value
+     *
+     * @param section_content Template content inside the section tags
+     * @param value Collection to iterate over (array or map)
+     * @param base_params Base parameter map (inherited from parent scope)
+     * @return Rendered section content with all iterations concatenated
+     */
+    [[nodiscard]] static auto processSection(std::string_view section_content,
+                                             TemplateValue const& value,
+                                             TemplateParams const& base_params) -> std::string {
+        std::ostringstream result;
+
+        if (value.isArray()) {
+            // Array iteration
+            auto const& array = value.getArray();
+            auto const size = array.size();
+
+            for (std::size_t i = 0; i < size; ++i) {
+                // Create iteration context with context variables
+                TemplateParams iteration_params = base_params;
+                iteration_params["@index"] = TemplateValue{static_cast<int>(i)};
+                iteration_params["@first"] = TemplateValue{i == 0 ? "true" : "false"};
+                iteration_params["@last"] = TemplateValue{i == size - 1 ? "true" : "false"};
+                iteration_params["@value"] = array[i];
+
+                // Process section content with iteration context
+                result << processTemplate(section_content, iteration_params);
+            }
+        } else if (value.isMap()) {
+            // Map iteration
+            auto const& map = value.getMap();
+            auto const size = map.size();
+            std::size_t i = 0;
+
+            for (auto const& [key, val] : map) {
+                // Create iteration context with context variables
+                TemplateParams iteration_params = base_params;
+                iteration_params["@index"] = TemplateValue{static_cast<int>(i)};
+                iteration_params["@first"] = TemplateValue{i == 0 ? "true" : "false"};
+                iteration_params["@last"] = TemplateValue{i == size - 1 ? "true" : "false"};
+                iteration_params["@key"] = TemplateValue{key};
+                iteration_params["@value"] = val;
+
+                // Process section content with iteration context
+                result << processTemplate(section_content, iteration_params);
+                ++i;
+            }
+        }
+
+        return result.str();
+    }
+
+    /**
+     * FILTER AND FUNCTIONAL OPERATION HELPERS
+     *
+     * These functions transform TemplateValue arrays and can be used
+     * to prepare data before passing to templates.
+     */
+
+    /**
+     * Reverse an array
+     *
+     * @param value Array to reverse
+     * @return New TemplateValue with reversed array
+     */
+    [[nodiscard]] static auto reverse(TemplateValue const& value) -> TemplateValue {
+        if (!value.isArray()) {
+            return value;
+        }
+
+        auto const& array = value.getArray();
+        TemplateValue::NestedArray reversed(array.rbegin(), array.rend());
+        return TemplateValue{std::move(reversed)};
+    }
+
+    /**
+     * Slice an array
+     *
+     * @param value Array to slice
+     * @param start Start index (inclusive)
+     * @param end End index (exclusive), or npos for end of array
+     * @return New TemplateValue with sliced array
+     */
+    [[nodiscard]] static auto slice(TemplateValue const& value, std::size_t start,
+                                    std::size_t end = std::string_view::npos) -> TemplateValue {
+        if (!value.isArray()) {
+            return value;
+        }
+
+        auto const& array = value.getArray();
+        auto const size = array.size();
+
+        // Clamp indices
+        start = std::min(start, size);
+        end = (end == std::string_view::npos) ? size : std::min(end, size);
+
+        if (start >= end) {
+            return TemplateValue{TemplateValue::NestedArray{}};
+        }
+
+        TemplateValue::NestedArray sliced(array.begin() + static_cast<std::ptrdiff_t>(start),
+                                          array.begin() + static_cast<std::ptrdiff_t>(end));
+        return TemplateValue{std::move(sliced)};
+    }
+
+    /**
+     * Zip two arrays together
+     *
+     * Creates an array of pairs from two input arrays.
+     * The result length is the minimum of the two input lengths.
+     *
+     * @param value1 First array
+     * @param value2 Second array
+     * @return New TemplateValue with array of maps containing {first, second} keys
+     */
+    [[nodiscard]] static auto zip(TemplateValue const& value1, TemplateValue const& value2)
+        -> TemplateValue {
+        if (!value1.isArray() || !value2.isArray()) {
+            return TemplateValue{TemplateValue::NestedArray{}};
+        }
+
+        auto const& array1 = value1.getArray();
+        auto const& array2 = value2.getArray();
+        auto const size = std::min(array1.size(), array2.size());
+
+        TemplateValue::NestedArray result;
+        result.reserve(size);
+
+        for (std::size_t i = 0; i < size; ++i) {
+            TemplateValue::NestedMap pair;
+            pair["first"] = array1[i];
+            pair["second"] = array2[i];
+            result.push_back(TemplateValue{std::move(pair)});
+        }
+
+        return TemplateValue{std::move(result)};
+    }
+
+    /**
+     * Check if all elements in array match a condition (non-empty string)
+     *
+     * @param value Array to check
+     * @return TemplateValue with "true" or "false"
+     */
+    [[nodiscard]] static auto all(TemplateValue const& value) -> TemplateValue {
+        if (!value.isArray()) {
+            return TemplateValue{"false"};
+        }
+
+        auto const& array = value.getArray();
+        for (auto const& item : array) {
+            auto const str = item.toString();
+            if (str.empty() || str == "false" || str == "0") {
+                return TemplateValue{"false"};
+            }
+        }
+
+        return TemplateValue{"true"};
+    }
+
+    /**
+     * Check if no elements in array match a condition (all empty or false)
+     *
+     * @param value Array to check
+     * @return TemplateValue with "true" or "false"
+     */
+    [[nodiscard]] static auto none(TemplateValue const& value) -> TemplateValue {
+        if (!value.isArray()) {
+            return TemplateValue{"true"};
+        }
+
+        auto const& array = value.getArray();
+        for (auto const& item : array) {
+            auto const str = item.toString();
+            if (!str.empty() && str != "false" && str != "0") {
+                return TemplateValue{"false"};
+            }
+        }
+
+        return TemplateValue{"true"};
+    }
+
+    /**
+     * Logical not - flip true/false
+     *
+     * @param value Value to negate
+     * @return TemplateValue with "true" or "false"
+     */
+    [[nodiscard]] static auto not_(TemplateValue const& value) -> TemplateValue {
+        auto const str = value.toString();
+        bool const is_truthy =
+            !str.empty() && str != "false" && str != "0" && str != "False" && str != "FALSE";
+        return TemplateValue{is_truthy ? "false" : "true"};
+    }
+
+    /**
+     * JSON CONSTRUCTION HELPERS
+     *
+     * These functions help construct JSON-like nested structures easily.
+     */
+
+    /**
+     * Create a JSON-like object (map)
+     *
+     * Helper to create nested map structures using initializer lists.
+     *
+     * @param init Initializer list of key-value pairs
+     * @return TemplateValue containing the map
+     *
+     * Example:
+     * ```cpp
+     * auto user = json({
+     *     {"name", "Alice"},
+     *     {"age", 30},
+     *     {"email", "alice@example.com"}
+     * });
+     * ```
+     */
+    [[nodiscard]] static auto
+    json(std::initializer_list<std::pair<std::string, TemplateValue>> init) -> TemplateValue {
+        TemplateValue::NestedMap map;
+        for (auto const& [key, value] : init) {
+            map.emplace(key, value);
+        }
+        return TemplateValue{std::move(map)};
+    }
+
+    /**
+     * Create a JSON-like array
+     *
+     * Helper to create array structures using initializer lists.
+     *
+     * @param init Initializer list of values
+     * @return TemplateValue containing the array
+     *
+     * Example:
+     * ```cpp
+     * auto colors = jsonArray({
+     *     TemplateValue{"red"},
+     *     TemplateValue{"green"},
+     *     TemplateValue{"blue"}
+     * });
+     * ```
+     */
+    [[nodiscard]] static auto jsonArray(std::initializer_list<TemplateValue> init)
+        -> TemplateValue {
+        TemplateValue::NestedArray array(init);
+        return TemplateValue{std::move(array)};
+    }
+
+    /**
+     * Process Mustache-style template with named parameters (supports dot notation)
      *
      * Replaces all occurrences of {param_name} with corresponding values
-     * from the parameter map. Unknown parameters are left unchanged.
+     * from the parameter map. Supports nested access via dot notation.
+     * Unknown parameters are left unchanged.
+     *
+     * NESTED ACCESS (DOT NOTATION):
+     * - {user.name} → Navigate to params["user"]["name"]
+     * - {config.db.host} → params["config"]["db"]["host"]
+     * - Supports arbitrary nesting depth
      *
      * Thread-Safety: FULLY THREAD-SAFE
      * - Static method with no shared state
@@ -645,16 +1363,27 @@ class Logger {
      * Algorithm:
      * - Single-pass processing with minimal allocations
      * - O(n) where n is template string length
-     * - O(1) parameter lookup via hash map
+     * - O(k) nested lookup where k is path depth (number of dots)
      *
-     * @param template_str Template string with {param_name} placeholders
-     * @param params Map of parameter names to values
+     * @param template_str Template string with {param_name} or {path.to.value} placeholders
+     * @param params Map of parameter names to values (can be nested)
      * @return Processed string with placeholders replaced
      *
-     * Example:
-     *   processTemplate("User {id} at {time}",
-     *                   {{"id", 123}, {"time", "14:23"}})
-     *   -> "User 123 at 14:23"
+     * Examples:
+     * ```cpp
+     * // Simple lookup
+     * processTemplate("User {id} at {time}",
+     *                 {{"id", 123}, {"time", "14:23"}})
+     * // → "User 123 at 14:23"
+     *
+     * // Nested lookup
+     * TemplateValue::NestedMap user_map;
+     * user_map["name"] = TemplateValue{"Alice"};
+     * user_map["id"] = TemplateValue{12345};
+     * processTemplate("Hello {user.name}, ID: {user.id}",
+     *                 {{"user", TemplateValue{std::move(user_map)}}})
+     * // → "Hello Alice, ID: 12345"
+     * ```
      */
     [[nodiscard]] static auto processTemplate(std::string_view template_str,
                                               TemplateParams const& params) -> std::string {
@@ -663,7 +1392,7 @@ class Logger {
 
         while (!remaining.empty()) {
             // Find next placeholder start
-            auto start_pos = remaining.find('{');
+            auto const start_pos = remaining.find('{');
 
             if (start_pos == std::string_view::npos) {
                 // No more placeholders - append rest of string
@@ -674,8 +1403,60 @@ class Logger {
             // Append text before placeholder
             result << remaining.substr(0, start_pos);
 
+            // Check if this is a section tag {{# or {{/
+            if (start_pos + 2 < remaining.size() && remaining[start_pos + 1] == '{') {
+                // This is a double-brace tag - could be section
+                if (start_pos + 3 < remaining.size() && remaining[start_pos + 2] == '#') {
+                    // Section start: {{#name}}
+                    auto const tag_end = remaining.find("}}", start_pos + 3);
+                    if (tag_end == std::string_view::npos) {
+                        // Malformed tag - append as-is
+                        result << remaining.substr(start_pos);
+                        break;
+                    }
+
+                    // Extract section name
+                    auto const section_name =
+                        remaining.substr(start_pos + 3, tag_end - start_pos - 3);
+
+                    // Find matching closing tag
+                    auto const content_start = tag_end + 2;
+                    auto const close_pos =
+                        findMatchingClosingTag(remaining.substr(content_start), section_name);
+
+                    if (close_pos == std::string_view::npos) {
+                        // No matching closing tag - append as-is
+                        result << remaining.substr(start_pos);
+                        break;
+                    }
+
+                    // Extract section content
+                    auto const section_content = remaining.substr(content_start, close_pos);
+
+                    // Resolve the section value
+                    auto const* section_value = resolveNestedValue(params, section_name);
+
+                    if (section_value != nullptr) {
+                        // Process section with iteration
+                        result << processSection(section_content, *section_value, params);
+                    }
+
+                    // Find the end of the closing tag
+                    auto const closing_tag_end =
+                        remaining.find("}}", content_start + close_pos + 3);
+                    if (closing_tag_end != std::string_view::npos) {
+                        // Move past the closing tag
+                        remaining = remaining.substr(closing_tag_end + 2);
+                    } else {
+                        break;
+                    }
+                    continue;
+                }
+            }
+
+            // Not a section tag - process as regular placeholder
             // Find placeholder end
-            auto end_pos = remaining.find('}', start_pos);
+            auto const end_pos = remaining.find('}', start_pos);
 
             if (end_pos == std::string_view::npos) {
                 // Unclosed placeholder - append rest as-is
@@ -683,19 +1464,18 @@ class Logger {
                 break;
             }
 
-            // Extract parameter name (between { and })
-            auto param_name = remaining.substr(start_pos + 1, end_pos - start_pos - 1);
+            // Extract parameter name/path (between { and })
+            auto const param_path = remaining.substr(start_pos + 1, end_pos - start_pos - 1);
 
-            // Lookup parameter value
-            auto param_str = std::string(param_name);
-            auto it = params.find(param_str);
+            // Resolve value (handles both simple keys and dot notation)
+            auto const* value = resolveNestedValue(params, param_path);
 
-            if (it != params.end()) {
-                // Parameter found - replace with value
-                result << it->second.toString();
+            if (value != nullptr) {
+                // Value found - replace with string representation
+                result << value->toString();
             } else {
-                // Parameter not found - leave placeholder unchanged
-                result << '{' << param_name << '}';
+                // Value not found - leave placeholder unchanged
+                result << '{' << param_path << '}';
             }
 
             // Move past this placeholder
