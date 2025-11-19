@@ -50,10 +50,29 @@ include_directories(
 )
 
 # ============================================================================
-# Integrate cpp23-logger submodule
+# Integrate cpp23-logger dependency
 # ============================================================================
-message(STATUS "Integrating cpp23-logger from submodule")
-add_subdirectory(external/cpp23-logger EXCLUDE_FROM_ALL)
+# Option to use FetchContent or submodule
+option(USE_FETCHCONTENT_LOGGER "Use FetchContent to fetch cpp23-logger instead of submodule" OFF)
+
+if(USE_FETCHCONTENT_LOGGER)
+    message(STATUS "Using FetchContent to fetch cpp23-logger")
+    include(FetchContent)
+    FetchContent_Declare(
+        cpp23_logger
+        GIT_REPOSITORY https://github.com/oldboldpilot/cpp23-logger.git
+        GIT_TAG        main
+        GIT_SHALLOW    TRUE
+    )
+    FetchContent_MakeAvailable(cpp23_logger)
+else()
+    message(STATUS "Using cpp23-logger from submodule")
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/cpp23-logger/CMakeLists.txt")
+        add_subdirectory(external/cpp23-logger EXCLUDE_FROM_ALL)
+    else()
+        message(FATAL_ERROR "cpp23-logger submodule not found. Run: git submodule update --init --recursive")
+    endif()
+endif()
 
 # Find clang-tidy
 find_program(CLANG_TIDY_EXE NAMES clang-tidy-21 clang-tidy
