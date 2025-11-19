@@ -142,10 +142,10 @@ public:
 
     // Simulate: simdjson's event-driven API
     static size_t count_objects(const std::string& json) {
-        auto start = std::chrono::high_resolution_clock::now();
+        [[maybe_unused]] auto start = std::chrono::high_resolution_clock::now();
 
         size_t count = 0;
-        bool in_object = false;
+        [[maybe_unused]] bool in_object = false;
         for (char c : json) {
             if (c == '{') {
                 in_object = true;
@@ -164,7 +164,7 @@ public:
 
     // Simulate: simdjson's single-threaded filtering
     static std::vector<int> filter_values(const std::string& json, int threshold) {
-        auto start = std::chrono::high_resolution_clock::now();
+        [[maybe_unused]] auto start = std::chrono::high_resolution_clock::now();
 
         std::vector<int> results;
         size_t pos = 0;
@@ -208,7 +208,7 @@ public:
     };
 
     static QueryResult parse_and_query(const std::string& json) {
-        auto start = std::chrono::high_resolution_clock::now();
+        [[maybe_unused]] auto start = std::chrono::high_resolution_clock::now();
 
         // Simulate: faster parsing (C++23 modules, better optimization)
         size_t elements = std::count(json.begin(), json.end(), ':');
@@ -220,7 +220,7 @@ public:
 
     // Simulate: LINQ-style filtering with possible parallelization
     static QueryResult filter_with_linq(const std::string& json, int threshold) {
-        auto start = std::chrono::high_resolution_clock::now();
+        [[maybe_unused]] auto start = std::chrono::high_resolution_clock::now();
 
         std::vector<int> results;
         size_t pos = 0;
@@ -318,7 +318,7 @@ private:
         // Test simdjson
         auto start = std::chrono::high_resolution_clock::now();
         for (int i = 0; i < 100; ++i) {
-            auto result = SimdJsonSimulator::parse(json);
+            [[maybe_unused]] auto result = SimdJsonSimulator::parse(json);
         }
         auto end = std::chrono::high_resolution_clock::now();
         double simdjson_time = std::chrono::duration<double, std::milli>(end - start).count();
@@ -331,7 +331,7 @@ private:
         // Test FastestJSONInTheWest
         start = std::chrono::high_resolution_clock::now();
         for (int i = 0; i < 100; ++i) {
-            auto result = FastestJsonSimulator::parse_and_query(json);
+            [[maybe_unused]] auto result = FastestJsonSimulator::parse_and_query(json);
         }
         end = std::chrono::high_resolution_clock::now();
         double fjitw_time = std::chrono::duration<double, std::milli>(end - start).count();
@@ -348,7 +348,7 @@ private:
         // Test simdjson
         auto start = std::chrono::high_resolution_clock::now();
         for (int i = 0; i < 50; ++i) {
-            auto count = SimdJsonSimulator::count_objects(json);
+            [[maybe_unused]] auto count = SimdJsonSimulator::count_objects(json);
         }
         auto end = std::chrono::high_resolution_clock::now();
         double simdjson_time = std::chrono::duration<double, std::milli>(end - start).count();
