@@ -1,20 +1,20 @@
 // Example demonstrating UTF-16 surrogate pair and UTF-32 support
-#include "modules/fastjson_parallel.cpp"
-#include <iostream>
 #include <iomanip>
+#include <iostream>
+
+#include "modules/fastjson_parallel.cpp"
 
 void print_hex(const std::string& s) {
     std::cout << "Hex bytes: ";
     for (unsigned char c : s) {
-        std::cout << std::hex << std::setw(2) << std::setfill('0') 
-                  << static_cast<int>(c) << " ";
+        std::cout << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(c) << " ";
     }
     std::cout << std::dec << std::endl;
 }
 
 int main() {
     std::cout << "=== UTF-16 Surrogate Pair & UTF-32 Examples ===" << std::endl << std::endl;
-    
+
     // Example 1: Musical note (U+1D11E) via surrogate pair
     const char* json1 = R"({"note": "\uD834\uDD1E"})";
     std::cout << "Input:  " << json1 << std::endl;
@@ -26,8 +26,8 @@ int main() {
         std::cout << "✓ Success" << std::endl;
     }
     std::cout << std::endl;
-    
-    // Example 2: Emoji rocket (U+1F680) via surrogate pair  
+
+    // Example 2: Emoji rocket (U+1F680) via surrogate pair
     const char* json2 = R"({"emoji": "\uD83D\uDE80"})";
     std::cout << "Input:  " << json2 << std::endl;
     auto result2 = fastjson::parse(json2);
@@ -38,7 +38,7 @@ int main() {
         std::cout << "✓ Success" << std::endl;
     }
     std::cout << std::endl;
-    
+
     // Example 3: Mixed BMP and surrogate pairs
     const char* json3 = R"({"text": "Hello \uD83D\uDE00 World \uD83C\uDDEC\uD83C\uDDE7"})";
     std::cout << "Input:  " << json3 << std::endl;
@@ -50,7 +50,7 @@ int main() {
         std::cout << "✓ Success" << std::endl;
     }
     std::cout << std::endl;
-    
+
     // Example 4: Full Unicode range
     const char* json4 = R"({
         "ascii": "A",
@@ -72,7 +72,7 @@ int main() {
         std::cout << "✓ Success" << std::endl;
     }
     std::cout << std::endl;
-    
+
     std::cout << "=== All examples passed! ===" << std::endl;
     return 0;
 }

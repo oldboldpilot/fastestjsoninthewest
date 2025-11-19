@@ -4,15 +4,15 @@
 
 cmake_minimum_required(VERSION 3.28)
 
+# Force use of our custom built Clang 21.1.5 BEFORE project() call
+set(CMAKE_CXX_COMPILER "/opt/clang-21/bin/clang++")
+set(CMAKE_C_COMPILER "/opt/clang-21/bin/clang")
+
 project(FastestJSONInTheWest 
     VERSION 1.0.0
     LANGUAGES CXX
     DESCRIPTION "High-Performance C++23 JSON Library with Modules"
 )
-
-# Force use of our custom built Clang 21.1.5
-set(CMAKE_CXX_COMPILER "/opt/clang-21/bin/clang++")
-set(CMAKE_C_COMPILER "/opt/clang-21/bin/clang")
 
 # Verify we're using the correct compiler
 execute_process(
@@ -89,17 +89,14 @@ target_sources(fastjson
         modules/fastjson.cpp
 )
 
-# Enable SIMD support with thread safety
+# Enable SIMD support with thread safety - defines are added after CPU detection
 target_compile_definitions(fastjson PRIVATE 
     FASTJSON_ENABLE_SIMD
     FASTJSON_THREAD_SAFE
-    ${SIMD_DEFINES}
 )
 
-# Add thread-safe compilation options
+# Add thread-safe compilation options - flags are added after CPU detection
 target_compile_options(fastjson PRIVATE
-    ${SIMD_FLAGS}
-    -fno-omit-frame-pointer  # Better debugging and profiling
     -fstack-protector-strong # Stack protection
     -D_FORTIFY_SOURCE=2     # Buffer overflow detection
 )
@@ -113,111 +110,200 @@ set_target_properties(fastjson PROPERTIES
 )
 
 # SIMD Optimizations - CPU-specific conditional compilation
-# Only compile for instruction sets actually supported by the target CPU
+# Use -march=native to let compiler detect and enable all supported features
 include(CheckCXXCompilerFlag)
 
-# Check for SIMD instruction set support including latest Intel extensions
-check_cxx_compiler_flag("-mamx-tile" COMPILER_SUPPORTS_AMX_TILE)
-check_cxx_compiler_flag("-mamx-int8" COMPILER_SUPPORTS_AMX_INT8) 
-check_cxx_compiler_flag("-mavx512vnni" COMPILER_SUPPORTS_AVX512VNNI)
-check_cxx_compiler_flag("-mavx512vbmi" COMPILER_SUPPORTS_AVX512VBMI)
-check_cxx_compiler_flag("-mavx512vbmi2" COMPILER_SUPPORTS_AVX512VBMI2)
-check_cxx_compiler_flag("-mavx512f" COMPILER_SUPPORTS_AVX512F)
-check_cxx_compiler_flag("-mavx512bw" COMPILER_SUPPORTS_AVX512BW)
-check_cxx_compiler_flag("-mavx2" COMPILER_SUPPORTS_AVX2)
-check_cxx_compiler_flag("-mavx" COMPILER_SUPPORTS_AVX)
-check_cxx_compiler_flag("-msse4.2" COMPILER_SUPPORTS_SSE42)
-check_cxx_compiler_flag("-msse4.1" COMPILER_SUPPORTS_SSE41)
-check_cxx_compiler_flag("-mssse3" COMPILER_SUPPORTS_SSSE3)
-check_cxx_compiler_flag("-msse3" COMPILER_SUPPORTS_SSE3)
-check_cxx_compiler_flag("-msse2" COMPILER_SUPPORTS_SSE2)
+message(STATUS "Detecting CPU instruction set support...")
 
-# Build SIMD flags based on what's available
+# Option 1: Use -march=native for automatic CPU detection (recommended)
+option(USE_NATIVE_ARCH "Use -march=native for automatic CPU feature detection" ON)
+
+if(USE_NATIVE_ARCH)
+    check_cxx_compiler_flag("-march=native" COMPILER_SUPPORTS_MARCH_NATIVE)
+    if(COMPILER_SUPPORTS_MARCH_NATIVE)
+        set(CPU_SUPPORTS_SSE2 TRUE)
+        set(CPU_SUPPORTS_SSE3 TRUE)
+        set(CPU_SUPPORTS_SSSE3 TRUE)
+        set(CPU_SUPPORTS_SSE41 TRUE)
+        set(CPU_SUPPORTS_SSE42 TRUE)
+        set(CPU_SUPPORTS_AVX TRUE)
+        set(CPU_SUPPORTS_AVX2 TRUE)
+        # Check for AVX-512 support by testing compilation
+        check_cxx_compiler_flag("-mavx512f" COMPILER_HAS_AVX512F)
+        if(COMPILER_HAS_AVX512F)
+            include(CheckCXXSourceCompiles)
+            set(CMAKE_REQUIRED_FLAGS "-march=native -mavx512f")
+            check_cxx_source_compiles("
+                #include <immintrin.h>
+                int main() { __m512i a = _mm512_setzero_si512(); return 0; }
+            " CPU_SUPPORTS_AVX512F)
+            set(CMAKE_REQUIRED_FLAGS)
+        endif()
+        message(STATUS "  Using -march=native (auto-detects CPU features)")
+    else()
+        message(WARNING "-march=native not supported, falling back to manual detection")
+        set(USE_NATIVE_ARCH OFF)
+    endif()
+endif()
+
+# Option 2: Manual feature detection (fallback)
+if(NOT USE_NATIVE_ARCH)
+    check_cxx_compiler_flag("-msse2" CPU_SUPPORTS_SSE2)
+    check_cxx_compiler_flag("-msse3" CPU_SUPPORTS_SSE3)
+    check_cxx_compiler_flag("-mssse3" CPU_SUPPORTS_SSSE3)
+    check_cxx_compiler_flag("-msse4.1" CPU_SUPPORTS_SSE41)
+    check_cxx_compiler_flag("-msse4.2" CPU_SUPPORTS_SSE42)
+    check_cxx_compiler_flag("-mavx" CPU_SUPPORTS_AVX)
+    check_cxx_compiler_flag("-mavx2" CPU_SUPPORTS_AVX2)
+    check_cxx_compiler_flag("-mavx512f" CPU_SUPPORTS_AVX512F)
+    check_cxx_compiler_flag("-mavx512bw" CPU_SUPPORTS_AVX512BW)
+    check_cxx_compiler_flag("-mavx512vbmi" CPU_SUPPORTS_AVX512VBMI)
+    check_cxx_compiler_flag("-mavx512vbmi2" CPU_SUPPORTS_AVX512VBMI2)
+    check_cxx_compiler_flag("-mavx512vnni" CPU_SUPPORTS_AVX512VNNI)
+    check_cxx_compiler_flag("-mamx-tile" CPU_SUPPORTS_AMX)
+endif()
+
+# Build SIMD flags based on what CPU actually supports
 set(SIMD_FLAGS "")
 set(SIMD_DEFINES "")
 set(SIMD_LEVELS "")
 
-# Latest Intel extensions for AI/ML workloads
-if(COMPILER_SUPPORTS_AMX_TILE AND COMPILER_SUPPORTS_AMX_INT8)
-    list(APPEND SIMD_FLAGS "-mamx-tile" "-mamx-int8")
-    list(APPEND SIMD_DEFINES "-DHAVE_AMX_TILE" "-DHAVE_AMX_INT8")
-    list(APPEND SIMD_LEVELS "AMX-TMUL")
+# Use -march=native for optimal performance if available
+if(USE_NATIVE_ARCH AND COMPILER_SUPPORTS_MARCH_NATIVE)
+    list(APPEND SIMD_FLAGS "-march=native")
+    message(STATUS "  ✓ Using -march=native for optimal CPU feature detection")
 endif()
 
-if(COMPILER_SUPPORTS_AVX512VNNI)
-    list(APPEND SIMD_FLAGS "-mavx512vnni")
-    list(APPEND SIMD_DEFINES "-DHAVE_AVX512VNNI")
-    list(APPEND SIMD_LEVELS "AVX-512-VNNI")
+# Set feature defines based on detection
+if(CPU_SUPPORTS_SSE2)
+    list(APPEND SIMD_DEFINES "HAVE_SSE2")
+    list(APPEND SIMD_LEVELS "SSE2")
+    if(NOT USE_NATIVE_ARCH)
+        list(APPEND SIMD_FLAGS "-msse2")
+    endif()
+    message(STATUS "  ✓ SSE2 (baseline)")
 endif()
 
-if(COMPILER_SUPPORTS_AVX512VBMI2)
-    list(APPEND SIMD_FLAGS "-mavx512vbmi2")
-    list(APPEND SIMD_DEFINES "-DHAVE_AVX512VBMI2")
-    list(APPEND SIMD_LEVELS "AVX-512-VBMI2")
+if(CPU_SUPPORTS_SSE3)
+    list(APPEND SIMD_DEFINES "HAVE_SSE3")
+    if(NOT USE_NATIVE_ARCH)
+        list(APPEND SIMD_FLAGS "-msse3")
+    endif()
+    message(STATUS "  ✓ SSE3")
 endif()
 
-if(COMPILER_SUPPORTS_AVX512VBMI)
-    list(APPEND SIMD_FLAGS "-mavx512vbmi")
-    list(APPEND SIMD_DEFINES "-DHAVE_AVX512VBMI")
-    list(APPEND SIMD_LEVELS "AVX-512-VBMI")
+if(CPU_SUPPORTS_SSSE3)
+    list(APPEND SIMD_DEFINES "HAVE_SSSE3")
+    if(NOT USE_NATIVE_ARCH)
+        list(APPEND SIMD_FLAGS "-mssse3")
+    endif()
+    message(STATUS "  ✓ SSSE3")
 endif()
 
-if(COMPILER_SUPPORTS_AVX512F AND COMPILER_SUPPORTS_AVX512BW)
-    list(APPEND SIMD_FLAGS "-mavx512f" "-mavx512bw")
-    list(APPEND SIMD_DEFINES "-DHAVE_AVX512F" "-DHAVE_AVX512BW")
-    list(APPEND SIMD_LEVELS "AVX-512")
+if(CPU_SUPPORTS_SSE41)
+    list(APPEND SIMD_DEFINES "HAVE_SSE41")
+    if(NOT USE_NATIVE_ARCH)
+        list(APPEND SIMD_FLAGS "-msse4.1")
+    endif()
+    message(STATUS "  ✓ SSE4.1")
 endif()
 
-if(COMPILER_SUPPORTS_AVX2)
-    list(APPEND SIMD_FLAGS "-mavx2")
-    list(APPEND SIMD_DEFINES "-DHAVE_AVX2")
+if(CPU_SUPPORTS_SSE42)
+    list(APPEND SIMD_DEFINES "HAVE_SSE42")
+    if(NOT USE_NATIVE_ARCH)
+        list(APPEND SIMD_FLAGS "-msse4.2")
+    endif()
+    message(STATUS "  ✓ SSE4.2")
+endif()
+
+if(CPU_SUPPORTS_AVX)
+    list(APPEND SIMD_DEFINES "HAVE_AVX")
+    if(NOT USE_NATIVE_ARCH)
+        list(APPEND SIMD_FLAGS "-mavx")
+    endif()
+    message(STATUS "  ✓ AVX")
+endif()
+
+if(CPU_SUPPORTS_AVX2)
+    list(APPEND SIMD_DEFINES "HAVE_AVX2")
     list(APPEND SIMD_LEVELS "AVX2")
+    if(NOT USE_NATIVE_ARCH)
+        list(APPEND SIMD_FLAGS "-mavx2")
+    endif()
+    message(STATUS "  ✓ AVX2")
 endif()
 
-if(COMPILER_SUPPORTS_AVX)
-    list(APPEND SIMD_FLAGS "-mavx")
-    list(APPEND SIMD_DEFINES "-DHAVE_AVX")
+if(CPU_SUPPORTS_AVX512F)
+    list(APPEND SIMD_DEFINES "HAVE_AVX512F")
+    list(APPEND SIMD_LEVELS "AVX-512F")
+    if(NOT USE_NATIVE_ARCH)
+        list(APPEND SIMD_FLAGS "-mavx512f")
+    endif()
+    message(STATUS "  ✓ AVX-512 F (Foundation)")
 endif()
 
-if(COMPILER_SUPPORTS_SSE42)
-    list(APPEND SIMD_FLAGS "-msse4.2")
-    list(APPEND SIMD_DEFINES "-DHAVE_SSE42")
+if(CPU_SUPPORTS_AVX512BW)
+    list(APPEND SIMD_DEFINES "HAVE_AVX512BW")
+    if(NOT USE_NATIVE_ARCH)
+        list(APPEND SIMD_FLAGS "-mavx512bw")
+    endif()
+    message(STATUS "  ✓ AVX-512 BW (Byte/Word)")
 endif()
 
-if(COMPILER_SUPPORTS_SSE41)
-    list(APPEND SIMD_FLAGS "-msse4.1")
-    list(APPEND SIMD_DEFINES "-DHAVE_SSE41")
+if(CPU_SUPPORTS_AVX512VBMI)
+    list(APPEND SIMD_DEFINES "HAVE_AVX512VBMI")
+    list(APPEND SIMD_LEVELS "AVX-512-VBMI")
+    if(NOT USE_NATIVE_ARCH)
+        list(APPEND SIMD_FLAGS "-mavx512vbmi")
+    endif()
+    message(STATUS "  ✓ AVX-512 VBMI")
 endif()
 
-if(COMPILER_SUPPORTS_SSSE3)
-    list(APPEND SIMD_FLAGS "-mssse3")
-    list(APPEND SIMD_DEFINES "-DHAVE_SSSE3")
+if(CPU_SUPPORTS_AVX512VBMI2)
+    list(APPEND SIMD_DEFINES "HAVE_AVX512VBMI2")
+    list(APPEND SIMD_LEVELS "AVX-512-VBMI2")
+    if(NOT USE_NATIVE_ARCH)
+        list(APPEND SIMD_FLAGS "-mavx512vbmi2")
+    endif()
+    message(STATUS "  ✓ AVX-512 VBMI2")
 endif()
 
-if(COMPILER_SUPPORTS_SSE3)
-    list(APPEND SIMD_FLAGS "-msse3")
-    list(APPEND SIMD_DEFINES "-DHAVE_SSE3")
+if(CPU_SUPPORTS_AVX512VNNI)
+    list(APPEND SIMD_DEFINES "HAVE_AVX512VNNI")
+    list(APPEND SIMD_LEVELS "AVX-512-VNNI")
+    if(NOT USE_NATIVE_ARCH)
+        list(APPEND SIMD_FLAGS "-mavx512vnni")
+    endif()
+    message(STATUS "  ✓ AVX-512 VNNI")
 endif()
 
-if(COMPILER_SUPPORTS_SSE2)
-    list(APPEND SIMD_FLAGS "-msse2")
-    list(APPEND SIMD_DEFINES "-DHAVE_SSE2")
+if(CPU_SUPPORTS_AMX)
+    list(APPEND SIMD_DEFINES "HAVE_AMX_TILE" "HAVE_AMX_INT8")
+    list(APPEND SIMD_LEVELS "AMX")
+    if(NOT USE_NATIVE_ARCH)
+        list(APPEND SIMD_FLAGS "-mamx-tile" "-mamx-int8")
+    endif()
+    message(STATUS "  ✓ AMX (Advanced Matrix Extensions)")
 endif()
 
-# Add additional optimization flags for performance and thread safety
-list(APPEND SIMD_FLAGS "-mpopcnt" "-mbmi" "-mbmi2" "-mlzcnt" "-mtune=native" "-fno-omit-frame-pointer")
-
-# Apply SIMD flags
-string(JOIN " " SIMD_FLAGS_STR ${SIMD_FLAGS})
-string(JOIN " " SIMD_DEFINES_STR ${SIMD_DEFINES})
-string(JOIN " → " SIMD_LEVELS_STR ${SIMD_LEVELS})
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${SIMD_FLAGS_STR} ${SIMD_DEFINES_STR}")
+# Add additional optimization flags
+list(APPEND SIMD_FLAGS "-fno-omit-frame-pointer")
 
 # Enhanced message showing detected capabilities
 if(SIMD_LEVELS)
-    message(STATUS "SIMD Optimizations: Thread-safe conditional compilation (${SIMD_LEVELS_STR} → SSE2)")
+    string(JOIN " → " SIMD_LEVELS_STR ${SIMD_LEVELS})
+    message(STATUS "SIMD Optimization Path: ${SIMD_LEVELS_STR}")
 else()
-    message(STATUS "SIMD Optimizations: Scalar fallback only (no advanced instruction sets detected)")
+    message(STATUS "SIMD Optimizations: Baseline x86-64 (no advanced SIMD)")
+endif()
+
+# Apply CPU-specific SIMD flags and defines to the target
+if(SIMD_FLAGS)
+    target_compile_options(fastjson PRIVATE ${SIMD_FLAGS})
+endif()
+
+if(SIMD_DEFINES)
+    target_compile_definitions(fastjson PRIVATE ${SIMD_DEFINES})
 endif()
 
 # Link required libraries including logger

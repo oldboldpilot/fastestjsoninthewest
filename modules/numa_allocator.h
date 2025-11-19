@@ -4,11 +4,11 @@
 
 #pragma once
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
-#include <vector>
 #include <memory>
-#include <atomic>
+#include <vector>
 
 namespace fastjson {
 namespace numa {
@@ -46,28 +46,30 @@ class numa_allocator {
 public:
     numa_allocator();
     ~numa_allocator();
-    
+
     // Allocate memory on specific NUMA node
     auto allocate(size_t size, int preferred_node = -1) -> void*;
-    
+
     // Allocate memory interleaved across all NUMA nodes
     auto allocate_interleaved(size_t size) -> void*;
-    
+
     // Allocate memory local to current thread's NUMA node
     auto allocate_local(size_t size) -> void*;
-    
+
     // Free NUMA-allocated memory
     auto deallocate(void* ptr, size_t size) -> void;
-    
+
     // Get allocation statistics
     auto get_allocated_bytes(int node = -1) const -> size_t;
     auto get_allocation_count(int node = -1) const -> size_t;
-    
+
     // NUMA topology accessors
     auto get_topology() const -> const numa_topology& { return topology_; }
+
     auto is_numa_available() const -> bool { return topology_.is_numa_available; }
+
     auto get_num_nodes() const -> int { return topology_.num_nodes; }
-    
+
 private:
     static constexpr int MAX_NUMA_NODES = 16;
     numa_topology topology_;
@@ -80,17 +82,16 @@ private:
 // NUMA-Aware RAII Memory Buffer
 // ============================================================================
 
-template<typename T>
-class numa_buffer {
+template <typename T> class numa_buffer {
 public:
     numa_buffer() = default;
-    
+
     // Allocate on specific node
     numa_buffer(size_t count, int preferred_node, numa_allocator& allocator)
         : size_(count), allocator_(&allocator) {
         data_ = static_cast<T*>(allocator.allocate(count * sizeof(T), preferred_node));
     }
-    
+
     // Allocate interleaved
     numa_buffer(size_t count, numa_allocator& allocator, bool interleaved = true)
         : size_(count), allocator_(&allocator) {
@@ -100,23 +101,23 @@ public:
             data_ = static_cast<T*>(allocator.allocate_local(count * sizeof(T)));
         }
     }
-    
+
     ~numa_buffer() {
         if (data_ && allocator_) {
             allocator_->deallocate(data_, size_ * sizeof(T));
         }
     }
-    
+
     // No copy, move only
     numa_buffer(const numa_buffer&) = delete;
     numa_buffer& operator=(const numa_buffer&) = delete;
-    
+
     numa_buffer(numa_buffer&& other) noexcept
         : data_(other.data_), size_(other.size_), allocator_(other.allocator_) {
         other.data_ = nullptr;
         other.size_ = 0;
     }
-    
+
     numa_buffer& operator=(numa_buffer&& other) noexcept {
         if (this != &other) {
             if (data_ && allocator_) {
@@ -130,14 +131,18 @@ public:
         }
         return *this;
     }
-    
+
     // Accessors
     auto data() -> T* { return data_; }
+
     auto data() const -> const T* { return data_; }
+
     auto size() const -> size_t { return size_; }
+
     auto operator[](size_t idx) -> T& { return data_[idx]; }
+
     auto operator[](size_t idx) const -> const T& { return data_[idx]; }
-    
+
 private:
     T* data_ = nullptr;
     size_t size_ = 0;
@@ -175,5 +180,5 @@ auto configure_openmp_numa(const numa_parallel_config& config) -> void;
 // Get thread-local allocator configured for NUMA
 auto get_thread_local_allocator() -> numa_allocator&;
 
-} // namespace numa
-} // namespace fastjson
+}  // namespace numa
+}  // namespace fastjson
