@@ -119,6 +119,7 @@ module;
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <concepts>
 #include <cstdint>
 #include <ctime>
 #include <filesystem>
@@ -133,6 +134,7 @@ module;
 #include <string>
 #include <string_view>
 #include <tuple>
+#include <type_traits>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -146,6 +148,48 @@ export module logger;
 // 3. EXPORTED INTERFACE (Public API)
 // ============================================================================
 export namespace logger {
+
+// ============================================================================
+// Type Safety Concepts (C++20/23)
+// ============================================================================
+/**
+ * Compile-time constraints to ensure type-safe template usage in format() and logging
+ */
+
+/**
+ * Concept: Streamable
+ * Ensures type T can be output to an ostream (required for format())
+ */
+template <typename T>
+concept Streamable = requires(std::ostringstream& os, T const& value) {
+    { os << value } -> std::convertible_to<std::ostringstream&>;
+};
+
+/**
+ * Concept: StringConvertible
+ * Ensures type T can be safely converted to string representation
+ * Covers: fundamental types, string types, and streamable types
+ */
+template <typename T>
+concept StringConvertible =
+    std::is_fundamental_v<std::remove_cvref_t<T>> ||
+    std::is_convertible_v<std::remove_cvref_t<T>, std::string_view> ||
+    std::is_convertible_v<std::remove_cvref_t<T>, std::string> ||
+    std::is_same_v<std::remove_cvref_t<T>, char const*> ||
+    Streamable<std::remove_cvref_t<T>>;
+
+/**
+ * Concept: LoggableValue
+ * Top-level constraint for values that can be logged
+ * Combines StringConvertible with additional safety checks
+ */
+template <typename T>
+concept LoggableValue =
+    StringConvertible<T> &&
+    (std::is_copy_constructible_v<std::remove_cvref_t<T>> ||
+     std::is_move_constructible_v<std::remove_cvref_t<T>>) &&
+    (!std::is_pointer_v<std::remove_cvref_t<T>> ||
+     std::is_same_v<std::remove_cvref_t<T>, char const*>);
 
 /**
  * ============================================================================
@@ -416,15 +460,20 @@ class Logger {
      * - Safe for concurrent calls from multiple threads/pipelines
      * - No mutex needed (zero contention)
      *
+     * TYPE SAFETY (C++20 Concepts):
+     * - All arguments must satisfy LoggableValue concept
+     * - Compile-time error if type cannot be safely converted to string
+     * - Prevents unsafe pointer types (except const char*)
+     *
      * Example:
      *   format("Value: {}, Count: {}", 42, 100) -> "Value: 42, Count: 100"
      *   format("Error code: {}", 404) -> "Error code: 404"
      *
      * @param fmt_str Format string with {} placeholders
-     * @param args Arguments to insert into placeholders
+     * @param args Arguments to insert into placeholders (must be LoggableValue)
      * @return Formatted string
      */
-    template <typename... Args>
+    template <LoggableValue... Args>
     [[nodiscard]] static auto format(std::string_view fmt_str, Args&&... args) -> std::string {
         std::ostringstream oss;
         std::string_view remaining = fmt_str;
@@ -536,11 +585,16 @@ class Logger {
     class TemplateValue {
       public:
         /**
-         * Construct from any type convertible to string
+         * Type-safe constructor for loggable values
          *
-         * @param value Value to store (forwarded for efficiency)
+         * TYPE SAFETY (C++20 Concepts):
+         * - Only accepts types that satisfy LoggableValue concept
+         * - Compile-time error for unsafe or non-streamable types
+         * - Prevents accidental logging of raw pointers
+         *
+         * @param value Value to store (must be LoggableValue, forwarded for efficiency)
          */
-        template <typename T>
+        template <LoggableValue T>
         explicit TemplateValue(T&& value)
             : value_{std::make_shared<std::string const>(to_string(std::forward<T>(value)))} {}
 
@@ -552,9 +606,14 @@ class Logger {
         [[nodiscard]] auto toString() const -> std::string const& { return *value_; }
 
       private:
-        /// Convert value to string using ostringstream (handles all types)
-        template <typename T>
+        /// Convert value to string using ostringstream (type-safe with concept check)
+        template <LoggableValue T>
         [[nodiscard]] static auto to_string(T&& val) -> std::string {
+            // Compile-time type safety check with helpful error message
+            static_assert(Streamable<T>,
+                "Type must be streamable (support operator<<) to be logged. "
+                "Consider providing operator<< for your custom type.");
+
             std::ostringstream oss;
             oss << std::forward<T>(val);
             return oss.str();
@@ -695,37 +754,37 @@ class Logger {
      * Use string literals and char-based formatting only
      */
     // Template methods for formatted logging
-    template <typename... Args>
+    template <LoggableValue... Args>
         requires(sizeof...(Args) > 0)
     auto trace(std::string_view fmt_str, Args&&... args) -> void {
         logFormatted(LogLevel::TRACE, format(fmt_str, std::forward<Args>(args)...));
     }
 
-    template <typename... Args>
+    template <LoggableValue... Args>
         requires(sizeof...(Args) > 0)
     auto debug(std::string_view fmt_str, Args&&... args) -> void {
         logFormatted(LogLevel::DEBUG, format(fmt_str, std::forward<Args>(args)...));
     }
 
-    template <typename... Args>
+    template <LoggableValue... Args>
         requires(sizeof...(Args) > 0)
     auto info(std::string_view fmt_str, Args&&... args) -> void {
         logFormatted(LogLevel::INFO, format(fmt_str, std::forward<Args>(args)...));
     }
 
-    template <typename... Args>
+    template <LoggableValue... Args>
         requires(sizeof...(Args) > 0)
     auto warn(std::string_view fmt_str, Args&&... args) -> void {
         logFormatted(LogLevel::WARN, format(fmt_str, std::forward<Args>(args)...));
     }
 
-    template <typename... Args>
+    template <LoggableValue... Args>
         requires(sizeof...(Args) > 0)
     auto error(std::string_view fmt_str, Args&&... args) -> void {
         logFormatted(LogLevel::ERROR, format(fmt_str, std::forward<Args>(args)...));
     }
 
-    template <typename... Args>
+    template <LoggableValue... Args>
         requires(sizeof...(Args) > 0)
     auto critical(std::string_view fmt_str, Args&&... args) -> void {
         logFormatted(LogLevel::CRITICAL, format(fmt_str, std::forward<Args>(args)...));
@@ -1126,7 +1185,8 @@ class Logger::Impl {
 
         // Format timezone as +HH:MM or -HH:MM (ISO 8601)
         std::array<char, 10> tz_offset{};
-        std::snprintf(tz_offset.data(), tz_offset.size(), "%+03d:%02d", offset_hours, offset_minutes);
+        std::snprintf(tz_offset.data(), tz_offset.size(), "%+03d:%02d", offset_hours,
+                      offset_minutes);
 
         // ========================================================================
         // Format Log Entry for File (Plain Text, No Colors)
@@ -1134,7 +1194,8 @@ class Logger::Impl {
 
         std::ostringstream file_ss;
         file_ss << std::put_time(&local_tm, "[%Y-%m-%d %H:%M:%S") << '.' << std::setfill('0')
-                << std::setw(3) << ms.count() << " " << tz_offset.data() << "] " // Add timezone offset
+                << std::setw(3) << ms.count() << " " << tz_offset.data()
+                << "] " // Add timezone offset
                 << "[" << levelToString(level) << "] "
                 << "[" << loc.file_name() << ":" << loc.line() << "] " << msg << std::endl;
 
@@ -1154,8 +1215,8 @@ class Logger::Impl {
                 std::ostringstream console_ss;
                 console_ss << AnsiColors::BRIGHT_BLACK
                            << std::put_time(&local_tm, "[%Y-%m-%d %H:%M:%S") << '.'
-                           << std::setfill('0') << std::setw(3) << ms.count() << " " << tz_offset.data()
-                           << "] " // Add timezone offset
+                           << std::setfill('0') << std::setw(3) << ms.count() << " "
+                           << tz_offset.data() << "] " // Add timezone offset
                            << AnsiColors::RESET << getLevelColor(level) << AnsiColors::BOLD << "["
                            << levelToString(level) << "] " << AnsiColors::RESET
                            << AnsiColors::BRIGHT_BLACK << "[" << loc.file_name() << ":"

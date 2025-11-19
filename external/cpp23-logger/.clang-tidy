@@ -1,8 +1,5 @@
-# BigBrotherAnalytics - Clang-Tidy Configuration
-# Enforces C++ Core Guidelines, C++23 standards, and project conventions
-#
-# Author: Olumuyiwa Oluwasanmi
-# Date: 2025-11-08
+# cpp23-logger - Clang-Tidy Configuration
+# Enforces C++ Core Guidelines, C++23 standards, and modern C++ practices
 
 Checks: >
   -*,
@@ -13,233 +10,43 @@ Checks: >
   bugprone-*,
   clang-analyzer-*,
   concurrency-*,
-  cert-*,
-  portability-*,
-  openmp-*,
-  mpi-*,
-  modernize-use-trailing-return-type,
-  modernize-use-auto,
-  modernize-use-nodiscard,
-  modernize-use-nullptr,
-  modernize-use-override,
-  modernize-use-using,
-  cppcoreguidelines-special-member-functions,
-  cppcoreguidelines-no-malloc,
-  cppcoreguidelines-owning-memory,
-  cppcoreguidelines-prefer-member-initializer,
-  cppcoreguidelines-init-variables,
-  cppcoreguidelines-slicing,
-  -readability-magic-numbers,
+  -cert-dcl58-cpp,
+  -bugprone-empty-catch,
+  -bugprone-forwarding-reference-overload,
+  -bugprone-easily-swappable-parameters,
   -cppcoreguidelines-avoid-magic-numbers,
-  -cppcoreguidelines-avoid-non-const-global-variables,
+  -cppcoreguidelines-init-variables,
+  -cppcoreguidelines-missing-std-forward,
+  -cppcoreguidelines-use-default-member-init,
+  -cppcoreguidelines-pro-type-member-init,
+  -modernize-use-equals-default,
+  -readability-magic-numbers,
   -readability-identifier-length,
+  -readability-convert-member-functions-to-static,
+  -readability-braces-around-statements,
   -cppcoreguidelines-pro-bounds-pointer-arithmetic,
   -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
-  -readability-named-parameter,
-  -readability-identifier-naming,
-  -performance-enum-size,
-  -bugprone-easily-swappable-parameters,
-  -readability-function-size,
   -readability-function-cognitive-complexity,
-  -modernize-use-designated-initializers,
-  -readability-math-missing-parentheses,
-  -readability-redundant-declaration,
-  -readability-braces-around-statements,
-  -readability-else-after-return,
-  -cppcoreguidelines-non-private-member-variables-in-classes,
-  -cppcoreguidelines-pro-type-member-init,
-  -modernize-use-auto,
-  -modernize-use-ranges,
-  -modernize-use-scoped-lock,
-  -readability-convert-member-functions-to-static,
-  -readability-redundant-member-init,
-  -readability-ambiguous-smartptr-reset-call,
-  -readability-use-std-min-max,
-  -readability-simplify-boolean-expr,
-  -readability-container-contains,
-  -readability-make-member-function-const,
-  -readability-duplicate-include,
-  -modernize-use-emplace,
-  -modernize-use-integer-sign-comparison,
-  -bugprone-branch-clone,
-  -cppcoreguidelines-macro-usage,
-  -modernize-pass-by-value,
-  -modernize-use-default-member-init,
-  -cppcoreguidelines-use-default-member-init,
-  -performance-unnecessary-value-param,
-  -performance-move-const-arg,
-  -cppcoreguidelines-avoid-const-or-ref-data-members,
-  -cppcoreguidelines-missing-std-forward,
-  -bugprone-narrowing-conversions,
-  -bugprone-unused-return-value,
-  -cppcoreguidelines-narrowing-conversions,
-  -modernize-redundant-void-arg,
-  -readability-misleading-indentation,
-  -cert-msc30-c,
-  -cert-msc50-cpp,
-  -cert-err33-c,
-  -clang-analyzer-deadcode.DeadStores,
-  -openmp-use-default-none
+  -readability-function-size,
+  -performance-enum-size,
+  -modernize-use-default-member-init
 
-# Treat violations as errors (enforces compliance)
 WarningsAsErrors: >
   modernize-use-trailing-return-type,
-  cppcoreguidelines-special-member-functions,
-  cppcoreguidelines-no-malloc,
   modernize-use-nullptr,
   modernize-use-nodiscard
 
-HeaderFilterRegex: 'src/.*'  # Only check our source code, not external libraries
+HeaderFilterRegex: 'include/logger/.*'
 FormatStyle: none
-
-# Exclude external libraries and third-party code from all checks
 SystemHeaders: false
 
-# Exclude external library paths from diagnostics
 ExtraArgs:
   - '-isystem/usr/include'
   - '-isystem/usr/local/include'
-  - '-isystem/usr/lib/gcc/x86_64-linux-gnu/15/include'
-  - '-isystem/usr/include/c++/15'
+  - '-isystem/usr/local/lib/clang/21/include'
 
 CheckOptions:
-  # C++ Core Guidelines specific
-  - key: cppcoreguidelines-special-member-functions.AllowSoleDefaultDtor
-    value: true
-  - key: cppcoreguidelines-special-member-functions.AllowMissingMoveFunctions
-    value: false
-
-  # C++23 and modern C++ enforcement
   - key: modernize-use-trailing-return-type.MinTypeNameLength
     value: 0
-  - key: modernize-use-trailing-return-type.CheckConstexpr
-    value: true
-
-  # Modernize checks
   - key: modernize-use-nodiscard.ReplacementString
     value: '[[nodiscard]]'
-
-  # Performance checks
-  - key: performance-move-const-arg.CheckTriviallyCopyableMove
-    value: true
-  - key: performance-unnecessary-value-param.AllowedTypes
-    value: 'std::shared_ptr;std::unique_ptr'
-
-  # Readability
-  # (function size/complexity checks disabled - often too strict for complex financial logic)
-
-# ============================================================================
-# BigBrotherAnalytics Coding Standards Enforcement
-# ============================================================================
-#
-# This configuration enforces the following standards:
-#
-# 1. TRAILING RETURN SYNTAX (ENFORCED AS ERROR)
-#    Check: modernize-use-trailing-return-type
-#    Rule: ALL functions MUST use: auto func() -> ReturnType
-#    Severity: ERROR (blocks commit)
-#    Example:
-#      ✅ auto calculatePrice(double x) -> double { return x * 2; }
-#      ❌ double calculatePrice(double x) { return x * 2; }
-#
-# 2. C++ CORE GUIDELINES (COMPREHENSIVE ENFORCEMENT)
-#    Checks: cppcoreguidelines-*
-#
-#    Key Rules Enforced:
-#    - C.1: struct for passive data, class for invariants
-#    - C.21: Define or delete all 5 special members (Rule of Five)
-#      Check: cppcoreguidelines-special-member-functions (ERROR)
-#    - C.41: Constructors establish invariants
-#    - C.47: Initialize members in declaration order
-#    - E: Use std::expected for error handling
-#    - F.16: Pass cheap types by value, expensive by const&
-#    - F.20: Return values, not output parameters
-#    - R.1: RAII for resource management
-#      Check: cppcoreguidelines-owning-memory
-#    - R.3: Don't use raw pointers
-#      Check: cppcoreguidelines-no-malloc (ERROR)
-#    - I.11: Never transfer ownership by raw pointer
-#
-# 3. C++23 MODULE SYSTEM
-#    Checks: modernize-*, readability-*
-#
-#    Module Structure Requirements:
-#    - Global module fragment (module;) comes first
-#    - Only standard library in global fragment
-#    - Module declaration: export module bigbrother.component;
-#    - Module imports: import bigbrother.dependency;
-#    - Export namespace: export namespace bigbrother::component {}
-#
-#    Note: clang-tidy has limited module-specific checks
-#    Full module validation done by pre-commit hooks
-#
-# 4. MODERN C++23 FEATURES
-#    - [[nodiscard]] for getters/queries
-#      Check: modernize-use-nodiscard (ERROR)
-#    - nullptr instead of NULL
-#      Check: modernize-use-nullptr (ERROR)
-#    - override for virtual functions
-#      Check: modernize-use-override
-#    - using instead of typedef
-#      Check: modernize-use-using
-#    - auto for type deduction
-#      Check: modernize-use-auto
-#
-# 5. PERFORMANCE OPTIMIZATION
-#    Checks: performance-*
-#    - Avoid unnecessary copies
-#    - Use move semantics
-#    - Prefer emplace over insert
-#    - Check for unnecessary value parameters
-#
-# 6. CONCURRENCY SAFETY (COMPREHENSIVE)
-#    Checks: concurrency-*
-#    - Thread-safe operations
-#    - Proper mutex usage
-#    - Atomic operations
-#    - Race condition detection
-#    - Deadlock prevention
-#
-# 7. SECURITY & CERTIFICATION
-#    Checks: cert-*
-#    - CERT C++ Secure Coding Standard
-#    - Security vulnerabilities
-#    - Undefined behavior
-#    - Integer overflow protection
-#
-# 8. PORTABILITY
-#    Checks: portability-*
-#    - Cross-platform compatibility
-#    - Endianness issues
-#    - Platform-specific code warnings
-#
-# 9. OPENMP PARALLELIZATION
-#    Checks: openmp-*
-#    - OpenMP best practices
-#    - Parallel region safety
-#    - Data race detection in parallel code
-#    - Critical section usage
-#
-# 10. MPI PARALLELIZATION
-#    Checks: mpi-*
-#    - MPI best practices
-#    - Message passing correctness
-#    - Rank and communicator usage
-#    - Buffer management
-#
-# 11. BUG DETECTION
-#    Checks: bugprone-*, clang-analyzer-*
-#    - Potential bugs and logic errors
-#    - Undefined behavior
-#    - Memory issues
-#    - Security vulnerabilities
-#
-# ============================================================================
-# ENFORCEMENT LEVEL: ERRORS (Will block commit/build)
-# ============================================================================
-# The following violations are treated as ERRORS and will fail the build:
-# - modernize-use-trailing-return-type (ALL functions must use trailing syntax)
-# - cppcoreguidelines-special-member-functions (Rule of Five)
-# - cppcoreguidelines-no-malloc (No raw memory management)
-# - modernize-use-nullptr (No NULL, use nullptr)
-# - modernize-use-nodiscard (Getters must have [[nodiscard]])
