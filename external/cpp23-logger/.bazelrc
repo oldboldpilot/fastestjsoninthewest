@@ -1,6 +1,10 @@
 # Bazel configuration for cpp23-logger
 #
 # C++23 module support configuration
+# Bzlmod-compatible configuration
+
+# Enable Bzlmod (modern module system)
+common --enable_bzlmod
 
 # Build settings
 build --cxxopt=-std=c++23

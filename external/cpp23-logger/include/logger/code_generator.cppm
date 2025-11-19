@@ -27,7 +27,8 @@
  * class {{class_name | PascalCase}} {
  * public:
  *     {{#each methods}}
- *     {{return_type}} {{name | camelCase}}({{#each params}}{{type}} {{name}}{{#unless @last}}, {{/unless}}{{/each}});
+ *     {{return_type}} {{name | camelCase}}({{#each params}}{{type}} {{name}}{{#unless @last}},
+ * {{/unless}}{{/each}});
  *     {{/each}}
  * };
  * )";
@@ -43,7 +44,8 @@
  *
  * // 2. Python function generation with conditionals
  * auto py_template = R"(
- * def {{name | snake_case}}({{#each params}}{{name}}: {{type}}{{#unless @last}}, {{/unless}}{{/each}}){{#if return_type}} -> {{return_type}}{{/if}}:
+ * def {{name | snake_case}}({{#each params}}{{name}}: {{type}}{{#unless @last}},
+ * {{/unless}}{{/each}}){{#if return_type}} -> {{return_type}}{{/if}}:
  *     """{{description | wrap 80}}"""
  *     {{#if validate}}
  *     # Input validation
@@ -62,7 +64,8 @@
  * auto sql_template = R"(
  * CREATE TABLE {{table_name | snake_case}} (
  *     {{#each columns}}
- *     {{name | snake_case}} {{type}}{{#if not_null}} NOT NULL{{/if}}{{#if primary_key}} PRIMARY KEY{{/if}}{{#unless @last}},{{/unless}}
+ *     {{name | snake_case}} {{type}}{{#if not_null}} NOT NULL{{/if}}{{#if primary_key}} PRIMARY
+ * KEY{{/if}}{{#unless @last}},{{/unless}}
  *     {{/each}}
  * );
  * )";
@@ -204,7 +207,7 @@ export namespace logger::codegen {
         char c = str[i];
 
         // Insert underscore before uppercase letters (except first char)
-        if (i > 0 && std::isupper(c) && std::islower(str[i-1])) {
+        if (i > 0 && std::isupper(c) && std::islower(str[i - 1])) {
             result += '_';
         }
 
@@ -306,12 +309,23 @@ export namespace logger::codegen {
 
     for (char c : str) {
         switch (c) {
-            case '\\': result += "\\\\"; break;
-            case '\"': result += "\\\""; break;
-            case '\n': result += "\\n"; break;
-            case '\r': result += "\\r"; break;
-            case '\t': result += "\\t"; break;
-            default: result += c;
+            case '\\':
+                result += "\\\\";
+                break;
+            case '\"':
+                result += "\\\"";
+                break;
+            case '\n':
+                result += "\\n";
+                break;
+            case '\r':
+                result += "\\r";
+                break;
+            case '\t':
+                result += "\\t";
+                break;
+            default:
+                result += c;
         }
     }
 
@@ -349,8 +363,10 @@ export namespace logger::codegen {
 /**
  * Join array of strings with delimiter
  */
-[[nodiscard]] inline auto join(std::vector<std::string> const& items, std::string_view delimiter) -> std::string {
-    if (items.empty()) return "";
+[[nodiscard]] inline auto join(std::vector<std::string> const& items, std::string_view delimiter)
+    -> std::string {
+    if (items.empty())
+        return "";
 
     std::ostringstream result;
     result << items[0];
@@ -375,15 +391,8 @@ using TemplateObject = std::map<std::string, TemplateValue>;
  * Template value variant - can hold string, bool, int, double, array, or object
  */
 class TemplateValue {
-public:
-    using ValueType = std::variant<
-        std::string,
-        bool,
-        int,
-        double,
-        TemplateArray,
-        TemplateObject
-    >;
+  public:
+    using ValueType = std::variant<std::string, bool, int, double, TemplateArray, TemplateObject>;
 
     // Constructors for each type
     TemplateValue() : value_{std::string{}} {}
@@ -396,35 +405,46 @@ public:
     TemplateValue(TemplateObject obj) : value_{std::move(obj)} {}
 
     // Type checks
-    [[nodiscard]] auto isString() const -> bool { return std::holds_alternative<std::string>(value_); }
+    [[nodiscard]] auto isString() const -> bool {
+        return std::holds_alternative<std::string>(value_);
+    }
     [[nodiscard]] auto isBool() const -> bool { return std::holds_alternative<bool>(value_); }
     [[nodiscard]] auto isInt() const -> bool { return std::holds_alternative<int>(value_); }
     [[nodiscard]] auto isDouble() const -> bool { return std::holds_alternative<double>(value_); }
-    [[nodiscard]] auto isArray() const -> bool { return std::holds_alternative<TemplateArray>(value_); }
-    [[nodiscard]] auto isObject() const -> bool { return std::holds_alternative<TemplateObject>(value_); }
+    [[nodiscard]] auto isArray() const -> bool {
+        return std::holds_alternative<TemplateArray>(value_);
+    }
+    [[nodiscard]] auto isObject() const -> bool {
+        return std::holds_alternative<TemplateObject>(value_);
+    }
 
     // Accessors
     [[nodiscard]] auto asString() const -> std::string {
-        return std::visit([](auto&& arg) -> std::string {
-            using T = std::decay_t<decltype(arg)>;
-            if constexpr (std::is_same_v<T, std::string>) {
-                return arg;
-            } else if constexpr (std::is_same_v<T, bool>) {
-                return arg ? "true" : "false";
-            } else if constexpr (std::is_same_v<T, int>) {
-                return std::to_string(arg);
-            } else if constexpr (std::is_same_v<T, double>) {
-                return std::to_string(arg);
-            } else {
-                return "";
-            }
-        }, value_);
+        return std::visit(
+            [](auto&& arg) -> std::string {
+                using T = std::decay_t<decltype(arg)>;
+                if constexpr (std::is_same_v<T, std::string>) {
+                    return arg;
+                } else if constexpr (std::is_same_v<T, bool>) {
+                    return arg ? "true" : "false";
+                } else if constexpr (std::is_same_v<T, int>) {
+                    return std::to_string(arg);
+                } else if constexpr (std::is_same_v<T, double>) {
+                    return std::to_string(arg);
+                } else {
+                    return "";
+                }
+            },
+            value_);
     }
 
     [[nodiscard]] auto asBool() const -> bool {
-        if (isBool()) return std::get<bool>(value_);
-        if (isInt()) return std::get<int>(value_) != 0;
-        if (isString()) return !std::get<std::string>(value_).empty();
+        if (isBool())
+            return std::get<bool>(value_);
+        if (isInt())
+            return std::get<int>(value_) != 0;
+        if (isString())
+            return !std::get<std::string>(value_).empty();
         return false;
     }
 
@@ -467,7 +487,7 @@ public:
         return TemplateValue{};
     }
 
-private:
+  private:
     ValueType value_;
 };
 
@@ -480,7 +500,7 @@ private:
 using FilterFunction = std::function<std::string(std::string_view)>;
 
 class FilterRegistry {
-public:
+  public:
     FilterRegistry() {
         // Register built-in filters
         registerFilter("uppercase", toUpperCase);
@@ -508,7 +528,8 @@ public:
         filters_[std::move(name)] = std::move(filter);
     }
 
-    [[nodiscard]] auto applyFilter(std::string_view filter_name, std::string_view value) const -> std::string {
+    [[nodiscard]] auto applyFilter(std::string_view filter_name, std::string_view value) const
+        -> std::string {
         auto it = filters_.find(std::string(filter_name));
         if (it != filters_.end()) {
             return it->second(value);
@@ -520,7 +541,7 @@ public:
         return filters_.contains(std::string(filter_name));
     }
 
-private:
+  private:
     std::unordered_map<std::string, FilterFunction> filters_;
 };
 
@@ -531,7 +552,7 @@ private:
  */
 
 class CodeGenerator {
-public:
+  public:
     CodeGenerator() : filters_{std::make_shared<FilterRegistry>()} {}
 
     /**
@@ -605,9 +626,7 @@ public:
      *                    .setData(data)
      *                    .render();
      */
-    [[nodiscard]] auto render() const -> std::string {
-        return processTemplate(template_, data_);
-    }
+    [[nodiscard]] auto render() const -> std::string { return processTemplate(template_, data_); }
 
     /**
      * Render template with provided data (classic API - stateless)
@@ -616,7 +635,8 @@ public:
      * @param data Template data
      * @return Rendered string
      */
-    [[nodiscard]] auto render(std::string_view template_str, TemplateObject const& data) const -> std::string {
+    [[nodiscard]] auto render(std::string_view template_str, TemplateObject const& data) const
+        -> std::string {
         return processTemplate(template_str, data);
     }
 
@@ -631,11 +651,12 @@ public:
         return *this;
     }
 
-private:
+  private:
     /**
      * Process template with full feature support
      */
-    [[nodiscard]] auto processTemplate(std::string_view template_str, TemplateObject const& data) const -> std::string {
+    [[nodiscard]] auto processTemplate(std::string_view template_str,
+                                       TemplateObject const& data) const -> std::string {
         std::ostringstream result;
         std::string_view remaining = template_str;
 
@@ -672,7 +693,8 @@ private:
     /**
      * Process single expression (variable, filter, conditional, etc.)
      */
-    [[nodiscard]] auto processExpression(std::string_view expr, TemplateObject const& data) const -> std::string {
+    [[nodiscard]] auto processExpression(std::string_view expr, TemplateObject const& data) const
+        -> std::string {
         // Check for filter (contains |)
         auto pipe_pos = expr.find('|');
 
@@ -694,15 +716,16 @@ private:
     /**
      * Get variable value from data (supports dot notation)
      */
-    [[nodiscard]] auto getVariable(std::string_view var_name, TemplateObject const& data) const -> std::string {
+    [[nodiscard]] auto getVariable(std::string_view var_name, TemplateObject const& data) const
+        -> std::string {
         TemplateValue root{data};
         auto value = root.getProperty(var_name);
         return value.asString();
     }
 
     std::shared_ptr<FilterRegistry> filters_;
-    std::string template_;        // Stored template for fluent API
-    TemplateObject data_;         // Stored data for fluent API
+    std::string template_; // Stored template for fluent API
+    TemplateObject data_;  // Stored data for fluent API
 };
 
 } // namespace logger::codegen

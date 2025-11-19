@@ -1,4 +1,4 @@
-# C++23 Logger - Bazel Build Configuration
+# C++23 Logger - Bazel Build Configuration (Bzlmod)
 #
 # Production-grade thread-safe logger with Mustache templates and fluent API
 #
@@ -7,19 +7,13 @@
 #   bazel test //tests:test_logger
 #
 # Requirements:
-#   - Bazel 7.0+ (for C++23 module support)
+#   - Bazel 7.0+ (for C++23 module support and Bzlmod)
 #   - Clang 17+, GCC 14+, or MSVC 19.34+
 #
-# Integration:
-#   In your WORKSPACE file:
+# Integration (with Bzlmod):
+#   In your MODULE.bazel file:
 #   ```
-#   load("@bazel_tools//tools/build_defs/repo:git.bzl", "git_repository")
-#
-#   git_repository(
-#       name = "cpp23_logger",
-#       remote = "https://github.com/YOUR_USERNAME/cpp23-logger.git",
-#       tag = "v1.0.0",
-#   )
+#   bazel_dep(name = "cpp23_logger", version = "1.0.0")
 #   ```
 #
 #   In your BUILD file:
@@ -30,13 +24,27 @@
 #       deps = ["@cpp23_logger//:logger"],
 #   )
 #   ```
+#
+# Integration (legacy WORKSPACE):
+#   ```
+#   load("@bazel_tools//tools/build_defs/repo:git.bzl", "git_repository")
+#
+#   git_repository(
+#       name = "cpp23_logger",
+#       remote = "https://github.com/oldboldpilot/cpp23-logger.git",
+#       tag = "v1.0.0",
+#   )
+#   ```
 
 load("@rules_cc//cc:defs.bzl", "cc_library")
 
-# Logger library
+# Logger library with code generation support
 cc_library(
     name = "logger",
-    srcs = ["include/logger/logger.cppm"],
+    srcs = [
+        "include/logger/logger.cppm",
+        "include/logger/code_generator.cppm",
+    ],
     hdrs = [],
     copts = [
         "-std=c++23",
