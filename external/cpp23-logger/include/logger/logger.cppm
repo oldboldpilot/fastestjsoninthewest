@@ -187,12 +187,12 @@ export namespace logger {
  * - min_level = ERROR → logs only ERROR and CRITICAL
  */
 enum class LogLevel : std::uint8_t {
-    TRACE = 0,    // Most verbose
+    TRACE = 0, // Most verbose
     DEBUG = 1,
-    INFO = 2,     // Default production level
+    INFO = 2, // Default production level
     WARN = 3,
     ERROR = 4,
-    CRITICAL = 5  // Least verbose, most severe
+    CRITICAL = 5 // Least verbose, most severe
 };
 
 /**
@@ -598,7 +598,7 @@ class Logger {
      *   -> "User 123 at 14:23"
      */
     [[nodiscard]] static auto processTemplate(std::string_view template_str,
-                                               TemplateParams const& params) -> std::string {
+                                              TemplateParams const& params) -> std::string {
         std::ostringstream result;
         std::string_view remaining = template_str;
 
@@ -625,8 +625,7 @@ class Logger {
             }
 
             // Extract parameter name (between { and })
-            auto param_name =
-                remaining.substr(start_pos + 1, end_pos - start_pos - 1);
+            auto param_name = remaining.substr(start_pos + 1, end_pos - start_pos - 1);
 
             // Lookup parameter value
             auto param_str = std::string(param_name);
@@ -921,42 +920,42 @@ namespace logger {
  * - Colors may appear differently based on terminal theme
  */
 namespace AnsiColors {
-    // ========================================================================
-    // Control Codes
-    // ========================================================================
+// ========================================================================
+// Control Codes
+// ========================================================================
 
-    /// Reset all text attributes to default (CRITICAL: Always use after colors)
-    constexpr const char* RESET = "\033[0m";
+/// Reset all text attributes to default (CRITICAL: Always use after colors)
+constexpr const char* RESET = "\033[0m";
 
-    /// Enable bold/bright text rendering (increases font weight)
-    constexpr const char* BOLD = "\033[1m";
+/// Enable bold/bright text rendering (increases font weight)
+constexpr const char* BOLD = "\033[1m";
 
-    // ========================================================================
-    // Standard Foreground Colors (30-37)
-    // ========================================================================
+// ========================================================================
+// Standard Foreground Colors (30-37)
+// ========================================================================
 
-    constexpr const char* BLACK = "\033[30m";    // Standard black
-    constexpr const char* RED = "\033[31m";      // Standard red (errors)
-    constexpr const char* GREEN = "\033[32m";    // Standard green (success)
-    constexpr const char* YELLOW = "\033[33m";   // Standard yellow (warnings)
-    constexpr const char* BLUE = "\033[34m";     // Standard blue
-    constexpr const char* MAGENTA = "\033[35m";  // Standard magenta
-    constexpr const char* CYAN = "\033[36m";     // Standard cyan (debug info)
-    constexpr const char* WHITE = "\033[37m";    // Standard white
+constexpr const char* BLACK = "\033[30m";   // Standard black
+constexpr const char* RED = "\033[31m";     // Standard red (errors)
+constexpr const char* GREEN = "\033[32m";   // Standard green (success)
+constexpr const char* YELLOW = "\033[33m";  // Standard yellow (warnings)
+constexpr const char* BLUE = "\033[34m";    // Standard blue
+constexpr const char* MAGENTA = "\033[35m"; // Standard magenta
+constexpr const char* CYAN = "\033[36m";    // Standard cyan (debug info)
+constexpr const char* WHITE = "\033[37m";   // Standard white
 
-    // ========================================================================
-    // Bright Foreground Colors (90-97)
-    // ========================================================================
-    // Higher intensity variants - better visibility on dark backgrounds
+// ========================================================================
+// Bright Foreground Colors (90-97)
+// ========================================================================
+// Higher intensity variants - better visibility on dark backgrounds
 
-    constexpr const char* BRIGHT_BLACK = "\033[90m";    // Gray (dimmed text)
-    constexpr const char* BRIGHT_RED = "\033[91m";      // Bright red (critical errors)
-    constexpr const char* BRIGHT_GREEN = "\033[92m";    // Bright green
-    constexpr const char* BRIGHT_YELLOW = "\033[93m";   // Bright yellow
-    constexpr const char* BRIGHT_BLUE = "\033[94m";     // Bright blue
-    constexpr const char* BRIGHT_MAGENTA = "\033[95m";  // Bright magenta
-    constexpr const char* BRIGHT_CYAN = "\033[96m";     // Bright cyan
-    constexpr const char* BRIGHT_WHITE = "\033[97m";    // Bright white
+constexpr const char* BRIGHT_BLACK = "\033[90m";   // Gray (dimmed text)
+constexpr const char* BRIGHT_RED = "\033[91m";     // Bright red (critical errors)
+constexpr const char* BRIGHT_GREEN = "\033[92m";   // Bright green
+constexpr const char* BRIGHT_YELLOW = "\033[93m";  // Bright yellow
+constexpr const char* BRIGHT_BLUE = "\033[94m";    // Bright blue
+constexpr const char* BRIGHT_MAGENTA = "\033[95m"; // Bright magenta
+constexpr const char* BRIGHT_CYAN = "\033[96m";    // Bright cyan
+constexpr const char* BRIGHT_WHITE = "\033[97m";   // Bright white
 } // namespace AnsiColors
 
 /**
@@ -1013,7 +1012,9 @@ class Logger::Impl {
      * THREAD-SAFETY: Not thread-safe (called only once during singleton init)
      * EXCEPTIONS: Swallows all exceptions (never fails initialization)
      */
-    Impl() : current_level{LogLevel::INFO}, console_enabled{true}, console_color{true}, initialized{false} {
+    Impl()
+        : current_level{LogLevel::INFO}, console_enabled{true}, console_color{true},
+          initialized{false} {
         // ====================================================================
         // UTF-8 Locale Initialization
         // ====================================================================
@@ -1035,7 +1036,8 @@ class Logger::Impl {
         }
     }
 
-    auto initialize(std::string const& log_file_path, LogLevel level, bool console, bool color = true) -> void {
+    auto initialize(std::string const& log_file_path, LogLevel level, bool console,
+                    bool color = true) -> void {
         std::lock_guard<std::mutex> lock(mutex_);
 
         current_level = level;
@@ -1056,8 +1058,8 @@ class Logger::Impl {
             std::cerr << "Failed to open log file: " << log_file_path << std::endl;
         } else {
             initialized = true;
-            std::cout << "Logger initialized: " << log_file_path << " (UTF-8, Color: "
-                     << (console_color ? "ON" : "OFF") << ")" << std::endl;
+            std::cout << "Logger initialized: " << log_file_path
+                      << " (UTF-8, Color: " << (console_color ? "ON" : "OFF") << ")" << std::endl;
         }
     }
 
@@ -1086,7 +1088,8 @@ class Logger::Impl {
             return; // Skip if level is below threshold
         }
 
-        std::lock_guard<std::mutex> lock(mutex_); // Thread-safe logging (protects concurrent pipelines)
+        std::lock_guard<std::mutex> lock(
+            mutex_); // Thread-safe logging (protects concurrent pipelines)
 
         // ========================================================================
         // Timestamp Formatting with Date, Time, Milliseconds, and Timezone
@@ -1098,13 +1101,19 @@ class Logger::Impl {
         auto ms =
             std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
 
-        // Get local time with timezone information
-        std::tm* local_time = std::localtime(&time);
+        // Get local time with timezone information (thread-safe)
+        std::tm local_tm{};
+        std::tm gmt_tm{};
 
-        // Calculate timezone offset from UTC
-        // This works by comparing local time with GMT time
-        std::tm gmt_tm = *std::gmtime(&time);
-        std::tm local_tm = *local_time;
+#ifdef _WIN32
+        // Windows: Use thread-safe _localtime64_s and _gmtime64_s
+        localtime_s(&local_tm, &time);
+        gmtime_s(&gmt_tm, &time);
+#else
+        // POSIX: Use thread-safe localtime_r and gmtime_r
+        localtime_r(&time, &local_tm);
+        gmtime_r(&time, &gmt_tm);
+#endif
 
         // Convert both to time_t to get difference in seconds
         std::time_t gmt_time = std::mktime(&gmt_tm);
@@ -1116,20 +1125,18 @@ class Logger::Impl {
         int offset_minutes = (std::abs(offset_seconds) % 3600) / 60;
 
         // Format timezone as +HH:MM or -HH:MM (ISO 8601)
-        char tz_offset[10];
-        std::snprintf(tz_offset, sizeof(tz_offset), "%+03d:%02d", offset_hours, offset_minutes);
+        std::array<char, 10> tz_offset{};
+        std::snprintf(tz_offset.data(), tz_offset.size(), "%+03d:%02d", offset_hours, offset_minutes);
 
         // ========================================================================
         // Format Log Entry for File (Plain Text, No Colors)
         // ========================================================================
 
         std::ostringstream file_ss;
-        file_ss << std::put_time(local_time, "[%Y-%m-%d %H:%M:%S")
-                << '.' << std::setfill('0') << std::setw(3) << ms.count()
-                << " " << tz_offset << "] "  // Add timezone offset
+        file_ss << std::put_time(&local_tm, "[%Y-%m-%d %H:%M:%S") << '.' << std::setfill('0')
+                << std::setw(3) << ms.count() << " " << tz_offset.data() << "] " // Add timezone offset
                 << "[" << levelToString(level) << "] "
-                << "[" << loc.file_name() << ":" << loc.line() << "] "
-                << msg << std::endl;
+                << "[" << loc.file_name() << ":" << loc.line() << "] " << msg << std::endl;
 
         std::string file_entry = file_ss.str();
 
@@ -1146,17 +1153,13 @@ class Logger::Impl {
                 // Message: Default color
                 std::ostringstream console_ss;
                 console_ss << AnsiColors::BRIGHT_BLACK
-                          << std::put_time(local_time, "[%Y-%m-%d %H:%M:%S")
-                          << '.' << std::setfill('0') << std::setw(3) << ms.count()
-                          << " " << tz_offset << "] "  // Add timezone offset
-                          << AnsiColors::RESET
-                          << getLevelColor(level) << AnsiColors::BOLD
-                          << "[" << levelToString(level) << "] "
-                          << AnsiColors::RESET
-                          << AnsiColors::BRIGHT_BLACK
-                          << "[" << loc.file_name() << ":" << loc.line() << "] "
-                          << AnsiColors::RESET
-                          << msg << std::endl;
+                           << std::put_time(&local_tm, "[%Y-%m-%d %H:%M:%S") << '.'
+                           << std::setfill('0') << std::setw(3) << ms.count() << " " << tz_offset.data()
+                           << "] " // Add timezone offset
+                           << AnsiColors::RESET << getLevelColor(level) << AnsiColors::BOLD << "["
+                           << levelToString(level) << "] " << AnsiColors::RESET
+                           << AnsiColors::BRIGHT_BLACK << "[" << loc.file_name() << ":"
+                           << loc.line() << "] " << AnsiColors::RESET << msg << std::endl;
                 std::cout << console_ss.str();
             } else {
                 // No colors - use plain text format (same as file)
@@ -1201,17 +1204,17 @@ class Logger::Impl {
     [[nodiscard]] static auto getLevelColor(LogLevel level) -> const char* {
         switch (level) {
             case LogLevel::TRACE:
-                return AnsiColors::BRIGHT_BLACK;  // Gray for trace
+                return AnsiColors::BRIGHT_BLACK; // Gray for trace
             case LogLevel::DEBUG:
-                return AnsiColors::CYAN;          // Cyan for debug
+                return AnsiColors::CYAN; // Cyan for debug
             case LogLevel::INFO:
-                return AnsiColors::GREEN;         // Green for info
+                return AnsiColors::GREEN; // Green for info
             case LogLevel::WARN:
-                return AnsiColors::YELLOW;        // Yellow for warnings
+                return AnsiColors::YELLOW; // Yellow for warnings
             case LogLevel::ERROR:
-                return AnsiColors::RED;           // Red for errors
+                return AnsiColors::RED; // Red for errors
             case LogLevel::CRITICAL:
-                return AnsiColors::BRIGHT_RED;    // Bright red for critical
+                return AnsiColors::BRIGHT_RED; // Bright red for critical
             default:
                 return AnsiColors::WHITE;
         }
@@ -1241,7 +1244,8 @@ Logger::~Logger() {
 }
 
 auto Logger::initialize(LoggerConfig const& config) -> Logger& {
-    pImpl->initialize(config.log_file_path, config.min_level, config.console_output, config.console_color);
+    pImpl->initialize(config.log_file_path, config.min_level, config.console_output,
+                      config.console_color);
     return *this;
 }
 

@@ -1,6 +1,37 @@
-###############################################################################
-# Bazel now uses Bzlmod by default to manage external dependencies.
-# Please consider migrating your external dependencies from WORKSPACE to MODULE.bazel.
-#
-# For more details, please check https://github.com/bazelbuild/bazel/issues/18958
-###############################################################################
+"""
+C++23 Logger - Bazel Module Configuration
+
+Modern Bzlmod configuration for cpp23-logger library.
+Replaces the legacy WORKSPACE file with the new MODULE.bazel system.
+
+Usage as a dependency in other projects:
+    bazel_dep(name = "cpp23_logger", version = "1.0.0")
+
+Requirements:
+    - Bazel 7.0+ (for C++23 module support and Bzlmod)
+    - Clang 17+, GCC 14+, or MSVC 19.34+
+
+Author: Olumuyiwa Oluwasanmi
+Date: 2025-11-18
+"""
+
+module(
+    name = "cpp23_logger",
+    version = "1.0.0",
+    compatibility_level = 1,
+)
+
+# Bazel built-in rules for C++ compilation
+bazel_dep(name = "rules_cc", version = "0.0.9")
+
+# Platform detection for cross-platform builds
+bazel_dep(name = "platforms", version = "0.0.10")
+
+# Optional: Bazel Skylib for utility functions
+bazel_dep(name = "bazel_skylib", version = "1.7.1")
+
+# Toolchain configuration
+# Use system C++ compiler (Clang/GCC)
+# Can be overridden with --repo_env=CC=/path/to/clang
+
+# Module extensions for advanced features (currently none needed)
