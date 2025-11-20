@@ -111,6 +111,7 @@ target_compile_definitions(fastjson PRIVATE
 
 # Add thread-safe compilation options - flags are added after CPU detection
 target_compile_options(fastjson PRIVATE
+    -fPIC                   # Position Independent Code for shared libraries
     -fstack-protector-strong # Stack protection
     -D_FORTIFY_SOURCE=2     # Buffer overflow detection
 )
