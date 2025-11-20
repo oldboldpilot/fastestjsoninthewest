@@ -497,3 +497,42 @@ message(STATUS "Python Bindings: Available in python_bindings/ folder")
 message(STATUS "  - Build: mkdir python_bindings/build && cd python_bindings/build && cmake .. && make")
 message(STATUS "  - Tests: uv run pytest python_bindings/tests/ -v")
 message(STATUS "========================================")
+
+# Quick object parsing test
+add_executable(test_simple test_simple.cpp)
+target_link_libraries(test_simple PRIVATE fastjson)
+target_compile_options(test_simple PRIVATE 
+    ${SIMD_FLAGS}
+    -fstack-protector-strong
+)
+target_compile_definitions(test_simple PRIVATE ${SIMD_DEFINES} FASTJSON_ENABLE_SIMD)
+find_package(OpenMP)
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(test_simple PRIVATE OpenMP::OpenMP_CXX)
+endif()
+set_target_properties(test_simple PROPERTIES
+    CXX_STANDARD 23
+    CXX_STANDARD_REQUIRED ON
+    POSITION_INDEPENDENT_CODE ON
+    BUILD_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
+    INSTALL_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
+)
+
+# Comprehensive test suite (70+ tests)
+add_executable(test_comprehensive test_comprehensive.cpp)
+target_link_libraries(test_comprehensive PRIVATE fastjson)
+target_compile_options(test_comprehensive PRIVATE 
+    ${SIMD_FLAGS}
+    -fstack-protector-strong
+)
+target_compile_definitions(test_comprehensive PRIVATE ${SIMD_DEFINES} FASTJSON_ENABLE_SIMD)
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(test_comprehensive PRIVATE OpenMP::OpenMP_CXX)
+endif()
+set_target_properties(test_comprehensive PROPERTIES
+    CXX_STANDARD 23
+    CXX_STANDARD_REQUIRED ON
+    POSITION_INDEPENDENT_CODE ON
+    BUILD_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
+    INSTALL_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
+)

@@ -71,7 +71,7 @@ constexpr uint32_t SIMD_AMX_TILE = 0x2000;
 constexpr uint32_t SIMD_AMX_INT8 = 0x4000;
 
 // Thread-safe SIMD capability detection
-auto detect_simd_capabilities() noexcept -> uint32_t {
+inline auto detect_simd_capabilities() noexcept -> uint32_t {
     static std::atomic<uint32_t> cached_caps{0};
     static std::once_flag init_flag;
 
@@ -79,74 +79,27 @@ auto detect_simd_capabilities() noexcept -> uint32_t {
         uint32_t caps = 0;
         uint32_t eax, ebx, ecx, edx;
 
-        // Check for basic CPUID support
         __cpuid(0, eax, ebx, ecx, edx);
-
         if (eax >= 1) {
             __cpuid(1, eax, ebx, ecx, edx);
-
-        #ifdef HAVE_SSE2
-            if (edx & (1 << 26))
-                caps |= SIMD_SSE2;
-        #endif
-        #ifdef HAVE_SSE3
-            if (ecx & (1 << 0))
-                caps |= SIMD_SSE3;
-        #endif
-        #ifdef HAVE_SSSE3
-            if (ecx & (1 << 9))
-                caps |= SIMD_SSSE3;
-        #endif
-        #ifdef HAVE_SSE41
-            if (ecx & (1 << 19))
-                caps |= SIMD_SSE41;
-        #endif
-        #ifdef HAVE_SSE42
-            if (ecx & (1 << 20))
-                caps |= SIMD_SSE42;
-        #endif
-        #ifdef HAVE_AVX
-            if (ecx & (1 << 28))
-                caps |= SIMD_AVX;
-        #endif
+            if (edx & (1 << 26)) caps |= SIMD_SSE2;
+            if (ecx & (1 << 0)) caps |= SIMD_SSE3;
+            if (ecx & (1 << 9)) caps |= SIMD_SSSE3;
+            if (ecx & (1 << 19)) caps |= SIMD_SSE41;
+            if (ecx & (1 << 20)) caps |= SIMD_SSE42;
+            if (ecx & (1 << 28)) caps |= SIMD_AVX;
         }
 
-        // Check for extended features (AVX2, AVX-512, AMX)
         if (eax >= 7) {
             __cpuid_count(7, 0, eax, ebx, ecx, edx);
-
-        #ifdef HAVE_AVX2
-            if (ebx & (1 << 5))
-                caps |= SIMD_AVX2;
-        #endif
-        #ifdef HAVE_AVX512F
-            if (ebx & (1 << 16))
-                caps |= SIMD_AVX512F;
-        #endif
-        #ifdef HAVE_AVX512BW
-            if (ebx & (1 << 30))
-                caps |= SIMD_AVX512BW;
-        #endif
-        #ifdef HAVE_AVX512VBMI
-            if (ecx & (1 << 1))
-                caps |= SIMD_AVX512VBMI;
-        #endif
-        #ifdef HAVE_AVX512VBMI2
-            if (ecx & (1 << 6))
-                caps |= SIMD_AVX512VBMI2;
-        #endif
-        #ifdef HAVE_AVX512VNNI
-            if (ecx & (1 << 11))
-                caps |= SIMD_AVX512VNNI;
-        #endif
-        #ifdef HAVE_AMX_TILE
-            if (edx & (1 << 24))
-                caps |= SIMD_AMX_TILE;
-        #endif
-        #ifdef HAVE_AMX_INT8
-            if (edx & (1 << 25))
-                caps |= SIMD_AMX_INT8;
-        #endif
+            if (ebx & (1 << 5)) caps |= SIMD_AVX2;
+            if (ebx & (1 << 16)) caps |= SIMD_AVX512F;
+            if (ebx & (1 << 30)) caps |= SIMD_AVX512BW;
+            if (ecx & (1 << 1)) caps |= SIMD_AVX512VBMI;
+            if (ecx & (1 << 6)) caps |= SIMD_AVX512VBMI2;
+            if (ecx & (1 << 11)) caps |= SIMD_AVX512VNNI;
+            if (edx & (1 << 24)) caps |= SIMD_AMX_TILE;
+            if (edx & (1 << 25)) caps |= SIMD_AMX_INT8;
         }
 
         cached_caps.store(caps, std::memory_order_release);
@@ -524,7 +477,19 @@ struct json_error {
     std::string message;
     size_t line;
     size_t column;
+    
+    // String conversion for debugging
+    auto to_string() const -> std::string {
+        std::ostringstream oss;
+        oss << "JSON Error at line " << line << ", column " << column << ": " << message;
+        return oss.str();
+    }
 };
+
+// Stream output operator for json_error
+inline auto operator<<(std::ostream& os, const json_error& error) -> std::ostream& {
+    return os << error.to_string();
+}
 
 // Result type for parsing operations (using std::expected for C++23)
 template <typename T> using json_result = std::expected<T, json_error>;
@@ -991,6 +956,11 @@ auto json_value::serialize_object_to_buffer(std::string& buffer, const json_obje
 }
 
 // Thread-safe pretty printing implementation
+// Stream output operator for json_value
+auto operator<<(std::ostream& os, const json_value& value) -> std::ostream& {
+    return os << value.to_string();
+}
+
 auto json_value::serialize_pretty_to_buffer(std::string& buffer, int indent_size,
                                             int current_indent) const -> void {
     std::visit(
@@ -1626,7 +1596,7 @@ auto parser::parse_string_simd() -> json_result<std::string> {
         && std::find(start, string_end, '\\') == string_end) {
         // Fast path: no escapes needed
         std::string result(start, string_end);
-        current_ = string_end;
+        current_ = string_end + 1;  // Skip the closing quote
         return result;
     }
 
