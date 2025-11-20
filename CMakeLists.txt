@@ -20,11 +20,23 @@ set(LIBCXX_DEFAULT_LIB "/opt/clang-21/lib" CACHE STRING "Default path for libc++
 set(CMAKE_CXX_COMPILER "${CLANG_DEFAULT_PATH}/clang++")
 set(CMAKE_C_COMPILER "${CLANG_DEFAULT_PATH}/clang")
 
-project(FastestJSONInTheWest 
+project(FastestJSONInTheWest
     VERSION 1.0.0
     LANGUAGES CXX
     DESCRIPTION "High-Performance C++23 JSON Library with Modules"
 )
+
+# ============================================================================
+# Project Options
+# ============================================================================
+
+option(USE_FETCHCONTENT_LOGGER "Use FetchContent to fetch cpp23-logger instead of submodule" OFF)
+option(ENABLE_NATIVE_OPTIMIZATIONS "Enable native CPU optimizations (AVX-512, AVX2, etc) to match parent project" OFF)
+option(ENABLE_OPENMP "Enable OpenMP parallel processing support" OFF)
+
+# ============================================================================
+# Compiler Verification
+# ============================================================================
 
 # Verify we're using the correct compiler
 execute_process(
@@ -47,8 +59,17 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 # Find required libraries
-find_package(OpenMP REQUIRED)
 find_package(Threads REQUIRED)
+
+# Optional OpenMP support for parallel JSON parsing
+if(ENABLE_OPENMP)
+    find_package(OpenMP)
+    if(OpenMP_CXX_FOUND)
+        message(STATUS "Enabling OpenMP support for parallel JSON parsing")
+    else()
+        message(WARNING "OpenMP requested but not found")
+    endif()
+endif()
 
 # Add Clang library paths using configurable variables
 link_directories(
@@ -59,8 +80,6 @@ link_directories(
 # ============================================================================
 # Integrate cpp23-logger dependency
 # ============================================================================
-# Option to use FetchContent or submodule
-option(USE_FETCHCONTENT_LOGGER "Use FetchContent to fetch cpp23-logger instead of submodule" OFF)
 
 # Pass toolchain configuration to logger submodule
 # These ensure the submodule uses the same compiler and library paths
@@ -136,9 +155,9 @@ include(CheckCXXCompilerFlag)
 message(STATUS "Detecting CPU instruction set support...")
 
 # Option 1: Use -march=native for automatic CPU detection (recommended)
-option(USE_NATIVE_ARCH "Use -march=native for automatic CPU feature detection" ON)
+# Note: ENABLE_NATIVE_OPTIMIZATIONS is defined at the top of this file
 
-if(USE_NATIVE_ARCH)
+if(ENABLE_NATIVE_OPTIMIZATIONS)
     check_cxx_compiler_flag("-march=native" COMPILER_SUPPORTS_MARCH_NATIVE)
     if(COMPILER_SUPPORTS_MARCH_NATIVE)
         set(CPU_SUPPORTS_SSE2 TRUE)
@@ -162,12 +181,12 @@ if(USE_NATIVE_ARCH)
         message(STATUS "  Using -march=native (auto-detects CPU features)")
     else()
         message(WARNING "-march=native not supported, falling back to manual detection")
-        set(USE_NATIVE_ARCH OFF)
+        set(ENABLE_NATIVE_OPTIMIZATIONS OFF)
     endif()
 endif()
 
 # Option 2: Manual feature detection (fallback)
-if(NOT USE_NATIVE_ARCH)
+if(NOT ENABLE_NATIVE_OPTIMIZATIONS)
     check_cxx_compiler_flag("-msse2" CPU_SUPPORTS_SSE2)
     check_cxx_compiler_flag("-msse3" CPU_SUPPORTS_SSE3)
     check_cxx_compiler_flag("-mssse3" CPU_SUPPORTS_SSSE3)
@@ -189,7 +208,7 @@ set(SIMD_DEFINES "")
 set(SIMD_LEVELS "")
 
 # Use -march=native for optimal performance if available
-if(USE_NATIVE_ARCH AND COMPILER_SUPPORTS_MARCH_NATIVE)
+if(ENABLE_NATIVE_OPTIMIZATIONS AND COMPILER_SUPPORTS_MARCH_NATIVE)
     list(APPEND SIMD_FLAGS "-march=native")
     message(STATUS "  ✓ Using -march=native for optimal CPU feature detection")
 endif()
@@ -198,7 +217,7 @@ endif()
 if(CPU_SUPPORTS_SSE2)
     list(APPEND SIMD_DEFINES "HAVE_SSE2")
     list(APPEND SIMD_LEVELS "SSE2")
-    if(NOT USE_NATIVE_ARCH)
+    if(NOT ENABLE_NATIVE_OPTIMIZATIONS)
         list(APPEND SIMD_FLAGS "-msse2")
     endif()
     message(STATUS "  ✓ SSE2 (baseline)")
@@ -206,7 +225,7 @@ endif()
 
 if(CPU_SUPPORTS_SSE3)
     list(APPEND SIMD_DEFINES "HAVE_SSE3")
-    if(NOT USE_NATIVE_ARCH)
+    if(NOT ENABLE_NATIVE_OPTIMIZATIONS)
         list(APPEND SIMD_FLAGS "-msse3")
     endif()
     message(STATUS "  ✓ SSE3")
@@ -214,7 +233,7 @@ endif()
 
 if(CPU_SUPPORTS_SSSE3)
     list(APPEND SIMD_DEFINES "HAVE_SSSE3")
-    if(NOT USE_NATIVE_ARCH)
+    if(NOT ENABLE_NATIVE_OPTIMIZATIONS)
         list(APPEND SIMD_FLAGS "-mssse3")
     endif()
     message(STATUS "  ✓ SSSE3")
@@ -222,7 +241,7 @@ endif()
 
 if(CPU_SUPPORTS_SSE41)
     list(APPEND SIMD_DEFINES "HAVE_SSE41")
-    if(NOT USE_NATIVE_ARCH)
+    if(NOT ENABLE_NATIVE_OPTIMIZATIONS)
         list(APPEND SIMD_FLAGS "-msse4.1")
     endif()
     message(STATUS "  ✓ SSE4.1")
@@ -230,7 +249,7 @@ endif()
 
 if(CPU_SUPPORTS_SSE42)
     list(APPEND SIMD_DEFINES "HAVE_SSE42")
-    if(NOT USE_NATIVE_ARCH)
+    if(NOT ENABLE_NATIVE_OPTIMIZATIONS)
         list(APPEND SIMD_FLAGS "-msse4.2")
     endif()
     message(STATUS "  ✓ SSE4.2")
@@ -238,7 +257,7 @@ endif()
 
 if(CPU_SUPPORTS_AVX)
     list(APPEND SIMD_DEFINES "HAVE_AVX")
-    if(NOT USE_NATIVE_ARCH)
+    if(NOT ENABLE_NATIVE_OPTIMIZATIONS)
         list(APPEND SIMD_FLAGS "-mavx")
     endif()
     message(STATUS "  ✓ AVX")
@@ -247,7 +266,7 @@ endif()
 if(CPU_SUPPORTS_AVX2)
     list(APPEND SIMD_DEFINES "HAVE_AVX2")
     list(APPEND SIMD_LEVELS "AVX2")
-    if(NOT USE_NATIVE_ARCH)
+    if(NOT ENABLE_NATIVE_OPTIMIZATIONS)
         list(APPEND SIMD_FLAGS "-mavx2")
     endif()
     message(STATUS "  ✓ AVX2")
@@ -256,7 +275,7 @@ endif()
 if(CPU_SUPPORTS_AVX512F)
     list(APPEND SIMD_DEFINES "HAVE_AVX512F")
     list(APPEND SIMD_LEVELS "AVX-512F")
-    if(NOT USE_NATIVE_ARCH)
+    if(NOT ENABLE_NATIVE_OPTIMIZATIONS)
         list(APPEND SIMD_FLAGS "-mavx512f")
     endif()
     message(STATUS "  ✓ AVX-512 F (Foundation)")
@@ -264,7 +283,7 @@ endif()
 
 if(CPU_SUPPORTS_AVX512BW)
     list(APPEND SIMD_DEFINES "HAVE_AVX512BW")
-    if(NOT USE_NATIVE_ARCH)
+    if(NOT ENABLE_NATIVE_OPTIMIZATIONS)
         list(APPEND SIMD_FLAGS "-mavx512bw")
     endif()
     message(STATUS "  ✓ AVX-512 BW (Byte/Word)")
@@ -273,7 +292,7 @@ endif()
 if(CPU_SUPPORTS_AVX512VBMI)
     list(APPEND SIMD_DEFINES "HAVE_AVX512VBMI")
     list(APPEND SIMD_LEVELS "AVX-512-VBMI")
-    if(NOT USE_NATIVE_ARCH)
+    if(NOT ENABLE_NATIVE_OPTIMIZATIONS)
         list(APPEND SIMD_FLAGS "-mavx512vbmi")
     endif()
     message(STATUS "  ✓ AVX-512 VBMI")
@@ -282,7 +301,7 @@ endif()
 if(CPU_SUPPORTS_AVX512VBMI2)
     list(APPEND SIMD_DEFINES "HAVE_AVX512VBMI2")
     list(APPEND SIMD_LEVELS "AVX-512-VBMI2")
-    if(NOT USE_NATIVE_ARCH)
+    if(NOT ENABLE_NATIVE_OPTIMIZATIONS)
         list(APPEND SIMD_FLAGS "-mavx512vbmi2")
     endif()
     message(STATUS "  ✓ AVX-512 VBMI2")
@@ -291,7 +310,7 @@ endif()
 if(CPU_SUPPORTS_AVX512VNNI)
     list(APPEND SIMD_DEFINES "HAVE_AVX512VNNI")
     list(APPEND SIMD_LEVELS "AVX-512-VNNI")
-    if(NOT USE_NATIVE_ARCH)
+    if(NOT ENABLE_NATIVE_OPTIMIZATIONS)
         list(APPEND SIMD_FLAGS "-mavx512vnni")
     endif()
     message(STATUS "  ✓ AVX-512 VNNI")
@@ -300,7 +319,7 @@ endif()
 if(CPU_SUPPORTS_AMX)
     list(APPEND SIMD_DEFINES "HAVE_AMX_TILE" "HAVE_AMX_INT8")
     list(APPEND SIMD_LEVELS "AMX")
-    if(NOT USE_NATIVE_ARCH)
+    if(NOT ENABLE_NATIVE_OPTIMIZATIONS)
         list(APPEND SIMD_FLAGS "-mamx-tile" "-mamx-int8")
     endif()
     message(STATUS "  ✓ AMX (Advanced Matrix Extensions)")
@@ -328,10 +347,14 @@ endif()
 
 # Link required libraries including logger
 target_link_libraries(fastjson PRIVATE
-    OpenMP::OpenMP_CXX
     Threads::Threads
     logger
 )
+
+# Optional OpenMP linking
+if(ENABLE_OPENMP AND OpenMP_CXX_FOUND)
+    target_link_libraries(fastjson PUBLIC OpenMP::OpenMP_CXX)
+endif()
 
 # Set module output directory and enable position-independent code
 set_target_properties(fastjson PROPERTIES
