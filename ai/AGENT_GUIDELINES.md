@@ -89,6 +89,59 @@ link_directories(
 ## Overview
 This document provides mandatory guidelines for AI agents working on FastestJSONInTheWest. All AI agents must follow these rules to ensure consistent, high-quality development.
 
+## C++23 Modules and External Libraries
+
+### Critical Lesson: Module Imports and Compilation Flags
+
+**Problem**: When a C++23 module imports another module that was compiled with different flags (e.g., OpenMP), it causes:
+1. Module configuration mismatch errors
+2. Preprocessor directives (`#ifdef`, `#endif`) parsed as code instead of preprocessor commands
+3. Build failures with "unknown type name 'ifdef'" errors
+
+**Root Cause**: PCM (Precompiled Module) files contain compilation flag metadata. When flags differ between the importing module and imported module, Clang rejects the import.
+
+**Solution Strategy**:
+1. **Use external libraries as pure link dependencies, NOT as module imports**
+   - Link against the compiled library (.a, .so)
+   - Do NOT `import external_module;` in your module interface
+   - Use forward declarations or remove methods requiring external types from exported interface
+
+2. **Avoid preprocessor directives in exported module code after imports**
+   - Use runtime checks instead of `#ifdef` inside lambdas/functions
+   - Move preprocessor-heavy code to non-exported sections
+   - Forward-declare functions and implement them in .cpp files
+
+3. **Example Pattern**:
+   ```cpp
+   // ❌ DON'T: Import external module in interface
+   export module fastjson;
+   import logger;  // Causes preprocessor issues
+   
+   // ✅ DO: Use as linked library only
+   export module fastjson;
+   // Link against logger library in CMakeLists.txt
+   // No module import needed
+   ```
+
+**Real-World Case**: The `cpp23-logger` submodule is thread-safe (using mutexes) but doesn't use OpenMP. FastJSON uses OpenMP for SIMD operations. Attempting to `import logger;` in fastjson.cppm caused all `#ifdef` directives to be misparsed after the import statement, even though they were syntactically valid. Solution: Remove module import, link logger as external library, remove log() methods from exported interface.
+
+**Testing Strategy**: After fixing module issues:
+```bash
+# Clean rebuild
+rm -rf build && cmake -B build -G Ninja && cmake --build build --target test_simple
+
+# Verify fix
+./build/test_simple
+
+# Expected: All tests pass without preprocessor errors
+```
+
+**Key Takeaways**:
+- C++23 modules with different compilation flags cannot safely import each other
+- Preprocessor directives become unreliable after cross-module imports with flag mismatches
+- Use linking instead of importing for external dependencies
+- Keep module interfaces minimal and preprocessor-free
+
 ## Project Understanding Requirements
 
 ### 1. Core Project Goals (MANDATORY KNOWLEDGE)
