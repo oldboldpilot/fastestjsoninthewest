@@ -34,6 +34,11 @@ option(USE_FETCHCONTENT_LOGGER "Use FetchContent to fetch cpp23-logger instead o
 option(ENABLE_NATIVE_OPTIMIZATIONS "Enable native CPU optimizations (AVX-512, AVX2, etc) to match parent project" OFF)
 option(ENABLE_OPENMP "Enable OpenMP parallel processing support" OFF)
 
+# Parent project CPU feature overrides (for WSL2/VM compatibility)
+# These allow parent projects to override auto-detection
+option(FASTJSON_FORCE_AVX512 "Force AVX-512 on/off (overrides detection)" "")
+option(FASTJSON_FORCE_AMX "Force AMX on/off (overrides detection)" "")
+
 # ============================================================================
 # Compiler Verification
 # ============================================================================
@@ -200,6 +205,30 @@ if(NOT ENABLE_NATIVE_OPTIMIZATIONS)
     check_cxx_compiler_flag("-mavx512vbmi2" CPU_SUPPORTS_AVX512VBMI2)
     check_cxx_compiler_flag("-mavx512vnni" CPU_SUPPORTS_AVX512VNNI)
     check_cxx_compiler_flag("-mamx-tile" CPU_SUPPORTS_AMX)
+endif()
+
+# Parent project overrides for WSL2/VM environments
+# Allow parent to force disable AVX-512/AMX even if detected
+if(NOT "${FASTJSON_FORCE_AVX512}" STREQUAL "")
+    if(FASTJSON_FORCE_AVX512)
+        message(STATUS "AVX-512 enabled (forced by parent project)")
+    else()
+        set(CPU_SUPPORTS_AVX512F FALSE)
+        set(CPU_SUPPORTS_AVX512BW FALSE)
+        set(CPU_SUPPORTS_AVX512VBMI FALSE)
+        set(CPU_SUPPORTS_AVX512VBMI2 FALSE)
+        set(CPU_SUPPORTS_AVX512VNNI FALSE)
+        message(STATUS "AVX-512 disabled (forced by parent project - likely WSL2/VM)")
+    endif()
+endif()
+
+if(NOT "${FASTJSON_FORCE_AMX}" STREQUAL "")
+    if(FASTJSON_FORCE_AMX)
+        message(STATUS "AMX enabled (forced by parent project)")
+    else()
+        set(CPU_SUPPORTS_AMX FALSE)
+        message(STATUS "AMX disabled (forced by parent project - likely WSL2/VM)")
+    endif()
 endif()
 
 # Build SIMD flags based on what CPU actually supports

@@ -1,0 +1,19 @@
+# C++23 Logger Tests - Bazel Build Configuration
+
+load("@rules_cc//cc:defs.bzl", "cc_test")
+
+cc_test(
+    name = "test_logger",
+    srcs = ["test_logger.cpp"],
+    copts = [
+        "-std=c++23",
+        "-stdlib=libc++",
+    ],
+    linkopts = [
+        "-lc++",
+        "-lpthread",
+    ],
+    deps = [
+        "//:logger",
+    ],
+)
