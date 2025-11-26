@@ -1,0 +1,52 @@
+# cpp23-logger - Clang-Tidy Configuration
+# Enforces C++ Core Guidelines, C++23 standards, and modern C++ practices
+
+Checks: >
+  -*,
+  cppcoreguidelines-*,
+  modernize-*,
+  performance-*,
+  readability-*,
+  bugprone-*,
+  clang-analyzer-*,
+  concurrency-*,
+  -cert-dcl58-cpp,
+  -bugprone-empty-catch,
+  -bugprone-forwarding-reference-overload,
+  -bugprone-easily-swappable-parameters,
+  -cppcoreguidelines-avoid-magic-numbers,
+  -cppcoreguidelines-init-variables,
+  -cppcoreguidelines-missing-std-forward,
+  -cppcoreguidelines-use-default-member-init,
+  -cppcoreguidelines-pro-type-member-init,
+  -modernize-use-equals-default,
+  -readability-magic-numbers,
+  -readability-identifier-length,
+  -readability-convert-member-functions-to-static,
+  -readability-braces-around-statements,
+  -cppcoreguidelines-pro-bounds-pointer-arithmetic,
+  -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
+  -readability-function-cognitive-complexity,
+  -readability-function-size,
+  -performance-enum-size,
+  -modernize-use-default-member-init
+
+WarningsAsErrors: >
+  modernize-use-trailing-return-type,
+  modernize-use-nullptr,
+  modernize-use-nodiscard
+
+HeaderFilterRegex: 'include/logger/.*'
+FormatStyle: none
+SystemHeaders: false
+
+ExtraArgs:
+  - '-isystem/usr/include'
+  - '-isystem/usr/local/include'
+  - '-isystem/usr/local/lib/clang/21/include'
+
+CheckOptions:
+  - key: modernize-use-trailing-return-type.MinTypeNameLength
+    value: 0
+  - key: modernize-use-nodiscard.ReplacementString
+    value: '[[nodiscard]]'
