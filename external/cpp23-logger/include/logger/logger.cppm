@@ -123,6 +123,7 @@ module;
 #include <cstdint>
 #include <ctime>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -146,6 +147,17 @@ module;
 // 2. MODULE DECLARATION
 // ============================================================================
 export module logger;
+
+// ============================================================================
+// 2.1 Custom Formatters for std::format
+// ============================================================================
+// std::filesystem::path formatter (not provided by standard library)
+template <>
+struct std::formatter<std::filesystem::path> : std::formatter<std::string> {
+    auto format(std::filesystem::path const& p, std::format_context& ctx) const {
+        return std::formatter<std::string>::format(p.string(), ctx);
+    }
+};
 
 // ============================================================================
 // 3. EXPORTED INTERFACE (Public API)
@@ -453,10 +465,10 @@ class Logger {
     [[nodiscard]] auto getCurrentLogFileSize() const noexcept -> std::size_t;
 
     /**
-     * Custom string formatter (replacement for std::format)
+     * String formatter using std::format (C++20)
      *
-     * Provides type-safe variadic formatting without std::format dependency.
-     * Uses {} as placeholder for each argument in order.
+     * Provides type-safe variadic formatting with full format specifier support.
+     * Supports format specifiers like {:.2f}, {:+.3f}, {:,}, etc.
      *
      * Thread-Safety: FULLY THREAD-SAFE
      * - Static method with no shared state
@@ -470,38 +482,17 @@ class Logger {
      * - Prevents unsafe pointer types (except const char*)
      *
      * Example:
-     *   format("Value: {}, Count: {}", 42, 100) -> "Value: 42, Count: 100"
+     *   format("Value: {:.2f}, Count: {}", 42.123, 100) -> "Value: 42.12, Count: 100"
      *   format("Error code: {}", 404) -> "Error code: 404"
+     *   format("Price: ${:.2f}", 123.456) -> "Price: $123.46"
      *
-     * @param fmt_str Format string with {} placeholders
+     * @param fmt_str Format string with {} or {:.Nf} placeholders
      * @param args Arguments to insert into placeholders (must be LoggableValue)
      * @return Formatted string
      */
     template <LoggableValue... Args>
     [[nodiscard]] static auto format(std::string_view fmt_str, Args&&... args) -> std::string {
-        std::ostringstream oss;
-        std::string_view remaining = fmt_str;
-
-        // Helper lambda to process each argument
-        auto process_arg = [&oss, &remaining](auto&& arg) {
-            auto pos = remaining.find("{}");
-            if (pos != std::string_view::npos) {
-                // Append text before placeholder
-                oss << remaining.substr(0, pos);
-                // Append the argument
-                oss << std::forward<decltype(arg)>(arg);
-                // Move past the placeholder
-                remaining = remaining.substr(pos + 2);
-            }
-        };
-
-        // Process all arguments using fold expression (C++17)
-        (process_arg(std::forward<Args>(args)), ...);
-
-        // Append any remaining text after last placeholder
-        oss << remaining;
-
-        return oss.str();
+        return std::vformat(fmt_str, std::make_format_args(args...));
     }
 
     /**
@@ -942,7 +933,7 @@ class Logger {
     [[nodiscard]] static auto parseIndex(std::string_view str) -> std::size_t {
         std::size_t result = 0;
         for (char const c : str) {
-            result = result * 10 + static_cast<std::size_t>(c - '0');
+            result = (result * 10) + static_cast<std::size_t>(c - '0');
         }
         return result;
     }
@@ -1564,7 +1555,7 @@ class Logger {
             auto tuple = std::forward_as_tuple(std::forward<Args>(args)...);
 
             // Process each pair: (tuple[0], tuple[1]), (tuple[2], tuple[3]), ...
-            (add_pair(std::get<Is * 2>(tuple), std::get<Is * 2 + 1>(tuple)), ...);
+            (add_pair(std::get<Is * 2>(tuple), std::get<(Is * 2) + 1>(tuple)), ...);
         };
 
         // Generate index sequence for pairs: 0, 1, 2, ... (half the number of args)

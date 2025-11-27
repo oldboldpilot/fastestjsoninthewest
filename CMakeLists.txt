@@ -445,10 +445,12 @@ set_target_properties(fastjson PROPERTIES
 
 # Comparative benchmark: FastestJSONInTheWest vs simdjson
 add_executable(comparative_benchmark benchmarks/comparative_benchmark.cpp)
-target_link_libraries(comparative_benchmark PRIVATE ${OpenMP_CXX_LIBRARIES} logger)
+target_link_libraries(comparative_benchmark PRIVATE logger)
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(comparative_benchmark PRIVATE OpenMP::OpenMP_CXX)
+endif()
 target_compile_options(comparative_benchmark PRIVATE
     -std=c++23
-    -fopenmp
     -O3
     -ffast-math
     -funroll-loops
@@ -588,6 +590,44 @@ if(OpenMP_CXX_FOUND)
     target_link_libraries(test_comprehensive PRIVATE OpenMP::OpenMP_CXX)
 endif()
 set_target_properties(test_comprehensive PROPERTIES
+    CXX_STANDARD 23
+    CXX_STANDARD_REQUIRED ON
+    POSITION_INDEPENDENT_CODE ON
+    BUILD_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
+    INSTALL_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
+)
+
+# 128-bit number parsing test suite
+add_executable(test_128bit test_128bit.cpp)
+target_link_libraries(test_128bit PRIVATE fastjson)
+target_compile_options(test_128bit PRIVATE 
+    ${SIMD_FLAGS}
+    -fstack-protector-strong
+)
+target_compile_definitions(test_128bit PRIVATE ${SIMD_DEFINES} FASTJSON_ENABLE_SIMD)
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(test_128bit PRIVATE OpenMP::OpenMP_CXX)
+endif()
+set_target_properties(test_128bit PROPERTIES
+    CXX_STANDARD 23
+    CXX_STANDARD_REQUIRED ON
+    POSITION_INDEPENDENT_CODE ON
+    BUILD_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
+    INSTALL_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
+)
+
+# Numeric conversion helpers test suite
+add_executable(test_conversion_helpers test_conversion_helpers.cpp)
+target_link_libraries(test_conversion_helpers PRIVATE fastjson)
+target_compile_options(test_conversion_helpers PRIVATE 
+    ${SIMD_FLAGS}
+    -fstack-protector-strong
+)
+target_compile_definitions(test_conversion_helpers PRIVATE ${SIMD_DEFINES} FASTJSON_ENABLE_SIMD)
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(test_conversion_helpers PRIVATE OpenMP::OpenMP_CXX)
+endif()
+set_target_properties(test_conversion_helpers PROPERTIES
     CXX_STANDARD 23
     CXX_STANDARD_REQUIRED ON
     POSITION_INDEPENDENT_CODE ON

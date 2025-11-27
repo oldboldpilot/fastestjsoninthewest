@@ -140,8 +140,9 @@ export namespace logger::codegen {
  */
 [[nodiscard]] inline auto toUpperCase(std::string_view str) -> std::string {
     std::string result{str};
-    std::transform(result.begin(), result.end(), result.begin(),
-                   [](unsigned char c) { return std::toupper(c); });
+    std::ranges::transform(result, result.begin(), [](unsigned char c) -> char {
+        return static_cast<char>(std::toupper(c));
+    });
     return result;
 }
 
@@ -150,8 +151,9 @@ export namespace logger::codegen {
  */
 [[nodiscard]] inline auto toLowerCase(std::string_view str) -> std::string {
     std::string result{str};
-    std::transform(result.begin(), result.end(), result.begin(),
-                   [](unsigned char c) { return std::tolower(c); });
+    std::ranges::transform(result, result.begin(), [](unsigned char c) -> char {
+        return static_cast<char>(std::tolower(c));
+    });
     return result;
 }
 
@@ -170,10 +172,10 @@ export namespace logger::codegen {
         if (c == '_' || c == '-' || c == ' ') {
             capitalize_next = true;
         } else if (capitalize_next) {
-            result += std::toupper(c);
+            result += static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
             capitalize_next = false;
         } else if (first_char) {
-            result += std::tolower(c);
+            result += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
             first_char = false;
         } else {
             result += c;
@@ -190,7 +192,7 @@ export namespace logger::codegen {
 [[nodiscard]] inline auto toPascalCase(std::string_view str) -> std::string {
     auto result = toCamelCase(str);
     if (!result.empty()) {
-        result[0] = std::toupper(result[0]);
+        result[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(result[0])));
     }
     return result;
 }
@@ -207,7 +209,8 @@ export namespace logger::codegen {
         char c = str[i];
 
         // Insert underscore before uppercase letters (except first char)
-        if (i > 0 && std::isupper(c) && std::islower(str[i - 1])) {
+        if (i > 0 && (std::isupper(static_cast<unsigned char>(c)) != 0) &&
+            (std::islower(static_cast<unsigned char>(str[i - 1])) != 0)) {
             result += '_';
         }
 
@@ -215,7 +218,7 @@ export namespace logger::codegen {
         if (c == ' ' || c == '-') {
             result += '_';
         } else {
-            result += std::tolower(c);
+            result += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
         }
     }
 
@@ -228,7 +231,7 @@ export namespace logger::codegen {
  */
 [[nodiscard]] inline auto toKebabCase(std::string_view str) -> std::string {
     auto snake = toSnakeCase(str);
-    std::replace(snake.begin(), snake.end(), '_', '-');
+    std::ranges::replace(snake, '_', '-');
     return snake;
 }
 
@@ -427,9 +430,7 @@ class TemplateValue {
                     return arg;
                 } else if constexpr (std::is_same_v<T, bool>) {
                     return arg ? "true" : "false";
-                } else if constexpr (std::is_same_v<T, int>) {
-                    return std::to_string(arg);
-                } else if constexpr (std::is_same_v<T, double>) {
+                } else if constexpr (std::is_same_v<T, int> || std::is_same_v<T, double>) {
                     return std::to_string(arg);
                 } else {
                     return "";
@@ -518,10 +519,10 @@ class FilterRegistry {
         registerFilter("py_comment", pythonComment);
 
         // Parameterized filters (use closures)
-        registerFilter("indent4", [](std::string_view s) { return indent(s, 4); });
-        registerFilter("indent8", [](std::string_view s) { return indent(s, 8); });
-        registerFilter("wrap80", [](std::string_view s) { return wrap(s, 80); });
-        registerFilter("wrap120", [](std::string_view s) { return wrap(s, 120); });
+        registerFilter("indent4", [](std::string_view s) -> std::string { return indent(s, 4); });
+        registerFilter("indent8", [](std::string_view s) -> std::string { return indent(s, 8); });
+        registerFilter("wrap80", [](std::string_view s) -> std::string { return wrap(s, 80); });
+        registerFilter("wrap120", [](std::string_view s) -> std::string { return wrap(s, 120); });
     }
 
     auto registerFilter(std::string name, FilterFunction filter) -> void {

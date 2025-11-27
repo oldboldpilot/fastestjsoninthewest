@@ -1,7 +1,7 @@
 # FastestJSONInTheWest API Reference
 
 **Version:** 1.0.0  
-**Last Updated:** November 17, 2025  
+**Last Updated:** November 26, 2025  
 **License:** MIT
 
 ---
@@ -98,12 +98,28 @@ struct json {
     bool is_array() const;
     bool is_object() const;
     
-    // Type conversion
+    // 128-bit type checking
+    bool is_number_128() const;     // Checks if stored as __float128
+    bool is_int_128() const;        // Checks if stored as __int128
+    bool is_uint_128() const;       // Checks if stored as unsigned __int128
+    
+    // Type conversion (exception-free, returns NaN/0 for non-numeric)
     bool as_bool() const;
-    double as_number() const;
+    double as_number() const;              // Returns NaN if not numeric
     std::string as_string() const;
     std::vector<json> as_array() const;
     std::map<std::string, json> as_object() const;
+    
+    // 128-bit type accessors (exception-free)
+    __float128 as_number_128() const;      // Returns NaN if not numeric
+    __int128 as_int_128() const;           // Returns 0 if not numeric
+    unsigned __int128 as_uint_128() const; // Returns 0 if not numeric
+    
+    // Type conversion helpers (auto-convert between numeric types)
+    int64_t as_int64() const;        // Returns 0 for non-numeric
+    double as_float64() const;       // Returns NaN for non-numeric  
+    __int128 as_int128() const;      // Auto-converts from any numeric type
+    __float128 as_float128() const;  // Auto-converts from any numeric type
     
     // Access
     json operator[](size_t index) const;        // Array access
@@ -122,6 +138,39 @@ auto obj = json::object({
 
 std::string name = obj["name"].as_string();  // "Bob"
 double age = obj["age"].as_number();         // 25.0
+```
+
+**128-bit Precision Example:**
+```cpp
+// Parse high-precision number
+auto result = fastjson::parse("3.14159265358979323846264338327950288");
+if (result.has_value()) {
+    auto& val = result.value();
+    
+    // Check precision used
+    if (val.is_number_128()) {
+        __float128 precise = val.as_number_128();  // Full precision
+    } else {
+        double approx = val.as_number();  // 64-bit precision was sufficient
+    }
+    
+    // Safe type conversions (exception-free)
+    double d = val.as_float64();        // Returns NaN for non-numeric
+    int64_t i = val.as_int64();         // Returns 0 for non-numeric
+    __float128 f128 = val.as_float128();  // Auto-converts from any numeric
+    __int128 i128 = val.as_int128();      // Auto-converts from any numeric
+    
+    // Handle NaN/zero safely
+    if (!std::isnan(d)) {
+        // Value is numeric and convertible
+    }
+}
+
+// Large integer support
+auto big_int = fastjson::parse("170141183460469231731687303715884105727");
+if (big_int.has_value() && big_int.value().is_int_128()) {
+    __int128 value = big_int.value().as_int_128();
+}
 ```
 
 ---
