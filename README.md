@@ -34,6 +34,12 @@ A production-ready JSON library combining cutting-edge SIMD optimizations, paral
 - **Thread-Safe**: All operations safe for concurrent use
 - **Zero-Copy**: Efficient memory handling
 - **Type-Safe**: Strong type system with `std::variant`
+- **128-bit Precision**: Native support for high-precision numbers
+  - `__float128`: Quadruple-precision floating point (~34 decimal digits)
+  - `__int128`: 128-bit signed integers (±1.7×10³⁸ range)
+  - `unsigned __int128`: 128-bit unsigned integers (0 to 3.4×10³⁸)
+  - Adaptive precision: Auto-upgrades from 64-bit to 128-bit when needed
+  - Exception-free: Returns NaN/0 instead of throwing
 
 ### Cross-Platform SIMD
 - **x86/x64**: SSE2 through AVX-512 with automatic instruction selection
@@ -176,6 +182,32 @@ auto json = fastjson::parse_utf16(utf16);
 // UTF-32 direct code points
 std::u32string utf32 = U"こんにちは";
 auto json = fastjson::parse_utf32(utf32);
+```
+
+### 128-bit Precision Numbers
+```cpp
+// High-precision floating point (auto-detected)
+auto pi = fastjson::parse("3.14159265358979323846264338327950288");
+if (pi.has_value() && pi.value().is_number_128()) {
+    __float128 precise = pi.value().as_number_128();
+    // Full 34-digit precision (~1.18973e+4932 range)
+}
+
+// Large integers beyond int64_t
+auto huge = fastjson::parse("170141183460469231731687303715884105727");
+if (huge.has_value() && huge.value().is_int_128()) {
+    __int128 value = huge.value().as_int_128();
+    // Full 128-bit integer: ±1.7×10³⁸ range
+}
+
+// Programmatic creation
+json_value quad_pi = json_value((__float128)3.14159265358979323846264338327950288L);
+json_value big_int = json_value((__int128)123456789012345678901234567890LL);
+json_value unsigned_big = json_value((unsigned __int128)340282366920938463463374607431768211455ULL);
+
+// Safe conversions (exception-free)
+double d = pi.value().as_float64();      // NaN if not numeric
+__float128 f128 = pi.value().as_float128();  // Auto-converts
 ```
 
 ## 📚 Documentation
