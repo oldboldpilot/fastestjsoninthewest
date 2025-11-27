@@ -1,0 +1,14 @@
+pybind11>=3.0.1
+numpy>=2.0.0
+
+[dev]
+pytest>=9.0.0
+pytest-cov>=7.0.0
+pytest-benchmark>=4.0.0
+setuptools>=68
+wheel
+
+[test]
+pytest>=9.0.0
+pytest-cov>=7.0.0
+pytest-benchmark>=4.0.0

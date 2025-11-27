@@ -1,0 +1,1 @@
+/home/muyiwa/toolchain/clang-21/bin/clang++ -fPIC  -fopenmp -O3 -DNDEBUG -Xlinker --dependency-file=CMakeFiles/fastjson.dir/link.d -shared  -o lib/fastjson.cpython-313-x86_64-linux-gnu.so CMakeFiles/fastjson.dir/src/fastjson_bindings.cpp.o  -Wl,-rpath,/opt/clang-21/lib/x86_64-unknown-linux-gnu /opt/clang-21/lib/x86_64-unknown-linux-gnu/libomp.so
