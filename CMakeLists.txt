@@ -179,6 +179,11 @@ target_compile_options(fastjson_parallel PRIVATE
     -fPIC                   # Position Independent Code for shared libraries
     -fstack-protector-strong # Stack protection
     -D_FORTIFY_SOURCE=2     # Buffer overflow detection
+    -pthread                # POSIX thread support
+    -ffast-math             # Fast math for performance
+    -funroll-loops          # Loop unrolling
+    -fvectorize             # Vectorization
+    -fslp-vectorize         # SLP vectorization
 )
 
 # Set compile features and properties
@@ -192,6 +197,43 @@ set_target_properties(fastjson_parallel PROPERTIES
 # Link OpenMP if enabled
 if(ENABLE_OPENMP)
     target_link_libraries(fastjson_parallel PUBLIC OpenMP::OpenMP_CXX)
+endif()
+
+# Create JSON LINQ C++23 module library
+add_library(json_linq)
+target_sources(json_linq
+    PUBLIC
+        FILE_SET CXX_MODULES FILES
+        modules/json_linq.cppm
+)
+
+# Enable OpenMP for parallel LINQ operations
+target_compile_definitions(json_linq PRIVATE 
+    FASTJSON_THREAD_SAFE
+)
+
+# Add thread-safe compilation options
+target_compile_options(json_linq PRIVATE
+    -pthread                # POSIX thread support
+    -ffast-math             # Fast math for performance
+    -funroll-loops          # Loop unrolling
+    -fvectorize             # Vectorization
+    -fslp-vectorize         # SLP vectorization
+    -fstack-protector-strong # Stack protection
+    -D_FORTIFY_SOURCE=2     # Buffer overflow detection
+)
+
+# Set compile features and properties
+target_compile_features(json_linq PUBLIC cxx_std_23)
+set_target_properties(json_linq PROPERTIES
+    CXX_STANDARD 23
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF
+)
+
+# Link OpenMP if enabled
+if(ENABLE_OPENMP)
+    target_link_libraries(json_linq PUBLIC OpenMP::OpenMP_CXX)
 endif()
 
 # SIMD Optimizations - CPU-specific conditional compilation
@@ -502,6 +544,28 @@ target_compile_options(comparative_benchmark PRIVATE
     -Wpedantic
     -Wno-unused-parameter
     -pthread
+)
+
+# LINQ benchmark: Sequential vs Parallel LINQ operations
+add_executable(linq_benchmark benchmarks/linq_benchmark.cpp)
+target_link_libraries(linq_benchmark PRIVATE fastjson_parallel json_linq)
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(linq_benchmark PRIVATE OpenMP::OpenMP_CXX)
+endif()
+target_compile_options(linq_benchmark PRIVATE
+    -std=c++23
+    -O3
+    -ffast-math
+    -funroll-loops
+    -fvectorize
+    -fslp-vectorize
+    -Wall
+    -Wextra
+    -Wpedantic
+    -Wno-unused-parameter
+    -pthread
+    -fstack-protector-strong
+    -D_FORTIFY_SOURCE=2
 )
 
 # Simple performance demo using modules (COMMENTED - file doesn't exist)

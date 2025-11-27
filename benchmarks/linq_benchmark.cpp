@@ -4,10 +4,10 @@
 #include <iostream>
 #include <random>
 
-#include "modules/fastjson_parallel.cpp"
-#include "modules/json_linq.h"
+import fastjson_parallel;
+import json_linq;
 
-using namespace fastjson;
+using namespace fastjson_parallel;
 using namespace fastjson::linq;
 
 // Benchmark timer
