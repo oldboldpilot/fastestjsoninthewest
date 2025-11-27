@@ -113,20 +113,33 @@ if (result.has_value()) {
 ```
 
 ### LINQ Queries
+
+The json_linq module provides a complete C++23 LINQ implementation with 40+ operations. Integrates seamlessly with fastjson_parallel for high-performance JSON querying with OpenMP acceleration.
+
 ```cpp
-#include "modules/json_linq.h"
+import json_linq;
+import fastjson_parallel;
 using namespace fastjson::linq;
+using namespace fastjson_parallel;
 
-std::vector<int> numbers = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
+// Query JSON objects with LINQ
+std::string json = R"([{"id":1,"value":100},{"id":2,"value":200}])";
+auto parsed = parse_json(json);
+auto objects = parsed.extract_objects();
 
-// Sequential query
-auto evens = from(numbers)
-    .where([](int n) { return n % 2 == 0; })
-    .select([](int n) { return n * n; })
+// Sequential JSON query
+auto filtered = from(objects)
+    .where([](const json_object& obj) {
+        return obj.at("value").as_number() > 150;
+    })
+    .select([](const json_object& obj) {
+        return obj.at("id").as_number();
+    })
     .to_vector();
-// Result: [4, 16, 36, 64, 100]
+// Result: [2]
 
-// Parallel query
+// Parallel query on large data
+std::vector<int> numbers = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
 auto sum = from_parallel(numbers)
     .where([](int n) { return n > 5; })
     .sum([](int n) { return n; });
