@@ -1,0 +1,3 @@
+/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/build/CMakeFiles/fastjson.dir
+/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/build/CMakeFiles/edit_cache.dir
+/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/build/CMakeFiles/rebuild_cache.dir

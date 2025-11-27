@@ -1,0 +1,2506 @@
+
+---
+events:
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeDetermineSystem.cmake:12 (find_program)"
+      - "CMakeLists.txt:2 (project)"
+    mode: "program"
+    variable: "CMAKE_UNAME"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: true
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "uname"
+    candidate_directories:
+      - "/home/linuxbrew/.linuxbrew/upcxx/bin/"
+      - "/home/muyiwa/.cargo/bin/"
+      - "/home/linuxbrew/.linuxbrew/bin/"
+      - "/home/linuxbrew/.linuxbrew/sbin/"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/"
+      - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/usr/bin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/games/"
+      - "/usr/local/games/"
+      - "/snap/bin/"
+      - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts/"
+    searched_directories:
+      - "/home/linuxbrew/.linuxbrew/upcxx/bin/uname"
+      - "/home/muyiwa/.cargo/bin/uname"
+      - "/home/linuxbrew/.linuxbrew/bin/uname"
+      - "/home/linuxbrew/.linuxbrew/sbin/uname"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/uname"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/uname"
+      - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli/uname"
+      - "/usr/local/sbin/uname"
+      - "/usr/local/bin/uname"
+      - "/usr/sbin/uname"
+    found: "/usr/bin/uname"
+    search_context:
+      ENV{PATH}:
+        - "/home/linuxbrew/.linuxbrew/upcxx/bin"
+        - "/home/muyiwa/.cargo/bin"
+        - "/home/linuxbrew/.linuxbrew/bin"
+        - "/home/linuxbrew/.linuxbrew/sbin"
+        - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli"
+        - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand"
+        - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli"
+        - "/home/linuxbrew/.linuxbrew/bin"
+        - "/home/linuxbrew/.linuxbrew/sbin"
+        - "/usr/local/sbin"
+        - "/usr/local/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/bin"
+        - "/usr/games"
+        - "/usr/local/games"
+        - "/snap/bin"
+        - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts"
+  -
+    kind: "message-v1"
+    backtrace:
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeDetermineSystem.cmake:212 (message)"
+      - "CMakeLists.txt:2 (project)"
+    message: |
+      The system is: Linux - 6.8.0-87-generic - x86_64
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeUnixFindMake.cmake:5 (find_program)"
+      - "CMakeLists.txt:2 (project)"
+    mode: "program"
+    variable: "CMAKE_MAKE_PROGRAM"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: true
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "gmake"
+      - "make"
+      - "smake"
+    candidate_directories:
+      - "/home/linuxbrew/.linuxbrew/upcxx/bin/"
+      - "/home/muyiwa/.cargo/bin/"
+      - "/home/linuxbrew/.linuxbrew/bin/"
+      - "/home/linuxbrew/.linuxbrew/sbin/"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/"
+      - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/usr/bin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/games/"
+      - "/usr/local/games/"
+      - "/snap/bin/"
+      - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts/"
+    searched_directories:
+      - "/home/linuxbrew/.linuxbrew/upcxx/bin/gmake"
+      - "/home/muyiwa/.cargo/bin/gmake"
+      - "/home/linuxbrew/.linuxbrew/bin/gmake"
+      - "/home/linuxbrew/.linuxbrew/sbin/gmake"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/gmake"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/gmake"
+      - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli/gmake"
+      - "/usr/local/sbin/gmake"
+      - "/usr/local/bin/gmake"
+      - "/usr/sbin/gmake"
+    found: "/usr/bin/gmake"
+    search_context:
+      ENV{PATH}:
+        - "/home/linuxbrew/.linuxbrew/upcxx/bin"
+        - "/home/muyiwa/.cargo/bin"
+        - "/home/linuxbrew/.linuxbrew/bin"
+        - "/home/linuxbrew/.linuxbrew/sbin"
+        - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli"
+        - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand"
+        - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli"
+        - "/home/linuxbrew/.linuxbrew/bin"
+        - "/home/linuxbrew/.linuxbrew/sbin"
+        - "/usr/local/sbin"
+        - "/usr/local/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/bin"
+        - "/usr/games"
+        - "/usr/local/games"
+        - "/snap/bin"
+        - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeDetermineCompilerId.cmake:462 (find_file)"
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeDetermineCompilerId.cmake:500 (CMAKE_DETERMINE_COMPILER_ID_WRITE)"
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeDetermineCompilerId.cmake:8 (CMAKE_DETERMINE_COMPILER_ID_BUILD)"
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeDetermineCompilerId.cmake:64 (__determine_compiler_id_test)"
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeDetermineCCompiler.cmake:122 (CMAKE_DETERMINE_COMPILER_ID)"
+      - "CMakeLists.txt:2 (project)"
+    mode: "file"
+    variable: "src_in"
+    description: "Path to a file."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: true
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "CMakeCCompilerId.c.in"
+    candidate_directories:
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/"
+    found: "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeCCompilerId.c.in"
+    search_context:
+      ENV{PATH}:
+        - "/home/linuxbrew/.linuxbrew/upcxx/bin"
+        - "/home/muyiwa/.cargo/bin"
+        - "/home/linuxbrew/.linuxbrew/bin"
+        - "/home/linuxbrew/.linuxbrew/sbin"
+        - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli"
+        - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand"
+        - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli"
+        - "/home/linuxbrew/.linuxbrew/bin"
+        - "/home/linuxbrew/.linuxbrew/sbin"
+        - "/usr/local/sbin"
+        - "/usr/local/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/bin"
+        - "/usr/games"
+        - "/usr/local/games"
+        - "/snap/bin"
+        - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts"
+  -
+    kind: "message-v1"
+    backtrace:
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeDetermineCompilerId.cmake:17 (message)"
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeDetermineCompilerId.cmake:64 (__determine_compiler_id_test)"
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeDetermineCCompiler.cmake:122 (CMAKE_DETERMINE_COMPILER_ID)"
+      - "CMakeLists.txt:2 (project)"
+    message: |
+      Compiling the C compiler identification source file "CMakeCCompilerId.c" succeeded.
+      Compiler: /home/muyiwa/toolchain/clang-21/bin/clang 
+      Build flags: 
+      Id flags:  
+      
+      The output was:
+      0
+      
+      
+      Compilation of the C compiler identification source "CMakeCCompilerId.c" produced "a.out"
+      
+      The C compiler identification is Clang, found in:
+        /home/muyiwa/Development/FastestJSONInTheWest/python_bindings/build/CMakeFiles/4.1.2/CompilerIdC/a.out
+      
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeFindBinUtils.cmake:238 (find_program)"
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeDetermineCCompiler.cmake:200 (include)"
+      - "CMakeLists.txt:2 (project)"
+    mode: "program"
+    variable: "CMAKE_AR"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "llvm-ar"
+      - "ar"
+    candidate_directories:
+      - "/home/muyiwa/toolchain/clang-21/bin/"
+      - "/home/linuxbrew/.linuxbrew/upcxx/bin/"
+      - "/home/muyiwa/.cargo/bin/"
+      - "/home/linuxbrew/.linuxbrew/bin/"
+      - "/home/linuxbrew/.linuxbrew/sbin/"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/"
+      - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/usr/bin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/games/"
+      - "/usr/local/games/"
+      - "/snap/bin/"
+      - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts/"
+    found: "/home/muyiwa/toolchain/clang-21/bin/llvm-ar"
+    search_context:
+      ENV{PATH}:
+        - "/home/linuxbrew/.linuxbrew/upcxx/bin"
+        - "/home/muyiwa/.cargo/bin"
+        - "/home/linuxbrew/.linuxbrew/bin"
+        - "/home/linuxbrew/.linuxbrew/sbin"
+        - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli"
+        - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand"
+        - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli"
+        - "/home/linuxbrew/.linuxbrew/bin"
+        - "/home/linuxbrew/.linuxbrew/sbin"
+        - "/usr/local/sbin"
+        - "/usr/local/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/bin"
+        - "/usr/games"
+        - "/usr/local/games"
+        - "/snap/bin"
+        - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeFindBinUtils.cmake:238 (find_program)"
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeDetermineCCompiler.cmake:200 (include)"
+      - "CMakeLists.txt:2 (project)"
+    mode: "program"
+    variable: "CMAKE_RANLIB"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "llvm-ranlib"
+      - "ranlib"
+    candidate_directories:
+      - "/home/muyiwa/toolchain/clang-21/bin/"
+      - "/home/linuxbrew/.linuxbrew/upcxx/bin/"
+      - "/home/muyiwa/.cargo/bin/"
+      - "/home/linuxbrew/.linuxbrew/bin/"
+      - "/home/linuxbrew/.linuxbrew/sbin/"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/"
+      - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/usr/bin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/games/"
+      - "/usr/local/games/"
+      - "/snap/bin/"
+      - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts/"
+    found: "/home/muyiwa/toolchain/clang-21/bin/llvm-ranlib"
+    search_context:
+      ENV{PATH}:
+        - "/home/linuxbrew/.linuxbrew/upcxx/bin"
+        - "/home/muyiwa/.cargo/bin"
+        - "/home/linuxbrew/.linuxbrew/bin"
+        - "/home/linuxbrew/.linuxbrew/sbin"
+        - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli"
+        - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand"
+        - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli"
+        - "/home/linuxbrew/.linuxbrew/bin"
+        - "/home/linuxbrew/.linuxbrew/sbin"
+        - "/usr/local/sbin"
+        - "/usr/local/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/bin"
+        - "/usr/games"
+        - "/usr/local/games"
+        - "/snap/bin"
+        - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeFindBinUtils.cmake:238 (find_program)"
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeDetermineCCompiler.cmake:200 (include)"
+      - "CMakeLists.txt:2 (project)"
+    mode: "program"
+    variable: "CMAKE_STRIP"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "llvm-strip"
+      - "strip"
+    candidate_directories:
+      - "/home/muyiwa/toolchain/clang-21/bin/"
+      - "/home/linuxbrew/.linuxbrew/upcxx/bin/"
+      - "/home/muyiwa/.cargo/bin/"
+      - "/home/linuxbrew/.linuxbrew/bin/"
+      - "/home/linuxbrew/.linuxbrew/sbin/"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/"
+      - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/usr/bin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/games/"
+      - "/usr/local/games/"
+      - "/snap/bin/"
+      - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts/"
+    found: "/home/muyiwa/toolchain/clang-21/bin/llvm-strip"
+    search_context:
+      ENV{PATH}:
+        - "/home/linuxbrew/.linuxbrew/upcxx/bin"
+        - "/home/muyiwa/.cargo/bin"
+        - "/home/linuxbrew/.linuxbrew/bin"
+        - "/home/linuxbrew/.linuxbrew/sbin"
+        - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli"
+        - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand"
+        - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli"
+        - "/home/linuxbrew/.linuxbrew/bin"
+        - "/home/linuxbrew/.linuxbrew/sbin"
+        - "/usr/local/sbin"
+        - "/usr/local/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/bin"
+        - "/usr/games"
+        - "/usr/local/games"
+        - "/snap/bin"
+        - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeFindBinUtils.cmake:238 (find_program)"
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeDetermineCCompiler.cmake:200 (include)"
+      - "CMakeLists.txt:2 (project)"
+    mode: "program"
+    variable: "CMAKE_LINKER"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "ld.lld"
+      - "ld"
+    candidate_directories:
+      - "/home/muyiwa/toolchain/clang-21/bin/"
+      - "/home/linuxbrew/.linuxbrew/upcxx/bin/"
+      - "/home/muyiwa/.cargo/bin/"
+      - "/home/linuxbrew/.linuxbrew/bin/"
+      - "/home/linuxbrew/.linuxbrew/sbin/"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/"
+      - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/usr/bin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/games/"
+      - "/usr/local/games/"
+      - "/snap/bin/"
+      - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts/"
+    found: "/home/muyiwa/toolchain/clang-21/bin/ld.lld"
+    search_context:
+      ENV{PATH}:
+        - "/home/linuxbrew/.linuxbrew/upcxx/bin"
+        - "/home/muyiwa/.cargo/bin"
+        - "/home/linuxbrew/.linuxbrew/bin"
+        - "/home/linuxbrew/.linuxbrew/sbin"
+        - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli"
+        - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand"
+        - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli"
+        - "/home/linuxbrew/.linuxbrew/bin"
+        - "/home/linuxbrew/.linuxbrew/sbin"
+        - "/usr/local/sbin"
+        - "/usr/local/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/bin"
+        - "/usr/games"
+        - "/usr/local/games"
+        - "/snap/bin"
+        - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeFindBinUtils.cmake:238 (find_program)"
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeDetermineCCompiler.cmake:200 (include)"
+      - "CMakeLists.txt:2 (project)"
+    mode: "program"
+    variable: "CMAKE_NM"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "llvm-nm"
+      - "nm"
+    candidate_directories:
+      - "/home/muyiwa/toolchain/clang-21/bin/"
+      - "/home/linuxbrew/.linuxbrew/upcxx/bin/"
+      - "/home/muyiwa/.cargo/bin/"
+      - "/home/linuxbrew/.linuxbrew/bin/"
+      - "/home/linuxbrew/.linuxbrew/sbin/"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/"
+      - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/usr/bin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/games/"
+      - "/usr/local/games/"
+      - "/snap/bin/"
+      - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts/"
+    found: "/home/muyiwa/toolchain/clang-21/bin/llvm-nm"
+    search_context:
+      ENV{PATH}:
+        - "/home/linuxbrew/.linuxbrew/upcxx/bin"
+        - "/home/muyiwa/.cargo/bin"
+        - "/home/linuxbrew/.linuxbrew/bin"
+        - "/home/linuxbrew/.linuxbrew/sbin"
+        - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli"
+        - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand"
+        - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli"
+        - "/home/linuxbrew/.linuxbrew/bin"
+        - "/home/linuxbrew/.linuxbrew/sbin"
+        - "/usr/local/sbin"
+        - "/usr/local/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/bin"
+        - "/usr/games"
+        - "/usr/local/games"
+        - "/snap/bin"
+        - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeFindBinUtils.cmake:238 (find_program)"
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeDetermineCCompiler.cmake:200 (include)"
+      - "CMakeLists.txt:2 (project)"
+    mode: "program"
+    variable: "CMAKE_OBJDUMP"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "llvm-objdump"
+      - "objdump"
+    candidate_directories:
+      - "/home/muyiwa/toolchain/clang-21/bin/"
+      - "/home/linuxbrew/.linuxbrew/upcxx/bin/"
+      - "/home/muyiwa/.cargo/bin/"
+      - "/home/linuxbrew/.linuxbrew/bin/"
+      - "/home/linuxbrew/.linuxbrew/sbin/"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/"
+      - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/usr/bin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/games/"
+      - "/usr/local/games/"
+      - "/snap/bin/"
+      - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts/"
+    found: "/home/muyiwa/toolchain/clang-21/bin/llvm-objdump"
+    search_context:
+      ENV{PATH}:
+        - "/home/linuxbrew/.linuxbrew/upcxx/bin"
+        - "/home/muyiwa/.cargo/bin"
+        - "/home/linuxbrew/.linuxbrew/bin"
+        - "/home/linuxbrew/.linuxbrew/sbin"
+        - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli"
+        - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand"
+        - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli"
+        - "/home/linuxbrew/.linuxbrew/bin"
+        - "/home/linuxbrew/.linuxbrew/sbin"
+        - "/usr/local/sbin"
+        - "/usr/local/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/bin"
+        - "/usr/games"
+        - "/usr/local/games"
+        - "/snap/bin"
+        - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeFindBinUtils.cmake:238 (find_program)"
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeDetermineCCompiler.cmake:200 (include)"
+      - "CMakeLists.txt:2 (project)"
+    mode: "program"
+    variable: "CMAKE_OBJCOPY"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "llvm-objcopy"
+      - "objcopy"
+    candidate_directories:
+      - "/home/muyiwa/toolchain/clang-21/bin/"
+      - "/home/linuxbrew/.linuxbrew/upcxx/bin/"
+      - "/home/muyiwa/.cargo/bin/"
+      - "/home/linuxbrew/.linuxbrew/bin/"
+      - "/home/linuxbrew/.linuxbrew/sbin/"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/"
+      - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/usr/bin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/games/"
+      - "/usr/local/games/"
+      - "/snap/bin/"
+      - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts/"
+    found: "/home/muyiwa/toolchain/clang-21/bin/llvm-objcopy"
+    search_context:
+      ENV{PATH}:
+        - "/home/linuxbrew/.linuxbrew/upcxx/bin"
+        - "/home/muyiwa/.cargo/bin"
+        - "/home/linuxbrew/.linuxbrew/bin"
+        - "/home/linuxbrew/.linuxbrew/sbin"
+        - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli"
+        - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand"
+        - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli"
+        - "/home/linuxbrew/.linuxbrew/bin"
+        - "/home/linuxbrew/.linuxbrew/sbin"
+        - "/usr/local/sbin"
+        - "/usr/local/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/bin"
+        - "/usr/games"
+        - "/usr/local/games"
+        - "/snap/bin"
+        - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeFindBinUtils.cmake:238 (find_program)"
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeDetermineCCompiler.cmake:200 (include)"
+      - "CMakeLists.txt:2 (project)"
+    mode: "program"
+    variable: "CMAKE_READELF"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "llvm-readelf"
+      - "readelf"
+    candidate_directories:
+      - "/home/muyiwa/toolchain/clang-21/bin/"
+      - "/home/linuxbrew/.linuxbrew/upcxx/bin/"
+      - "/home/muyiwa/.cargo/bin/"
+      - "/home/linuxbrew/.linuxbrew/bin/"
+      - "/home/linuxbrew/.linuxbrew/sbin/"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/"
+      - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/usr/bin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/games/"
+      - "/usr/local/games/"
+      - "/snap/bin/"
+      - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts/"
+    found: "/home/muyiwa/toolchain/clang-21/bin/llvm-readelf"
+    search_context:
+      ENV{PATH}:
+        - "/home/linuxbrew/.linuxbrew/upcxx/bin"
+        - "/home/muyiwa/.cargo/bin"
+        - "/home/linuxbrew/.linuxbrew/bin"
+        - "/home/linuxbrew/.linuxbrew/sbin"
+        - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli"
+        - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand"
+        - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli"
+        - "/home/linuxbrew/.linuxbrew/bin"
+        - "/home/linuxbrew/.linuxbrew/sbin"
+        - "/usr/local/sbin"
+        - "/usr/local/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/bin"
+        - "/usr/games"
+        - "/usr/local/games"
+        - "/snap/bin"
+        - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeFindBinUtils.cmake:238 (find_program)"
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeDetermineCCompiler.cmake:200 (include)"
+      - "CMakeLists.txt:2 (project)"
+    mode: "program"
+    variable: "CMAKE_DLLTOOL"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "llvm-dlltool"
+      - "dlltool"
+    candidate_directories:
+      - "/home/muyiwa/toolchain/clang-21/bin/"
+      - "/home/linuxbrew/.linuxbrew/upcxx/bin/"
+      - "/home/muyiwa/.cargo/bin/"
+      - "/home/linuxbrew/.linuxbrew/bin/"
+      - "/home/linuxbrew/.linuxbrew/sbin/"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/"
+      - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/usr/bin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/games/"
+      - "/usr/local/games/"
+      - "/snap/bin/"
+      - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts/"
+    found: "/home/muyiwa/toolchain/clang-21/bin/llvm-dlltool"
+    search_context:
+      ENV{PATH}:
+        - "/home/linuxbrew/.linuxbrew/upcxx/bin"
+        - "/home/muyiwa/.cargo/bin"
+        - "/home/linuxbrew/.linuxbrew/bin"
+        - "/home/linuxbrew/.linuxbrew/sbin"
+        - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli"
+        - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand"
+        - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli"
+        - "/home/linuxbrew/.linuxbrew/bin"
+        - "/home/linuxbrew/.linuxbrew/sbin"
+        - "/usr/local/sbin"
+        - "/usr/local/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/bin"
+        - "/usr/games"
+        - "/usr/local/games"
+        - "/snap/bin"
+        - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeFindBinUtils.cmake:238 (find_program)"
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeDetermineCCompiler.cmake:200 (include)"
+      - "CMakeLists.txt:2 (project)"
+    mode: "program"
+    variable: "CMAKE_ADDR2LINE"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "llvm-addr2line"
+      - "addr2line"
+    candidate_directories:
+      - "/home/muyiwa/toolchain/clang-21/bin/"
+      - "/home/linuxbrew/.linuxbrew/upcxx/bin/"
+      - "/home/muyiwa/.cargo/bin/"
+      - "/home/linuxbrew/.linuxbrew/bin/"
+      - "/home/linuxbrew/.linuxbrew/sbin/"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/"
+      - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/usr/bin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/games/"
+      - "/usr/local/games/"
+      - "/snap/bin/"
+      - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts/"
+    found: "/home/muyiwa/toolchain/clang-21/bin/llvm-addr2line"
+    search_context:
+      ENV{PATH}:
+        - "/home/linuxbrew/.linuxbrew/upcxx/bin"
+        - "/home/muyiwa/.cargo/bin"
+        - "/home/linuxbrew/.linuxbrew/bin"
+        - "/home/linuxbrew/.linuxbrew/sbin"
+        - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli"
+        - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand"
+        - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli"
+        - "/home/linuxbrew/.linuxbrew/bin"
+        - "/home/linuxbrew/.linuxbrew/sbin"
+        - "/usr/local/sbin"
+        - "/usr/local/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/bin"
+        - "/usr/games"
+        - "/usr/local/games"
+        - "/snap/bin"
+        - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeFindBinUtils.cmake:238 (find_program)"
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeDetermineCCompiler.cmake:200 (include)"
+      - "CMakeLists.txt:2 (project)"
+    mode: "program"
+    variable: "CMAKE_TAPI"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "tapi"
+    candidate_directories:
+      - "/home/muyiwa/toolchain/clang-21/bin/"
+      - "/home/linuxbrew/.linuxbrew/upcxx/bin/"
+      - "/home/muyiwa/.cargo/bin/"
+      - "/home/linuxbrew/.linuxbrew/bin/"
+      - "/home/linuxbrew/.linuxbrew/sbin/"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/"
+      - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/usr/bin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/games/"
+      - "/usr/local/games/"
+      - "/snap/bin/"
+      - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts/"
+    searched_directories:
+      - "/home/muyiwa/toolchain/clang-21/bin/tapi"
+      - "/home/linuxbrew/.linuxbrew/upcxx/bin/tapi"
+      - "/home/muyiwa/.cargo/bin/tapi"
+      - "/home/linuxbrew/.linuxbrew/bin/tapi"
+      - "/home/linuxbrew/.linuxbrew/sbin/tapi"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/tapi"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/tapi"
+      - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli/tapi"
+      - "/usr/local/sbin/tapi"
+      - "/usr/local/bin/tapi"
+      - "/usr/sbin/tapi"
+      - "/usr/bin/tapi"
+      - "/sbin/tapi"
+      - "/bin/tapi"
+      - "/usr/games/tapi"
+      - "/usr/local/games/tapi"
+      - "/snap/bin/tapi"
+      - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts/tapi"
+    found: false
+    search_context:
+      ENV{PATH}:
+        - "/home/linuxbrew/.linuxbrew/upcxx/bin"
+        - "/home/muyiwa/.cargo/bin"
+        - "/home/linuxbrew/.linuxbrew/bin"
+        - "/home/linuxbrew/.linuxbrew/sbin"
+        - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli"
+        - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand"
+        - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli"
+        - "/home/linuxbrew/.linuxbrew/bin"
+        - "/home/linuxbrew/.linuxbrew/sbin"
+        - "/usr/local/sbin"
+        - "/usr/local/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/bin"
+        - "/usr/games"
+        - "/usr/local/games"
+        - "/snap/bin"
+        - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/Compiler/Clang-FindBinUtils.cmake:26 (find_program)"
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeDetermineCCompiler.cmake:201 (include)"
+      - "CMakeLists.txt:2 (project)"
+    mode: "program"
+    variable: "CMAKE_C_COMPILER_AR"
+    description: "LLVM archiver"
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "llvm-ar-21.1"
+      - "llvm-ar-21"
+      - "llvm-ar21"
+      - "llvm-ar"
+    candidate_directories:
+      - "/home/muyiwa/toolchain/clang-21/bin/"
+      - "/home/linuxbrew/.linuxbrew/upcxx/bin/"
+      - "/home/muyiwa/.cargo/bin/"
+      - "/home/linuxbrew/.linuxbrew/bin/"
+      - "/home/linuxbrew/.linuxbrew/sbin/"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/"
+      - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/usr/bin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/games/"
+      - "/usr/local/games/"
+      - "/snap/bin/"
+      - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts/"
+    searched_directories:
+      - "/home/muyiwa/toolchain/clang-21/bin/llvm-ar-21.1"
+      - "/home/linuxbrew/.linuxbrew/upcxx/bin/llvm-ar-21.1"
+      - "/home/muyiwa/.cargo/bin/llvm-ar-21.1"
+      - "/home/linuxbrew/.linuxbrew/bin/llvm-ar-21.1"
+      - "/home/linuxbrew/.linuxbrew/sbin/llvm-ar-21.1"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/llvm-ar-21.1"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/llvm-ar-21.1"
+      - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli/llvm-ar-21.1"
+      - "/usr/local/sbin/llvm-ar-21.1"
+      - "/usr/local/bin/llvm-ar-21.1"
+      - "/usr/sbin/llvm-ar-21.1"
+      - "/usr/bin/llvm-ar-21.1"
+      - "/sbin/llvm-ar-21.1"
+      - "/bin/llvm-ar-21.1"
+      - "/usr/games/llvm-ar-21.1"
+      - "/usr/local/games/llvm-ar-21.1"
+      - "/snap/bin/llvm-ar-21.1"
+      - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts/llvm-ar-21.1"
+      - "/home/muyiwa/toolchain/clang-21/bin/llvm-ar-21"
+      - "/home/linuxbrew/.linuxbrew/upcxx/bin/llvm-ar-21"
+      - "/home/muyiwa/.cargo/bin/llvm-ar-21"
+      - "/home/linuxbrew/.linuxbrew/bin/llvm-ar-21"
+      - "/home/linuxbrew/.linuxbrew/sbin/llvm-ar-21"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/llvm-ar-21"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/llvm-ar-21"
+      - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli/llvm-ar-21"
+      - "/usr/local/sbin/llvm-ar-21"
+      - "/usr/local/bin/llvm-ar-21"
+      - "/usr/sbin/llvm-ar-21"
+      - "/usr/bin/llvm-ar-21"
+      - "/sbin/llvm-ar-21"
+      - "/bin/llvm-ar-21"
+      - "/usr/games/llvm-ar-21"
+      - "/usr/local/games/llvm-ar-21"
+      - "/snap/bin/llvm-ar-21"
+      - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts/llvm-ar-21"
+      - "/home/muyiwa/toolchain/clang-21/bin/llvm-ar21"
+      - "/home/linuxbrew/.linuxbrew/upcxx/bin/llvm-ar21"
+      - "/home/muyiwa/.cargo/bin/llvm-ar21"
+      - "/home/linuxbrew/.linuxbrew/bin/llvm-ar21"
+      - "/home/linuxbrew/.linuxbrew/sbin/llvm-ar21"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/llvm-ar21"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/llvm-ar21"
+      - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli/llvm-ar21"
+      - "/usr/local/sbin/llvm-ar21"
+      - "/usr/local/bin/llvm-ar21"
+      - "/usr/sbin/llvm-ar21"
+      - "/usr/bin/llvm-ar21"
+      - "/sbin/llvm-ar21"
+      - "/bin/llvm-ar21"
+      - "/usr/games/llvm-ar21"
+      - "/usr/local/games/llvm-ar21"
+      - "/snap/bin/llvm-ar21"
+      - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts/llvm-ar21"
+    found: "/home/muyiwa/toolchain/clang-21/bin/llvm-ar"
+    search_context:
+      ENV{PATH}:
+        - "/home/linuxbrew/.linuxbrew/upcxx/bin"
+        - "/home/muyiwa/.cargo/bin"
+        - "/home/linuxbrew/.linuxbrew/bin"
+        - "/home/linuxbrew/.linuxbrew/sbin"
+        - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli"
+        - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand"
+        - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli"
+        - "/home/linuxbrew/.linuxbrew/bin"
+        - "/home/linuxbrew/.linuxbrew/sbin"
+        - "/usr/local/sbin"
+        - "/usr/local/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/bin"
+        - "/usr/games"
+        - "/usr/local/games"
+        - "/snap/bin"
+        - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/Compiler/Clang-FindBinUtils.cmake:38 (find_program)"
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeDetermineCCompiler.cmake:201 (include)"
+      - "CMakeLists.txt:2 (project)"
+    mode: "program"
+    variable: "CMAKE_C_COMPILER_RANLIB"
+    description: "Generate index for LLVM archive"
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "llvm-ranlib-21.1"
+      - "llvm-ranlib-21"
+      - "llvm-ranlib21"
+      - "llvm-ranlib"
+    candidate_directories:
+      - "/home/muyiwa/toolchain/clang-21/bin/"
+      - "/home/linuxbrew/.linuxbrew/upcxx/bin/"
+      - "/home/muyiwa/.cargo/bin/"
+      - "/home/linuxbrew/.linuxbrew/bin/"
+      - "/home/linuxbrew/.linuxbrew/sbin/"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/"
+      - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/usr/bin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/games/"
+      - "/usr/local/games/"
+      - "/snap/bin/"
+      - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts/"
+    searched_directories:
+      - "/home/muyiwa/toolchain/clang-21/bin/llvm-ranlib-21.1"
+      - "/home/linuxbrew/.linuxbrew/upcxx/bin/llvm-ranlib-21.1"
+      - "/home/muyiwa/.cargo/bin/llvm-ranlib-21.1"
+      - "/home/linuxbrew/.linuxbrew/bin/llvm-ranlib-21.1"
+      - "/home/linuxbrew/.linuxbrew/sbin/llvm-ranlib-21.1"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/llvm-ranlib-21.1"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/llvm-ranlib-21.1"
+      - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli/llvm-ranlib-21.1"
+      - "/usr/local/sbin/llvm-ranlib-21.1"
+      - "/usr/local/bin/llvm-ranlib-21.1"
+      - "/usr/sbin/llvm-ranlib-21.1"
+      - "/usr/bin/llvm-ranlib-21.1"
+      - "/sbin/llvm-ranlib-21.1"
+      - "/bin/llvm-ranlib-21.1"
+      - "/usr/games/llvm-ranlib-21.1"
+      - "/usr/local/games/llvm-ranlib-21.1"
+      - "/snap/bin/llvm-ranlib-21.1"
+      - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts/llvm-ranlib-21.1"
+      - "/home/muyiwa/toolchain/clang-21/bin/llvm-ranlib-21"
+      - "/home/linuxbrew/.linuxbrew/upcxx/bin/llvm-ranlib-21"
+      - "/home/muyiwa/.cargo/bin/llvm-ranlib-21"
+      - "/home/linuxbrew/.linuxbrew/bin/llvm-ranlib-21"
+      - "/home/linuxbrew/.linuxbrew/sbin/llvm-ranlib-21"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/llvm-ranlib-21"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/llvm-ranlib-21"
+      - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli/llvm-ranlib-21"
+      - "/usr/local/sbin/llvm-ranlib-21"
+      - "/usr/local/bin/llvm-ranlib-21"
+      - "/usr/sbin/llvm-ranlib-21"
+      - "/usr/bin/llvm-ranlib-21"
+      - "/sbin/llvm-ranlib-21"
+      - "/bin/llvm-ranlib-21"
+      - "/usr/games/llvm-ranlib-21"
+      - "/usr/local/games/llvm-ranlib-21"
+      - "/snap/bin/llvm-ranlib-21"
+      - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts/llvm-ranlib-21"
+      - "/home/muyiwa/toolchain/clang-21/bin/llvm-ranlib21"
+      - "/home/linuxbrew/.linuxbrew/upcxx/bin/llvm-ranlib21"
+      - "/home/muyiwa/.cargo/bin/llvm-ranlib21"
+      - "/home/linuxbrew/.linuxbrew/bin/llvm-ranlib21"
+      - "/home/linuxbrew/.linuxbrew/sbin/llvm-ranlib21"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/llvm-ranlib21"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/llvm-ranlib21"
+      - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli/llvm-ranlib21"
+      - "/usr/local/sbin/llvm-ranlib21"
+      - "/usr/local/bin/llvm-ranlib21"
+      - "/usr/sbin/llvm-ranlib21"
+      - "/usr/bin/llvm-ranlib21"
+      - "/sbin/llvm-ranlib21"
+      - "/bin/llvm-ranlib21"
+      - "/usr/games/llvm-ranlib21"
+      - "/usr/local/games/llvm-ranlib21"
+      - "/snap/bin/llvm-ranlib21"
+      - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts/llvm-ranlib21"
+    found: "/home/muyiwa/toolchain/clang-21/bin/llvm-ranlib"
+    search_context:
+      ENV{PATH}:
+        - "/home/linuxbrew/.linuxbrew/upcxx/bin"
+        - "/home/muyiwa/.cargo/bin"
+        - "/home/linuxbrew/.linuxbrew/bin"
+        - "/home/linuxbrew/.linuxbrew/sbin"
+        - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli"
+        - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand"
+        - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli"
+        - "/home/linuxbrew/.linuxbrew/bin"
+        - "/home/linuxbrew/.linuxbrew/sbin"
+        - "/usr/local/sbin"
+        - "/usr/local/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/bin"
+        - "/usr/games"
+        - "/usr/local/games"
+        - "/snap/bin"
+        - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/Compiler/Clang-FindBinUtils.cmake:50 (find_program)"
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeDetermineCCompiler.cmake:201 (include)"
+      - "CMakeLists.txt:2 (project)"
+    mode: "program"
+    variable: "CMAKE_C_COMPILER_CLANG_SCAN_DEPS"
+    description: "`clang-scan-deps` dependency scanner"
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "clang-scan-deps-21.1"
+      - "clang-scan-deps-21"
+      - "clang-scan-deps21"
+      - "clang-scan-deps"
+    candidate_directories:
+      - "/home/muyiwa/toolchain/clang-21/bin/"
+      - "/home/linuxbrew/.linuxbrew/upcxx/bin/"
+      - "/home/muyiwa/.cargo/bin/"
+      - "/home/linuxbrew/.linuxbrew/bin/"
+      - "/home/linuxbrew/.linuxbrew/sbin/"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/"
+      - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/usr/bin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/games/"
+      - "/usr/local/games/"
+      - "/snap/bin/"
+      - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts/"
+    searched_directories:
+      - "/home/muyiwa/toolchain/clang-21/bin/clang-scan-deps-21.1"
+      - "/home/linuxbrew/.linuxbrew/upcxx/bin/clang-scan-deps-21.1"
+      - "/home/muyiwa/.cargo/bin/clang-scan-deps-21.1"
+      - "/home/linuxbrew/.linuxbrew/bin/clang-scan-deps-21.1"
+      - "/home/linuxbrew/.linuxbrew/sbin/clang-scan-deps-21.1"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/clang-scan-deps-21.1"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/clang-scan-deps-21.1"
+      - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli/clang-scan-deps-21.1"
+      - "/usr/local/sbin/clang-scan-deps-21.1"
+      - "/usr/local/bin/clang-scan-deps-21.1"
+      - "/usr/sbin/clang-scan-deps-21.1"
+      - "/usr/bin/clang-scan-deps-21.1"
+      - "/sbin/clang-scan-deps-21.1"
+      - "/bin/clang-scan-deps-21.1"
+      - "/usr/games/clang-scan-deps-21.1"
+      - "/usr/local/games/clang-scan-deps-21.1"
+      - "/snap/bin/clang-scan-deps-21.1"
+      - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts/clang-scan-deps-21.1"
+      - "/home/muyiwa/toolchain/clang-21/bin/clang-scan-deps-21"
+      - "/home/linuxbrew/.linuxbrew/upcxx/bin/clang-scan-deps-21"
+      - "/home/muyiwa/.cargo/bin/clang-scan-deps-21"
+      - "/home/linuxbrew/.linuxbrew/bin/clang-scan-deps-21"
+      - "/home/linuxbrew/.linuxbrew/sbin/clang-scan-deps-21"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/clang-scan-deps-21"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/clang-scan-deps-21"
+      - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli/clang-scan-deps-21"
+      - "/usr/local/sbin/clang-scan-deps-21"
+      - "/usr/local/bin/clang-scan-deps-21"
+      - "/usr/sbin/clang-scan-deps-21"
+      - "/usr/bin/clang-scan-deps-21"
+      - "/sbin/clang-scan-deps-21"
+      - "/bin/clang-scan-deps-21"
+      - "/usr/games/clang-scan-deps-21"
+      - "/usr/local/games/clang-scan-deps-21"
+      - "/snap/bin/clang-scan-deps-21"
+      - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts/clang-scan-deps-21"
+      - "/home/muyiwa/toolchain/clang-21/bin/clang-scan-deps21"
+      - "/home/linuxbrew/.linuxbrew/upcxx/bin/clang-scan-deps21"
+      - "/home/muyiwa/.cargo/bin/clang-scan-deps21"
+      - "/home/linuxbrew/.linuxbrew/bin/clang-scan-deps21"
+      - "/home/linuxbrew/.linuxbrew/sbin/clang-scan-deps21"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/clang-scan-deps21"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/clang-scan-deps21"
+      - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli/clang-scan-deps21"
+      - "/usr/local/sbin/clang-scan-deps21"
+      - "/usr/local/bin/clang-scan-deps21"
+      - "/usr/sbin/clang-scan-deps21"
+      - "/usr/bin/clang-scan-deps21"
+      - "/sbin/clang-scan-deps21"
+      - "/bin/clang-scan-deps21"
+      - "/usr/games/clang-scan-deps21"
+      - "/usr/local/games/clang-scan-deps21"
+      - "/snap/bin/clang-scan-deps21"
+      - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts/clang-scan-deps21"
+    found: "/home/muyiwa/toolchain/clang-21/bin/clang-scan-deps"
+    search_context:
+      ENV{PATH}:
+        - "/home/linuxbrew/.linuxbrew/upcxx/bin"
+        - "/home/muyiwa/.cargo/bin"
+        - "/home/linuxbrew/.linuxbrew/bin"
+        - "/home/linuxbrew/.linuxbrew/sbin"
+        - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli"
+        - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand"
+        - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli"
+        - "/home/linuxbrew/.linuxbrew/bin"
+        - "/home/linuxbrew/.linuxbrew/sbin"
+        - "/usr/local/sbin"
+        - "/usr/local/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/bin"
+        - "/usr/games"
+        - "/usr/local/games"
+        - "/snap/bin"
+        - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeDetermineCompilerId.cmake:462 (find_file)"
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeDetermineCompilerId.cmake:500 (CMAKE_DETERMINE_COMPILER_ID_WRITE)"
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeDetermineCompilerId.cmake:8 (CMAKE_DETERMINE_COMPILER_ID_BUILD)"
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeDetermineCompilerId.cmake:64 (__determine_compiler_id_test)"
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeDetermineCXXCompiler.cmake:125 (CMAKE_DETERMINE_COMPILER_ID)"
+      - "CMakeLists.txt:2 (project)"
+    mode: "file"
+    variable: "src_in"
+    description: "Path to a file."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: true
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "CMakeCXXCompilerId.cpp.in"
+    candidate_directories:
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/"
+    found: "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeCXXCompilerId.cpp.in"
+    search_context:
+      ENV{PATH}:
+        - "/home/linuxbrew/.linuxbrew/upcxx/bin"
+        - "/home/muyiwa/.cargo/bin"
+        - "/home/linuxbrew/.linuxbrew/bin"
+        - "/home/linuxbrew/.linuxbrew/sbin"
+        - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli"
+        - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand"
+        - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli"
+        - "/home/linuxbrew/.linuxbrew/bin"
+        - "/home/linuxbrew/.linuxbrew/sbin"
+        - "/usr/local/sbin"
+        - "/usr/local/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/bin"
+        - "/usr/games"
+        - "/usr/local/games"
+        - "/snap/bin"
+        - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts"
+  -
+    kind: "message-v1"
+    backtrace:
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeDetermineCompilerId.cmake:17 (message)"
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeDetermineCompilerId.cmake:64 (__determine_compiler_id_test)"
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeDetermineCXXCompiler.cmake:125 (CMAKE_DETERMINE_COMPILER_ID)"
+      - "CMakeLists.txt:2 (project)"
+    message: |
+      Compiling the CXX compiler identification source file "CMakeCXXCompilerId.cpp" succeeded.
+      Compiler: /home/muyiwa/toolchain/clang-21/bin/clang++ 
+      Build flags: 
+      Id flags:  
+      
+      The output was:
+      0
+      
+      
+      Compilation of the CXX compiler identification source "CMakeCXXCompilerId.cpp" produced "a.out"
+      
+      The CXX compiler identification is Clang, found in:
+        /home/muyiwa/Development/FastestJSONInTheWest/python_bindings/build/CMakeFiles/4.1.2/CompilerIdCXX/a.out
+      
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/Compiler/Clang-FindBinUtils.cmake:26 (find_program)"
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeDetermineCXXCompiler.cmake:207 (include)"
+      - "CMakeLists.txt:2 (project)"
+    mode: "program"
+    variable: "CMAKE_CXX_COMPILER_AR"
+    description: "LLVM archiver"
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "llvm-ar-21.1"
+      - "llvm-ar-21"
+      - "llvm-ar21"
+      - "llvm-ar"
+    candidate_directories:
+      - "/home/muyiwa/toolchain/clang-21/bin/"
+      - "/home/linuxbrew/.linuxbrew/upcxx/bin/"
+      - "/home/muyiwa/.cargo/bin/"
+      - "/home/linuxbrew/.linuxbrew/bin/"
+      - "/home/linuxbrew/.linuxbrew/sbin/"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/"
+      - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/usr/bin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/games/"
+      - "/usr/local/games/"
+      - "/snap/bin/"
+      - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts/"
+    searched_directories:
+      - "/home/muyiwa/toolchain/clang-21/bin/llvm-ar-21.1"
+      - "/home/linuxbrew/.linuxbrew/upcxx/bin/llvm-ar-21.1"
+      - "/home/muyiwa/.cargo/bin/llvm-ar-21.1"
+      - "/home/linuxbrew/.linuxbrew/bin/llvm-ar-21.1"
+      - "/home/linuxbrew/.linuxbrew/sbin/llvm-ar-21.1"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/llvm-ar-21.1"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/llvm-ar-21.1"
+      - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli/llvm-ar-21.1"
+      - "/usr/local/sbin/llvm-ar-21.1"
+      - "/usr/local/bin/llvm-ar-21.1"
+      - "/usr/sbin/llvm-ar-21.1"
+      - "/usr/bin/llvm-ar-21.1"
+      - "/sbin/llvm-ar-21.1"
+      - "/bin/llvm-ar-21.1"
+      - "/usr/games/llvm-ar-21.1"
+      - "/usr/local/games/llvm-ar-21.1"
+      - "/snap/bin/llvm-ar-21.1"
+      - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts/llvm-ar-21.1"
+      - "/home/muyiwa/toolchain/clang-21/bin/llvm-ar-21"
+      - "/home/linuxbrew/.linuxbrew/upcxx/bin/llvm-ar-21"
+      - "/home/muyiwa/.cargo/bin/llvm-ar-21"
+      - "/home/linuxbrew/.linuxbrew/bin/llvm-ar-21"
+      - "/home/linuxbrew/.linuxbrew/sbin/llvm-ar-21"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/llvm-ar-21"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/llvm-ar-21"
+      - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli/llvm-ar-21"
+      - "/usr/local/sbin/llvm-ar-21"
+      - "/usr/local/bin/llvm-ar-21"
+      - "/usr/sbin/llvm-ar-21"
+      - "/usr/bin/llvm-ar-21"
+      - "/sbin/llvm-ar-21"
+      - "/bin/llvm-ar-21"
+      - "/usr/games/llvm-ar-21"
+      - "/usr/local/games/llvm-ar-21"
+      - "/snap/bin/llvm-ar-21"
+      - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts/llvm-ar-21"
+      - "/home/muyiwa/toolchain/clang-21/bin/llvm-ar21"
+      - "/home/linuxbrew/.linuxbrew/upcxx/bin/llvm-ar21"
+      - "/home/muyiwa/.cargo/bin/llvm-ar21"
+      - "/home/linuxbrew/.linuxbrew/bin/llvm-ar21"
+      - "/home/linuxbrew/.linuxbrew/sbin/llvm-ar21"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/llvm-ar21"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/llvm-ar21"
+      - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli/llvm-ar21"
+      - "/usr/local/sbin/llvm-ar21"
+      - "/usr/local/bin/llvm-ar21"
+      - "/usr/sbin/llvm-ar21"
+      - "/usr/bin/llvm-ar21"
+      - "/sbin/llvm-ar21"
+      - "/bin/llvm-ar21"
+      - "/usr/games/llvm-ar21"
+      - "/usr/local/games/llvm-ar21"
+      - "/snap/bin/llvm-ar21"
+      - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts/llvm-ar21"
+    found: "/home/muyiwa/toolchain/clang-21/bin/llvm-ar"
+    search_context:
+      ENV{PATH}:
+        - "/home/linuxbrew/.linuxbrew/upcxx/bin"
+        - "/home/muyiwa/.cargo/bin"
+        - "/home/linuxbrew/.linuxbrew/bin"
+        - "/home/linuxbrew/.linuxbrew/sbin"
+        - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli"
+        - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand"
+        - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli"
+        - "/home/linuxbrew/.linuxbrew/bin"
+        - "/home/linuxbrew/.linuxbrew/sbin"
+        - "/usr/local/sbin"
+        - "/usr/local/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/bin"
+        - "/usr/games"
+        - "/usr/local/games"
+        - "/snap/bin"
+        - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/Compiler/Clang-FindBinUtils.cmake:38 (find_program)"
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeDetermineCXXCompiler.cmake:207 (include)"
+      - "CMakeLists.txt:2 (project)"
+    mode: "program"
+    variable: "CMAKE_CXX_COMPILER_RANLIB"
+    description: "Generate index for LLVM archive"
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "llvm-ranlib-21.1"
+      - "llvm-ranlib-21"
+      - "llvm-ranlib21"
+      - "llvm-ranlib"
+    candidate_directories:
+      - "/home/muyiwa/toolchain/clang-21/bin/"
+      - "/home/linuxbrew/.linuxbrew/upcxx/bin/"
+      - "/home/muyiwa/.cargo/bin/"
+      - "/home/linuxbrew/.linuxbrew/bin/"
+      - "/home/linuxbrew/.linuxbrew/sbin/"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/"
+      - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/usr/bin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/games/"
+      - "/usr/local/games/"
+      - "/snap/bin/"
+      - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts/"
+    searched_directories:
+      - "/home/muyiwa/toolchain/clang-21/bin/llvm-ranlib-21.1"
+      - "/home/linuxbrew/.linuxbrew/upcxx/bin/llvm-ranlib-21.1"
+      - "/home/muyiwa/.cargo/bin/llvm-ranlib-21.1"
+      - "/home/linuxbrew/.linuxbrew/bin/llvm-ranlib-21.1"
+      - "/home/linuxbrew/.linuxbrew/sbin/llvm-ranlib-21.1"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/llvm-ranlib-21.1"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/llvm-ranlib-21.1"
+      - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli/llvm-ranlib-21.1"
+      - "/usr/local/sbin/llvm-ranlib-21.1"
+      - "/usr/local/bin/llvm-ranlib-21.1"
+      - "/usr/sbin/llvm-ranlib-21.1"
+      - "/usr/bin/llvm-ranlib-21.1"
+      - "/sbin/llvm-ranlib-21.1"
+      - "/bin/llvm-ranlib-21.1"
+      - "/usr/games/llvm-ranlib-21.1"
+      - "/usr/local/games/llvm-ranlib-21.1"
+      - "/snap/bin/llvm-ranlib-21.1"
+      - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts/llvm-ranlib-21.1"
+      - "/home/muyiwa/toolchain/clang-21/bin/llvm-ranlib-21"
+      - "/home/linuxbrew/.linuxbrew/upcxx/bin/llvm-ranlib-21"
+      - "/home/muyiwa/.cargo/bin/llvm-ranlib-21"
+      - "/home/linuxbrew/.linuxbrew/bin/llvm-ranlib-21"
+      - "/home/linuxbrew/.linuxbrew/sbin/llvm-ranlib-21"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/llvm-ranlib-21"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/llvm-ranlib-21"
+      - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli/llvm-ranlib-21"
+      - "/usr/local/sbin/llvm-ranlib-21"
+      - "/usr/local/bin/llvm-ranlib-21"
+      - "/usr/sbin/llvm-ranlib-21"
+      - "/usr/bin/llvm-ranlib-21"
+      - "/sbin/llvm-ranlib-21"
+      - "/bin/llvm-ranlib-21"
+      - "/usr/games/llvm-ranlib-21"
+      - "/usr/local/games/llvm-ranlib-21"
+      - "/snap/bin/llvm-ranlib-21"
+      - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts/llvm-ranlib-21"
+      - "/home/muyiwa/toolchain/clang-21/bin/llvm-ranlib21"
+      - "/home/linuxbrew/.linuxbrew/upcxx/bin/llvm-ranlib21"
+      - "/home/muyiwa/.cargo/bin/llvm-ranlib21"
+      - "/home/linuxbrew/.linuxbrew/bin/llvm-ranlib21"
+      - "/home/linuxbrew/.linuxbrew/sbin/llvm-ranlib21"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/llvm-ranlib21"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/llvm-ranlib21"
+      - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli/llvm-ranlib21"
+      - "/usr/local/sbin/llvm-ranlib21"
+      - "/usr/local/bin/llvm-ranlib21"
+      - "/usr/sbin/llvm-ranlib21"
+      - "/usr/bin/llvm-ranlib21"
+      - "/sbin/llvm-ranlib21"
+      - "/bin/llvm-ranlib21"
+      - "/usr/games/llvm-ranlib21"
+      - "/usr/local/games/llvm-ranlib21"
+      - "/snap/bin/llvm-ranlib21"
+      - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts/llvm-ranlib21"
+    found: "/home/muyiwa/toolchain/clang-21/bin/llvm-ranlib"
+    search_context:
+      ENV{PATH}:
+        - "/home/linuxbrew/.linuxbrew/upcxx/bin"
+        - "/home/muyiwa/.cargo/bin"
+        - "/home/linuxbrew/.linuxbrew/bin"
+        - "/home/linuxbrew/.linuxbrew/sbin"
+        - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli"
+        - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand"
+        - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli"
+        - "/home/linuxbrew/.linuxbrew/bin"
+        - "/home/linuxbrew/.linuxbrew/sbin"
+        - "/usr/local/sbin"
+        - "/usr/local/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/bin"
+        - "/usr/games"
+        - "/usr/local/games"
+        - "/snap/bin"
+        - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/Compiler/Clang-FindBinUtils.cmake:50 (find_program)"
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeDetermineCXXCompiler.cmake:207 (include)"
+      - "CMakeLists.txt:2 (project)"
+    mode: "program"
+    variable: "CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS"
+    description: "`clang-scan-deps` dependency scanner"
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "clang-scan-deps-21.1"
+      - "clang-scan-deps-21"
+      - "clang-scan-deps21"
+      - "clang-scan-deps"
+    candidate_directories:
+      - "/home/muyiwa/toolchain/clang-21/bin/"
+      - "/home/linuxbrew/.linuxbrew/upcxx/bin/"
+      - "/home/muyiwa/.cargo/bin/"
+      - "/home/linuxbrew/.linuxbrew/bin/"
+      - "/home/linuxbrew/.linuxbrew/sbin/"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/"
+      - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/usr/bin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/games/"
+      - "/usr/local/games/"
+      - "/snap/bin/"
+      - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts/"
+    searched_directories:
+      - "/home/muyiwa/toolchain/clang-21/bin/clang-scan-deps-21.1"
+      - "/home/linuxbrew/.linuxbrew/upcxx/bin/clang-scan-deps-21.1"
+      - "/home/muyiwa/.cargo/bin/clang-scan-deps-21.1"
+      - "/home/linuxbrew/.linuxbrew/bin/clang-scan-deps-21.1"
+      - "/home/linuxbrew/.linuxbrew/sbin/clang-scan-deps-21.1"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/clang-scan-deps-21.1"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/clang-scan-deps-21.1"
+      - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli/clang-scan-deps-21.1"
+      - "/usr/local/sbin/clang-scan-deps-21.1"
+      - "/usr/local/bin/clang-scan-deps-21.1"
+      - "/usr/sbin/clang-scan-deps-21.1"
+      - "/usr/bin/clang-scan-deps-21.1"
+      - "/sbin/clang-scan-deps-21.1"
+      - "/bin/clang-scan-deps-21.1"
+      - "/usr/games/clang-scan-deps-21.1"
+      - "/usr/local/games/clang-scan-deps-21.1"
+      - "/snap/bin/clang-scan-deps-21.1"
+      - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts/clang-scan-deps-21.1"
+      - "/home/muyiwa/toolchain/clang-21/bin/clang-scan-deps-21"
+      - "/home/linuxbrew/.linuxbrew/upcxx/bin/clang-scan-deps-21"
+      - "/home/muyiwa/.cargo/bin/clang-scan-deps-21"
+      - "/home/linuxbrew/.linuxbrew/bin/clang-scan-deps-21"
+      - "/home/linuxbrew/.linuxbrew/sbin/clang-scan-deps-21"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/clang-scan-deps-21"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/clang-scan-deps-21"
+      - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli/clang-scan-deps-21"
+      - "/usr/local/sbin/clang-scan-deps-21"
+      - "/usr/local/bin/clang-scan-deps-21"
+      - "/usr/sbin/clang-scan-deps-21"
+      - "/usr/bin/clang-scan-deps-21"
+      - "/sbin/clang-scan-deps-21"
+      - "/bin/clang-scan-deps-21"
+      - "/usr/games/clang-scan-deps-21"
+      - "/usr/local/games/clang-scan-deps-21"
+      - "/snap/bin/clang-scan-deps-21"
+      - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts/clang-scan-deps-21"
+      - "/home/muyiwa/toolchain/clang-21/bin/clang-scan-deps21"
+      - "/home/linuxbrew/.linuxbrew/upcxx/bin/clang-scan-deps21"
+      - "/home/muyiwa/.cargo/bin/clang-scan-deps21"
+      - "/home/linuxbrew/.linuxbrew/bin/clang-scan-deps21"
+      - "/home/linuxbrew/.linuxbrew/sbin/clang-scan-deps21"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli/clang-scan-deps21"
+      - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand/clang-scan-deps21"
+      - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli/clang-scan-deps21"
+      - "/usr/local/sbin/clang-scan-deps21"
+      - "/usr/local/bin/clang-scan-deps21"
+      - "/usr/sbin/clang-scan-deps21"
+      - "/usr/bin/clang-scan-deps21"
+      - "/sbin/clang-scan-deps21"
+      - "/bin/clang-scan-deps21"
+      - "/usr/games/clang-scan-deps21"
+      - "/usr/local/games/clang-scan-deps21"
+      - "/snap/bin/clang-scan-deps21"
+      - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts/clang-scan-deps21"
+    found: "/home/muyiwa/toolchain/clang-21/bin/clang-scan-deps"
+    search_context:
+      ENV{PATH}:
+        - "/home/linuxbrew/.linuxbrew/upcxx/bin"
+        - "/home/muyiwa/.cargo/bin"
+        - "/home/linuxbrew/.linuxbrew/bin"
+        - "/home/linuxbrew/.linuxbrew/sbin"
+        - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli"
+        - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand"
+        - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli"
+        - "/home/linuxbrew/.linuxbrew/bin"
+        - "/home/linuxbrew/.linuxbrew/sbin"
+        - "/usr/local/sbin"
+        - "/usr/local/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/bin"
+        - "/usr/games"
+        - "/usr/local/games"
+        - "/snap/bin"
+        - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts"
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeDetermineCompilerABI.cmake:83 (try_compile)"
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeTestCCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:2 (project)"
+    checks:
+      - "Detecting C compiler ABI info"
+    directories:
+      source: "/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/build/CMakeFiles/CMakeScratch/TryCompile-FSgEXW"
+      binary: "/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/build/CMakeFiles/CMakeScratch/TryCompile-FSgEXW"
+    cmakeVariables:
+      CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS: "/home/muyiwa/toolchain/clang-21/bin/clang-scan-deps"
+      CMAKE_C_FLAGS: ""
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+    buildResult:
+      variable: "CMAKE_C_ABI_COMPILED"
+      cached: true
+      stdout: |
+        Change Dir: '/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/build/CMakeFiles/CMakeScratch/TryCompile-FSgEXW'
+        
+        Run Build Command(s): /home/muyiwa/toolchain-build/cmake-4.1.2/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_b02a4/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_b02a4.dir/build.make CMakeFiles/cmTC_b02a4.dir/build
+        gmake[1]: Entering directory '/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/build/CMakeFiles/CMakeScratch/TryCompile-FSgEXW'
+        Building C object CMakeFiles/cmTC_b02a4.dir/CMakeCCompilerABI.c.o
+        /home/muyiwa/toolchain/clang-21/bin/clang   -v -MD -MT CMakeFiles/cmTC_b02a4.dir/CMakeCCompilerABI.c.o -MF CMakeFiles/cmTC_b02a4.dir/CMakeCCompilerABI.c.o.d -o CMakeFiles/cmTC_b02a4.dir/CMakeCCompilerABI.c.o -c /home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeCCompilerABI.c
+        clang version 21.1.5
+        Target: x86_64-unknown-linux-gnu
+        Thread model: posix
+        InstalledDir: /home/muyiwa/toolchain/clang-21/bin
+        Build config: +assertions
+        Found candidate GCC installation: /usr/lib/gcc/x86_64-linux-gnu/11
+        Found candidate GCC installation: /usr/lib/gcc/x86_64-linux-gnu/13
+        Selected GCC installation: /usr/lib/gcc/x86_64-linux-gnu/13
+        Candidate multilib: .;@m64
+        Selected multilib: .;@m64
+         (in-process)
+         "/home/muyiwa/toolchain/clang-21/bin/clang-21" -cc1 -triple x86_64-unknown-linux-gnu -emit-obj -disable-free -clear-ast-before-backend -main-file-name CMakeCCompilerABI.c -mrelocation-model pic -pic-level 2 -pic-is-pie -mframe-pointer=all -fmath-errno -ffp-contract=on -fno-rounding-math -mconstructor-aliases -funwind-tables=2 -target-cpu x86-64 -tune-cpu generic -debugger-tuning=gdb -fdebug-compilation-dir=/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/build/CMakeFiles/CMakeScratch/TryCompile-FSgEXW -v -fcoverage-compilation-dir=/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/build/CMakeFiles/CMakeScratch/TryCompile-FSgEXW -resource-dir /home/muyiwa/toolchain/clang-21/lib/clang/21 -dependency-file CMakeFiles/cmTC_b02a4.dir/CMakeCCompilerABI.c.o.d -MT CMakeFiles/cmTC_b02a4.dir/CMakeCCompilerABI.c.o -sys-header-deps -internal-isystem /home/muyiwa/toolchain/clang-21/lib/clang/21/include -internal-isystem /usr/local/include -internal-isystem /usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/include -internal-externc-isystem /usr/include/x86_64-linux-gnu -internal-externc-isystem /include -internal-externc-isystem /usr/include -ferror-limit 19 -fgnuc-version=4.2.1 -fskip-odr-check-in-gmf -faddrsig -D__GCC_HAVE_DWARF2_CFI_ASM=1 -o CMakeFiles/cmTC_b02a4.dir/CMakeCCompilerABI.c.o -x c /home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeCCompilerABI.c
+        clang -cc1 version 21.1.5 based upon LLVM 21.1.5 default target x86_64-unknown-linux-gnu
+        ignoring nonexistent directory "/usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/include"
+        ignoring nonexistent directory "/include"
+        #include "..." search starts here:
+        #include <...> search starts here:
+         /home/muyiwa/toolchain/clang-21/lib/clang/21/include
+         /usr/local/include
+         /usr/include/x86_64-linux-gnu
+         /usr/include
+        End of search list.
+        Linking C executable cmTC_b02a4
+        /home/muyiwa/toolchain-build/cmake-4.1.2/bin/cmake -E cmake_link_script CMakeFiles/cmTC_b02a4.dir/link.txt --verbose=1
+        clang version 21.1.5
+        Target: x86_64-unknown-linux-gnu
+        Thread model: posix
+        InstalledDir: /home/muyiwa/toolchain/clang-21/bin
+        Build config: +assertions
+        Found candidate GCC installation: /usr/lib/gcc/x86_64-linux-gnu/11
+        Found candidate GCC installation: /usr/lib/gcc/x86_64-linux-gnu/13
+        Selected GCC installation: /usr/lib/gcc/x86_64-linux-gnu/13
+        Candidate multilib: .;@m64
+        Selected multilib: .;@m64
+         "/usr/bin/ld" -z relro --hash-style=gnu --eh-frame-hdr -m elf_x86_64 -pie -dynamic-linker /lib64/ld-linux-x86-64.so.2 -o cmTC_b02a4 /lib/x86_64-linux-gnu/Scrt1.o /lib/x86_64-linux-gnu/crti.o /usr/lib/gcc/x86_64-linux-gnu/13/crtbeginS.o -L/usr/lib/gcc/x86_64-linux-gnu/13 -L/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib64 -L/lib/x86_64-linux-gnu -L/lib/../lib64 -L/usr/lib/x86_64-linux-gnu -L/usr/lib64 -L/lib -L/usr/lib -v CMakeFiles/cmTC_b02a4.dir/CMakeCCompilerABI.c.o -lgcc --as-needed -lgcc_s --no-as-needed -lc -lgcc --as-needed -lgcc_s --no-as-needed /usr/lib/gcc/x86_64-linux-gnu/13/crtendS.o /lib/x86_64-linux-gnu/crtn.o
+        GNU ld (GNU Binutils for Ubuntu) 2.42
+        /home/muyiwa/toolchain/clang-21/bin/clang  -v -Wl,-v CMakeFiles/cmTC_b02a4.dir/CMakeCCompilerABI.c.o -o cmTC_b02a4
+        gmake[1]: Leaving directory '/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/build/CMakeFiles/CMakeScratch/TryCompile-FSgEXW'
+        
+      exitCode: 0
+  -
+    kind: "message-v1"
+    backtrace:
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeDetermineCompilerABI.cmake:217 (message)"
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeTestCCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:2 (project)"
+    message: |
+      Parsed C implicit include dir info: rv=done
+        found start of include info
+        found start of implicit include info
+          add: [/home/muyiwa/toolchain/clang-21/lib/clang/21/include]
+          add: [/usr/local/include]
+          add: [/usr/include/x86_64-linux-gnu]
+          add: [/usr/include]
+        end of search list found
+        collapse include dir [/home/muyiwa/toolchain/clang-21/lib/clang/21/include] ==> [/home/muyiwa/toolchain/clang-21/lib/clang/21/include]
+        collapse include dir [/usr/local/include] ==> [/usr/local/include]
+        collapse include dir [/usr/include/x86_64-linux-gnu] ==> [/usr/include/x86_64-linux-gnu]
+        collapse include dir [/usr/include] ==> [/usr/include]
+        implicit include dirs: [/home/muyiwa/toolchain/clang-21/lib/clang/21/include;/usr/local/include;/usr/include/x86_64-linux-gnu;/usr/include]
+      
+      
+  -
+    kind: "message-v1"
+    backtrace:
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeDetermineCompilerABI.cmake:253 (message)"
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeTestCCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:2 (project)"
+    message: |
+      Parsed C implicit link information:
+        link line regex: [^( *|.*[/\\])(ld[0-9]*(|\\.[a-rt-z][a-z]*|\\.s[a-np-z][a-z]*|\\.so[a-z]+)|CMAKE_LINK_STARTFILE-NOTFOUND|([^/\\]+-)?ld|collect2)[^/\\]*( |$)]
+        linker tool regex: [^[ 	]*(->|")?[ 	]*(([^"]*[/\\])?(ld[0-9]*(|\\.[a-rt-z][a-z]*|\\.s[a-np-z][a-z]*|\\.so[a-z]+)))("|,| |$)]
+        ignore line: [Change Dir: '/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/build/CMakeFiles/CMakeScratch/TryCompile-FSgEXW']
+        ignore line: []
+        ignore line: [Run Build Command(s): /home/muyiwa/toolchain-build/cmake-4.1.2/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_b02a4/fast]
+        ignore line: [/usr/bin/gmake  -f CMakeFiles/cmTC_b02a4.dir/build.make CMakeFiles/cmTC_b02a4.dir/build]
+        ignore line: [gmake[1]: Entering directory '/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/build/CMakeFiles/CMakeScratch/TryCompile-FSgEXW']
+        ignore line: [Building C object CMakeFiles/cmTC_b02a4.dir/CMakeCCompilerABI.c.o]
+        ignore line: [/home/muyiwa/toolchain/clang-21/bin/clang   -v -MD -MT CMakeFiles/cmTC_b02a4.dir/CMakeCCompilerABI.c.o -MF CMakeFiles/cmTC_b02a4.dir/CMakeCCompilerABI.c.o.d -o CMakeFiles/cmTC_b02a4.dir/CMakeCCompilerABI.c.o -c /home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeCCompilerABI.c]
+        ignore line: [clang version 21.1.5]
+        ignore line: [Target: x86_64-unknown-linux-gnu]
+        ignore line: [Thread model: posix]
+        ignore line: [InstalledDir: /home/muyiwa/toolchain/clang-21/bin]
+        ignore line: [Build config: +assertions]
+        ignore line: [Found candidate GCC installation: /usr/lib/gcc/x86_64-linux-gnu/11]
+        ignore line: [Found candidate GCC installation: /usr/lib/gcc/x86_64-linux-gnu/13]
+        ignore line: [Selected GCC installation: /usr/lib/gcc/x86_64-linux-gnu/13]
+        ignore line: [Candidate multilib: .]
+        ignore line: [@m64]
+        ignore line: [Selected multilib: .]
+        ignore line: [@m64]
+        ignore line: [ (in-process)]
+        ignore line: [ "/home/muyiwa/toolchain/clang-21/bin/clang-21" -cc1 -triple x86_64-unknown-linux-gnu -emit-obj -disable-free -clear-ast-before-backend -main-file-name CMakeCCompilerABI.c -mrelocation-model pic -pic-level 2 -pic-is-pie -mframe-pointer=all -fmath-errno -ffp-contract=on -fno-rounding-math -mconstructor-aliases -funwind-tables=2 -target-cpu x86-64 -tune-cpu generic -debugger-tuning=gdb -fdebug-compilation-dir=/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/build/CMakeFiles/CMakeScratch/TryCompile-FSgEXW -v -fcoverage-compilation-dir=/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/build/CMakeFiles/CMakeScratch/TryCompile-FSgEXW -resource-dir /home/muyiwa/toolchain/clang-21/lib/clang/21 -dependency-file CMakeFiles/cmTC_b02a4.dir/CMakeCCompilerABI.c.o.d -MT CMakeFiles/cmTC_b02a4.dir/CMakeCCompilerABI.c.o -sys-header-deps -internal-isystem /home/muyiwa/toolchain/clang-21/lib/clang/21/include -internal-isystem /usr/local/include -internal-isystem /usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/include -internal-externc-isystem /usr/include/x86_64-linux-gnu -internal-externc-isystem /include -internal-externc-isystem /usr/include -ferror-limit 19 -fgnuc-version=4.2.1 -fskip-odr-check-in-gmf -faddrsig -D__GCC_HAVE_DWARF2_CFI_ASM=1 -o CMakeFiles/cmTC_b02a4.dir/CMakeCCompilerABI.c.o -x c /home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeCCompilerABI.c]
+        ignore line: [clang -cc1 version 21.1.5 based upon LLVM 21.1.5 default target x86_64-unknown-linux-gnu]
+        ignore line: [ignoring nonexistent directory "/usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/include"]
+        ignore line: [ignoring nonexistent directory "/include"]
+        ignore line: [#include "..." search starts here:]
+        ignore line: [#include <...> search starts here:]
+        ignore line: [ /home/muyiwa/toolchain/clang-21/lib/clang/21/include]
+        ignore line: [ /usr/local/include]
+        ignore line: [ /usr/include/x86_64-linux-gnu]
+        ignore line: [ /usr/include]
+        ignore line: [End of search list.]
+        ignore line: [Linking C executable cmTC_b02a4]
+        ignore line: [/home/muyiwa/toolchain-build/cmake-4.1.2/bin/cmake -E cmake_link_script CMakeFiles/cmTC_b02a4.dir/link.txt --verbose=1]
+        ignore line: [clang version 21.1.5]
+        ignore line: [Target: x86_64-unknown-linux-gnu]
+        ignore line: [Thread model: posix]
+        ignore line: [InstalledDir: /home/muyiwa/toolchain/clang-21/bin]
+        ignore line: [Build config: +assertions]
+        ignore line: [Found candidate GCC installation: /usr/lib/gcc/x86_64-linux-gnu/11]
+        ignore line: [Found candidate GCC installation: /usr/lib/gcc/x86_64-linux-gnu/13]
+        ignore line: [Selected GCC installation: /usr/lib/gcc/x86_64-linux-gnu/13]
+        ignore line: [Candidate multilib: .]
+        ignore line: [@m64]
+        ignore line: [Selected multilib: .]
+        ignore line: [@m64]
+        link line: [ "/usr/bin/ld" -z relro --hash-style=gnu --eh-frame-hdr -m elf_x86_64 -pie -dynamic-linker /lib64/ld-linux-x86-64.so.2 -o cmTC_b02a4 /lib/x86_64-linux-gnu/Scrt1.o /lib/x86_64-linux-gnu/crti.o /usr/lib/gcc/x86_64-linux-gnu/13/crtbeginS.o -L/usr/lib/gcc/x86_64-linux-gnu/13 -L/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib64 -L/lib/x86_64-linux-gnu -L/lib/../lib64 -L/usr/lib/x86_64-linux-gnu -L/usr/lib64 -L/lib -L/usr/lib -v CMakeFiles/cmTC_b02a4.dir/CMakeCCompilerABI.c.o -lgcc --as-needed -lgcc_s --no-as-needed -lc -lgcc --as-needed -lgcc_s --no-as-needed /usr/lib/gcc/x86_64-linux-gnu/13/crtendS.o /lib/x86_64-linux-gnu/crtn.o]
+          arg [/usr/bin/ld] ==> ignore
+          arg [-zrelro] ==> ignore
+          arg [--hash-style=gnu] ==> ignore
+          arg [--eh-frame-hdr] ==> ignore
+          arg [-m] ==> ignore
+          arg [elf_x86_64] ==> ignore
+          arg [-pie] ==> ignore
+          arg [-dynamic-linker] ==> ignore
+          arg [/lib64/ld-linux-x86-64.so.2] ==> ignore
+          arg [-o] ==> ignore
+          arg [cmTC_b02a4] ==> ignore
+          arg [/lib/x86_64-linux-gnu/Scrt1.o] ==> obj [/lib/x86_64-linux-gnu/Scrt1.o]
+          arg [/lib/x86_64-linux-gnu/crti.o] ==> obj [/lib/x86_64-linux-gnu/crti.o]
+          arg [/usr/lib/gcc/x86_64-linux-gnu/13/crtbeginS.o] ==> obj [/usr/lib/gcc/x86_64-linux-gnu/13/crtbeginS.o]
+          arg [-L/usr/lib/gcc/x86_64-linux-gnu/13] ==> dir [/usr/lib/gcc/x86_64-linux-gnu/13]
+          arg [-L/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib64] ==> dir [/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib64]
+          arg [-L/lib/x86_64-linux-gnu] ==> dir [/lib/x86_64-linux-gnu]
+          arg [-L/lib/../lib64] ==> dir [/lib/../lib64]
+          arg [-L/usr/lib/x86_64-linux-gnu] ==> dir [/usr/lib/x86_64-linux-gnu]
+          arg [-L/usr/lib64] ==> dir [/usr/lib64]
+          arg [-L/lib] ==> dir [/lib]
+          arg [-L/usr/lib] ==> dir [/usr/lib]
+          arg [-v] ==> ignore
+          arg [CMakeFiles/cmTC_b02a4.dir/CMakeCCompilerABI.c.o] ==> ignore
+          arg [-lgcc] ==> lib [gcc]
+          arg [--as-needed] ==> ignore
+          arg [-lgcc_s] ==> lib [gcc_s]
+          arg [--no-as-needed] ==> ignore
+          arg [-lc] ==> lib [c]
+          arg [-lgcc] ==> lib [gcc]
+          arg [--as-needed] ==> ignore
+          arg [-lgcc_s] ==> lib [gcc_s]
+          arg [--no-as-needed] ==> ignore
+          arg [/usr/lib/gcc/x86_64-linux-gnu/13/crtendS.o] ==> obj [/usr/lib/gcc/x86_64-linux-gnu/13/crtendS.o]
+          arg [/lib/x86_64-linux-gnu/crtn.o] ==> obj [/lib/x86_64-linux-gnu/crtn.o]
+        linker tool for 'C': /usr/bin/ld
+        collapse library dir [/usr/lib/gcc/x86_64-linux-gnu/13] ==> [/usr/lib/gcc/x86_64-linux-gnu/13]
+        collapse library dir [/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib64] ==> [/usr/lib64]
+        collapse library dir [/lib/x86_64-linux-gnu] ==> [/lib/x86_64-linux-gnu]
+        collapse library dir [/lib/../lib64] ==> [/lib64]
+        collapse library dir [/usr/lib/x86_64-linux-gnu] ==> [/usr/lib/x86_64-linux-gnu]
+        collapse library dir [/usr/lib64] ==> [/usr/lib64]
+        collapse library dir [/lib] ==> [/lib]
+        collapse library dir [/usr/lib] ==> [/usr/lib]
+        implicit libs: [gcc;gcc_s;c;gcc;gcc_s]
+        implicit objs: [/lib/x86_64-linux-gnu/Scrt1.o;/lib/x86_64-linux-gnu/crti.o;/usr/lib/gcc/x86_64-linux-gnu/13/crtbeginS.o;/usr/lib/gcc/x86_64-linux-gnu/13/crtendS.o;/lib/x86_64-linux-gnu/crtn.o]
+        implicit dirs: [/usr/lib/gcc/x86_64-linux-gnu/13;/usr/lib64;/lib/x86_64-linux-gnu;/lib64;/usr/lib/x86_64-linux-gnu;/lib;/usr/lib]
+        implicit fwks: []
+      
+      
+  -
+    kind: "message-v1"
+    backtrace:
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/Internal/CMakeDetermineLinkerId.cmake:36 (message)"
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeDetermineCompilerABI.cmake:299 (cmake_determine_linker_id)"
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeTestCCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:2 (project)"
+    message: |
+      Running the C compiler's linker: "/usr/bin/ld" "-v"
+      GNU ld (GNU Binutils for Ubuntu) 2.42
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeDetermineCompilerABI.cmake:83 (try_compile)"
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeTestCXXCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:2 (project)"
+    checks:
+      - "Detecting CXX compiler ABI info"
+    directories:
+      source: "/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/build/CMakeFiles/CMakeScratch/TryCompile-r7sxX4"
+      binary: "/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/build/CMakeFiles/CMakeScratch/TryCompile-r7sxX4"
+    cmakeVariables:
+      CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS: "/home/muyiwa/toolchain/clang-21/bin/clang-scan-deps"
+      CMAKE_CXX_FLAGS: ""
+      CMAKE_CXX_FLAGS_DEBUG: "-g"
+      CMAKE_CXX_SCAN_FOR_MODULES: "OFF"
+      CMAKE_EXE_LINKER_FLAGS: ""
+    buildResult:
+      variable: "CMAKE_CXX_ABI_COMPILED"
+      cached: true
+      stdout: |
+        Change Dir: '/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/build/CMakeFiles/CMakeScratch/TryCompile-r7sxX4'
+        
+        Run Build Command(s): /home/muyiwa/toolchain-build/cmake-4.1.2/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_1dea2/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_1dea2.dir/build.make CMakeFiles/cmTC_1dea2.dir/build
+        gmake[1]: Entering directory '/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/build/CMakeFiles/CMakeScratch/TryCompile-r7sxX4'
+        Building CXX object CMakeFiles/cmTC_1dea2.dir/CMakeCXXCompilerABI.cpp.o
+        /home/muyiwa/toolchain/clang-21/bin/clang++   -v -MD -MT CMakeFiles/cmTC_1dea2.dir/CMakeCXXCompilerABI.cpp.o -MF CMakeFiles/cmTC_1dea2.dir/CMakeCXXCompilerABI.cpp.o.d -o CMakeFiles/cmTC_1dea2.dir/CMakeCXXCompilerABI.cpp.o -c /home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeCXXCompilerABI.cpp
+        clang version 21.1.5
+        Target: x86_64-unknown-linux-gnu
+        Thread model: posix
+        InstalledDir: /home/muyiwa/toolchain/clang-21/bin
+        Build config: +assertions
+        Found candidate GCC installation: /usr/lib/gcc/x86_64-linux-gnu/11
+        Found candidate GCC installation: /usr/lib/gcc/x86_64-linux-gnu/13
+        Selected GCC installation: /usr/lib/gcc/x86_64-linux-gnu/13
+        Candidate multilib: .;@m64
+        Selected multilib: .;@m64
+         (in-process)
+         "/home/muyiwa/toolchain/clang-21/bin/clang-21" -cc1 -triple x86_64-unknown-linux-gnu -emit-obj -disable-free -clear-ast-before-backend -main-file-name CMakeCXXCompilerABI.cpp -mrelocation-model pic -pic-level 2 -pic-is-pie -mframe-pointer=all -fmath-errno -ffp-contract=on -fno-rounding-math -mconstructor-aliases -funwind-tables=2 -target-cpu x86-64 -tune-cpu generic -debugger-tuning=gdb -fdebug-compilation-dir=/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/build/CMakeFiles/CMakeScratch/TryCompile-r7sxX4 -v -fcoverage-compilation-dir=/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/build/CMakeFiles/CMakeScratch/TryCompile-r7sxX4 -resource-dir /home/muyiwa/toolchain/clang-21/lib/clang/21 -dependency-file CMakeFiles/cmTC_1dea2.dir/CMakeCXXCompilerABI.cpp.o.d -MT CMakeFiles/cmTC_1dea2.dir/CMakeCXXCompilerABI.cpp.o -sys-header-deps -internal-isystem /usr/lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13 -internal-isystem /usr/lib/gcc/x86_64-linux-gnu/13/../../../../include/x86_64-linux-gnu/c++/13 -internal-isystem /usr/lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/backward -internal-isystem /home/muyiwa/toolchain/clang-21/lib/clang/21/include -internal-isystem /usr/local/include -internal-isystem /usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/include -internal-externc-isystem /usr/include/x86_64-linux-gnu -internal-externc-isystem /include -internal-externc-isystem /usr/include -fdeprecated-macro -ferror-limit 19 -fgnuc-version=4.2.1 -fskip-odr-check-in-gmf -fcxx-exceptions -fexceptions -faddrsig -D__GCC_HAVE_DWARF2_CFI_ASM=1 -o CMakeFiles/cmTC_1dea2.dir/CMakeCXXCompilerABI.cpp.o -x c++ /home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeCXXCompilerABI.cpp
+        clang -cc1 version 21.1.5 based upon LLVM 21.1.5 default target x86_64-unknown-linux-gnu
+        ignoring nonexistent directory "/usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/include"
+        ignoring nonexistent directory "/include"
+        #include "..." search starts here:
+        #include <...> search starts here:
+         /usr/lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13
+         /usr/lib/gcc/x86_64-linux-gnu/13/../../../../include/x86_64-linux-gnu/c++/13
+         /usr/lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/backward
+         /home/muyiwa/toolchain/clang-21/lib/clang/21/include
+         /usr/local/include
+         /usr/include/x86_64-linux-gnu
+         /usr/include
+        End of search list.
+        Linking CXX executable cmTC_1dea2
+        /home/muyiwa/toolchain-build/cmake-4.1.2/bin/cmake -E cmake_link_script CMakeFiles/cmTC_1dea2.dir/link.txt --verbose=1
+        clang version 21.1.5
+        Target: x86_64-unknown-linux-gnu
+        Thread model: posix
+        InstalledDir: /home/muyiwa/toolchain/clang-21/bin
+        Build config: +assertions
+        Found candidate GCC installation: /usr/lib/gcc/x86_64-linux-gnu/11
+        Found candidate GCC installation: /usr/lib/gcc/x86_64-linux-gnu/13
+        Selected GCC installation: /usr/lib/gcc/x86_64-linux-gnu/13
+        Candidate multilib: .;@m64
+        Selected multilib: .;@m64
+         "/usr/bin/ld" -z relro --hash-style=gnu --eh-frame-hdr -m elf_x86_64 -pie -dynamic-linker /lib64/ld-linux-x86-64.so.2 -o cmTC_1dea2 /lib/x86_64-linux-gnu/Scrt1.o /lib/x86_64-linux-gnu/crti.o /usr/lib/gcc/x86_64-linux-gnu/13/crtbeginS.o -L/usr/lib/gcc/x86_64-linux-gnu/13 -L/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib64 -L/lib/x86_64-linux-gnu -L/lib/../lib64 -L/usr/lib/x86_64-linux-gnu -L/usr/lib64 -L/lib -L/usr/lib -v CMakeFiles/cmTC_1dea2.dir/CMakeCXXCompilerABI.cpp.o -lstdc++ -lm -lgcc_s -lgcc -lc -lgcc_s -lgcc /usr/lib/gcc/x86_64-linux-gnu/13/crtendS.o /lib/x86_64-linux-gnu/crtn.o
+        GNU ld (GNU Binutils for Ubuntu) 2.42
+        /home/muyiwa/toolchain/clang-21/bin/clang++  -v -Wl,-v CMakeFiles/cmTC_1dea2.dir/CMakeCXXCompilerABI.cpp.o -o cmTC_1dea2
+        gmake[1]: Leaving directory '/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/build/CMakeFiles/CMakeScratch/TryCompile-r7sxX4'
+        
+      exitCode: 0
+  -
+    kind: "message-v1"
+    backtrace:
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeDetermineCompilerABI.cmake:217 (message)"
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeTestCXXCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:2 (project)"
+    message: |
+      Parsed CXX implicit include dir info: rv=done
+        found start of include info
+        found start of implicit include info
+          add: [/usr/lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13]
+          add: [/usr/lib/gcc/x86_64-linux-gnu/13/../../../../include/x86_64-linux-gnu/c++/13]
+          add: [/usr/lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/backward]
+          add: [/home/muyiwa/toolchain/clang-21/lib/clang/21/include]
+          add: [/usr/local/include]
+          add: [/usr/include/x86_64-linux-gnu]
+          add: [/usr/include]
+        end of search list found
+        collapse include dir [/usr/lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13] ==> [/usr/include/c++/13]
+        collapse include dir [/usr/lib/gcc/x86_64-linux-gnu/13/../../../../include/x86_64-linux-gnu/c++/13] ==> [/usr/include/x86_64-linux-gnu/c++/13]
+        collapse include dir [/usr/lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/backward] ==> [/usr/include/c++/13/backward]
+        collapse include dir [/home/muyiwa/toolchain/clang-21/lib/clang/21/include] ==> [/home/muyiwa/toolchain/clang-21/lib/clang/21/include]
+        collapse include dir [/usr/local/include] ==> [/usr/local/include]
+        collapse include dir [/usr/include/x86_64-linux-gnu] ==> [/usr/include/x86_64-linux-gnu]
+        collapse include dir [/usr/include] ==> [/usr/include]
+        implicit include dirs: [/usr/include/c++/13;/usr/include/x86_64-linux-gnu/c++/13;/usr/include/c++/13/backward;/home/muyiwa/toolchain/clang-21/lib/clang/21/include;/usr/local/include;/usr/include/x86_64-linux-gnu;/usr/include]
+      
+      
+  -
+    kind: "message-v1"
+    backtrace:
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeDetermineCompilerABI.cmake:253 (message)"
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeTestCXXCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:2 (project)"
+    message: |
+      Parsed CXX implicit link information:
+        link line regex: [^( *|.*[/\\])(ld[0-9]*(|\\.[a-rt-z][a-z]*|\\.s[a-np-z][a-z]*|\\.so[a-z]+)|CMAKE_LINK_STARTFILE-NOTFOUND|([^/\\]+-)?ld|collect2)[^/\\]*( |$)]
+        linker tool regex: [^[ 	]*(->|")?[ 	]*(([^"]*[/\\])?(ld[0-9]*(|\\.[a-rt-z][a-z]*|\\.s[a-np-z][a-z]*|\\.so[a-z]+)))("|,| |$)]
+        ignore line: [Change Dir: '/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/build/CMakeFiles/CMakeScratch/TryCompile-r7sxX4']
+        ignore line: []
+        ignore line: [Run Build Command(s): /home/muyiwa/toolchain-build/cmake-4.1.2/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_1dea2/fast]
+        ignore line: [/usr/bin/gmake  -f CMakeFiles/cmTC_1dea2.dir/build.make CMakeFiles/cmTC_1dea2.dir/build]
+        ignore line: [gmake[1]: Entering directory '/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/build/CMakeFiles/CMakeScratch/TryCompile-r7sxX4']
+        ignore line: [Building CXX object CMakeFiles/cmTC_1dea2.dir/CMakeCXXCompilerABI.cpp.o]
+        ignore line: [/home/muyiwa/toolchain/clang-21/bin/clang++   -v -MD -MT CMakeFiles/cmTC_1dea2.dir/CMakeCXXCompilerABI.cpp.o -MF CMakeFiles/cmTC_1dea2.dir/CMakeCXXCompilerABI.cpp.o.d -o CMakeFiles/cmTC_1dea2.dir/CMakeCXXCompilerABI.cpp.o -c /home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeCXXCompilerABI.cpp]
+        ignore line: [clang version 21.1.5]
+        ignore line: [Target: x86_64-unknown-linux-gnu]
+        ignore line: [Thread model: posix]
+        ignore line: [InstalledDir: /home/muyiwa/toolchain/clang-21/bin]
+        ignore line: [Build config: +assertions]
+        ignore line: [Found candidate GCC installation: /usr/lib/gcc/x86_64-linux-gnu/11]
+        ignore line: [Found candidate GCC installation: /usr/lib/gcc/x86_64-linux-gnu/13]
+        ignore line: [Selected GCC installation: /usr/lib/gcc/x86_64-linux-gnu/13]
+        ignore line: [Candidate multilib: .]
+        ignore line: [@m64]
+        ignore line: [Selected multilib: .]
+        ignore line: [@m64]
+        ignore line: [ (in-process)]
+        ignore line: [ "/home/muyiwa/toolchain/clang-21/bin/clang-21" -cc1 -triple x86_64-unknown-linux-gnu -emit-obj -disable-free -clear-ast-before-backend -main-file-name CMakeCXXCompilerABI.cpp -mrelocation-model pic -pic-level 2 -pic-is-pie -mframe-pointer=all -fmath-errno -ffp-contract=on -fno-rounding-math -mconstructor-aliases -funwind-tables=2 -target-cpu x86-64 -tune-cpu generic -debugger-tuning=gdb -fdebug-compilation-dir=/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/build/CMakeFiles/CMakeScratch/TryCompile-r7sxX4 -v -fcoverage-compilation-dir=/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/build/CMakeFiles/CMakeScratch/TryCompile-r7sxX4 -resource-dir /home/muyiwa/toolchain/clang-21/lib/clang/21 -dependency-file CMakeFiles/cmTC_1dea2.dir/CMakeCXXCompilerABI.cpp.o.d -MT CMakeFiles/cmTC_1dea2.dir/CMakeCXXCompilerABI.cpp.o -sys-header-deps -internal-isystem /usr/lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13 -internal-isystem /usr/lib/gcc/x86_64-linux-gnu/13/../../../../include/x86_64-linux-gnu/c++/13 -internal-isystem /usr/lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/backward -internal-isystem /home/muyiwa/toolchain/clang-21/lib/clang/21/include -internal-isystem /usr/local/include -internal-isystem /usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/include -internal-externc-isystem /usr/include/x86_64-linux-gnu -internal-externc-isystem /include -internal-externc-isystem /usr/include -fdeprecated-macro -ferror-limit 19 -fgnuc-version=4.2.1 -fskip-odr-check-in-gmf -fcxx-exceptions -fexceptions -faddrsig -D__GCC_HAVE_DWARF2_CFI_ASM=1 -o CMakeFiles/cmTC_1dea2.dir/CMakeCXXCompilerABI.cpp.o -x c++ /home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeCXXCompilerABI.cpp]
+        ignore line: [clang -cc1 version 21.1.5 based upon LLVM 21.1.5 default target x86_64-unknown-linux-gnu]
+        ignore line: [ignoring nonexistent directory "/usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/include"]
+        ignore line: [ignoring nonexistent directory "/include"]
+        ignore line: [#include "..." search starts here:]
+        ignore line: [#include <...> search starts here:]
+        ignore line: [ /usr/lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13]
+        ignore line: [ /usr/lib/gcc/x86_64-linux-gnu/13/../../../../include/x86_64-linux-gnu/c++/13]
+        ignore line: [ /usr/lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/backward]
+        ignore line: [ /home/muyiwa/toolchain/clang-21/lib/clang/21/include]
+        ignore line: [ /usr/local/include]
+        ignore line: [ /usr/include/x86_64-linux-gnu]
+        ignore line: [ /usr/include]
+        ignore line: [End of search list.]
+        ignore line: [Linking CXX executable cmTC_1dea2]
+        ignore line: [/home/muyiwa/toolchain-build/cmake-4.1.2/bin/cmake -E cmake_link_script CMakeFiles/cmTC_1dea2.dir/link.txt --verbose=1]
+        ignore line: [clang version 21.1.5]
+        ignore line: [Target: x86_64-unknown-linux-gnu]
+        ignore line: [Thread model: posix]
+        ignore line: [InstalledDir: /home/muyiwa/toolchain/clang-21/bin]
+        ignore line: [Build config: +assertions]
+        ignore line: [Found candidate GCC installation: /usr/lib/gcc/x86_64-linux-gnu/11]
+        ignore line: [Found candidate GCC installation: /usr/lib/gcc/x86_64-linux-gnu/13]
+        ignore line: [Selected GCC installation: /usr/lib/gcc/x86_64-linux-gnu/13]
+        ignore line: [Candidate multilib: .]
+        ignore line: [@m64]
+        ignore line: [Selected multilib: .]
+        ignore line: [@m64]
+        link line: [ "/usr/bin/ld" -z relro --hash-style=gnu --eh-frame-hdr -m elf_x86_64 -pie -dynamic-linker /lib64/ld-linux-x86-64.so.2 -o cmTC_1dea2 /lib/x86_64-linux-gnu/Scrt1.o /lib/x86_64-linux-gnu/crti.o /usr/lib/gcc/x86_64-linux-gnu/13/crtbeginS.o -L/usr/lib/gcc/x86_64-linux-gnu/13 -L/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib64 -L/lib/x86_64-linux-gnu -L/lib/../lib64 -L/usr/lib/x86_64-linux-gnu -L/usr/lib64 -L/lib -L/usr/lib -v CMakeFiles/cmTC_1dea2.dir/CMakeCXXCompilerABI.cpp.o -lstdc++ -lm -lgcc_s -lgcc -lc -lgcc_s -lgcc /usr/lib/gcc/x86_64-linux-gnu/13/crtendS.o /lib/x86_64-linux-gnu/crtn.o]
+          arg [/usr/bin/ld] ==> ignore
+          arg [-zrelro] ==> ignore
+          arg [--hash-style=gnu] ==> ignore
+          arg [--eh-frame-hdr] ==> ignore
+          arg [-m] ==> ignore
+          arg [elf_x86_64] ==> ignore
+          arg [-pie] ==> ignore
+          arg [-dynamic-linker] ==> ignore
+          arg [/lib64/ld-linux-x86-64.so.2] ==> ignore
+          arg [-o] ==> ignore
+          arg [cmTC_1dea2] ==> ignore
+          arg [/lib/x86_64-linux-gnu/Scrt1.o] ==> obj [/lib/x86_64-linux-gnu/Scrt1.o]
+          arg [/lib/x86_64-linux-gnu/crti.o] ==> obj [/lib/x86_64-linux-gnu/crti.o]
+          arg [/usr/lib/gcc/x86_64-linux-gnu/13/crtbeginS.o] ==> obj [/usr/lib/gcc/x86_64-linux-gnu/13/crtbeginS.o]
+          arg [-L/usr/lib/gcc/x86_64-linux-gnu/13] ==> dir [/usr/lib/gcc/x86_64-linux-gnu/13]
+          arg [-L/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib64] ==> dir [/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib64]
+          arg [-L/lib/x86_64-linux-gnu] ==> dir [/lib/x86_64-linux-gnu]
+          arg [-L/lib/../lib64] ==> dir [/lib/../lib64]
+          arg [-L/usr/lib/x86_64-linux-gnu] ==> dir [/usr/lib/x86_64-linux-gnu]
+          arg [-L/usr/lib64] ==> dir [/usr/lib64]
+          arg [-L/lib] ==> dir [/lib]
+          arg [-L/usr/lib] ==> dir [/usr/lib]
+          arg [-v] ==> ignore
+          arg [CMakeFiles/cmTC_1dea2.dir/CMakeCXXCompilerABI.cpp.o] ==> ignore
+          arg [-lstdc++] ==> lib [stdc++]
+          arg [-lm] ==> lib [m]
+          arg [-lgcc_s] ==> lib [gcc_s]
+          arg [-lgcc] ==> lib [gcc]
+          arg [-lc] ==> lib [c]
+          arg [-lgcc_s] ==> lib [gcc_s]
+          arg [-lgcc] ==> lib [gcc]
+          arg [/usr/lib/gcc/x86_64-linux-gnu/13/crtendS.o] ==> obj [/usr/lib/gcc/x86_64-linux-gnu/13/crtendS.o]
+          arg [/lib/x86_64-linux-gnu/crtn.o] ==> obj [/lib/x86_64-linux-gnu/crtn.o]
+        linker tool for 'CXX': /usr/bin/ld
+        collapse library dir [/usr/lib/gcc/x86_64-linux-gnu/13] ==> [/usr/lib/gcc/x86_64-linux-gnu/13]
+        collapse library dir [/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib64] ==> [/usr/lib64]
+        collapse library dir [/lib/x86_64-linux-gnu] ==> [/lib/x86_64-linux-gnu]
+        collapse library dir [/lib/../lib64] ==> [/lib64]
+        collapse library dir [/usr/lib/x86_64-linux-gnu] ==> [/usr/lib/x86_64-linux-gnu]
+        collapse library dir [/usr/lib64] ==> [/usr/lib64]
+        collapse library dir [/lib] ==> [/lib]
+        collapse library dir [/usr/lib] ==> [/usr/lib]
+        implicit libs: [stdc++;m;gcc_s;gcc;c;gcc_s;gcc]
+        implicit objs: [/lib/x86_64-linux-gnu/Scrt1.o;/lib/x86_64-linux-gnu/crti.o;/usr/lib/gcc/x86_64-linux-gnu/13/crtbeginS.o;/usr/lib/gcc/x86_64-linux-gnu/13/crtendS.o;/lib/x86_64-linux-gnu/crtn.o]
+        implicit dirs: [/usr/lib/gcc/x86_64-linux-gnu/13;/usr/lib64;/lib/x86_64-linux-gnu;/lib64;/usr/lib/x86_64-linux-gnu;/lib;/usr/lib]
+        implicit fwks: []
+      
+      
+  -
+    kind: "message-v1"
+    backtrace:
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/Internal/CMakeDetermineLinkerId.cmake:36 (message)"
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeDetermineCompilerABI.cmake:299 (cmake_determine_linker_id)"
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CMakeTestCXXCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:2 (project)"
+    message: |
+      Running the CXX compiler's linker: "/usr/bin/ld" "-v"
+      GNU ld (GNU Binutils for Ubuntu) 2.42
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/FindPython/Support.cmake:3194 (find_library)"
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/FindPython3.cmake:656 (include)"
+      - "CMakeLists.txt:24 (find_package)"
+    mode: "library"
+    variable: "_Python3_LIBRARY_RELEASE"
+    description: "Path to a library."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: true
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: false
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "python313"
+      - "python3.13"
+    candidate_directories:
+      - "/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/.venv/lib/x86_64-linux-gnu/"
+      - "/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/.venv/lib/"
+      - "/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/.venv/libs/"
+      - "/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/.venv/lib/python3.13/config-3.13-x86_64-linux-gnu/"
+      - "/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/.venv/lib/python3.13/config-3.13/"
+      - "/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/.venv/"
+      - "/home/muyiwa/.local/share/uv/python/cpython-3.13.5-linux-x86_64-gnu/lib/x86_64-linux-gnu/"
+      - "/home/muyiwa/.local/share/uv/python/cpython-3.13.5-linux-x86_64-gnu/lib/"
+      - "/home/muyiwa/.local/share/uv/python/cpython-3.13.5-linux-x86_64-gnu/libs/"
+      - "/home/muyiwa/.local/share/uv/python/cpython-3.13.5-linux-x86_64-gnu/lib/python3.13/config-3.13-x86_64-linux-gnu/"
+      - "/home/muyiwa/.local/share/uv/python/cpython-3.13.5-linux-x86_64-gnu/lib/python3.13/config-3.13/"
+      - "/home/muyiwa/.local/share/uv/python/cpython-3.13.5-linux-x86_64-gnu/"
+      - "/home/muyiwa/.local/share/uv/python/cpython-3.13.5-linux-x86_64-gnu/lib/python3.13/config-3.13-x86_64-linux-gnu/lib/x86_64-linux-gnu/"
+      - "/home/muyiwa/.local/share/uv/python/cpython-3.13.5-linux-x86_64-gnu/lib/python3.13/config-3.13-x86_64-linux-gnu/lib/"
+      - "/home/muyiwa/.local/share/uv/python/cpython-3.13.5-linux-x86_64-gnu/lib/python3.13/config-3.13-x86_64-linux-gnu/libs/"
+      - "/home/muyiwa/.local/share/uv/python/cpython-3.13.5-linux-x86_64-gnu/lib/python3.13/config-3.13-x86_64-linux-gnu/lib/python3.13/config-3.13-x86_64-linux-gnu/"
+      - "/home/muyiwa/.local/share/uv/python/cpython-3.13.5-linux-x86_64-gnu/lib/python3.13/config-3.13-x86_64-linux-gnu/lib/python3.13/config-3.13/"
+      - "/home/muyiwa/.local/share/uv/python/cpython-3.13.5-linux-x86_64-gnu/lib/python3.13/config-3.13-x86_64-linux-gnu/"
+    searched_directories:
+      - "/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/.venv/lib/x86_64-linux-gnu/"
+      - "/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/.venv/lib/x86_64-linux-gnu/"
+      - "/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/.venv/lib/"
+      - "/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/.venv/lib/"
+      - "/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/.venv/libs/"
+      - "/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/.venv/libs/"
+      - "/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/.venv/lib/python3.13/config-3.13-x86_64-linux-gnu/"
+      - "/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/.venv/lib/python3.13/config-3.13-x86_64-linux-gnu/"
+      - "/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/.venv/lib/python3.13/config-3.13/"
+      - "/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/.venv/lib/python3.13/config-3.13/"
+      - "/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/.venv/"
+      - "/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/.venv/"
+      - "/home/muyiwa/.local/share/uv/python/cpython-3.13.5-linux-x86_64-gnu/lib/x86_64-linux-gnu/"
+      - "/home/muyiwa/.local/share/uv/python/cpython-3.13.5-linux-x86_64-gnu/lib/x86_64-linux-gnu/"
+      - "/home/muyiwa/.local/share/uv/python/cpython-3.13.5-linux-x86_64-gnu/lib/"
+    found: "/home/muyiwa/.local/share/uv/python/cpython-3.13.5-linux-x86_64-gnu/lib/libpython3.13.so"
+    search_context:
+      ENV{PATH}:
+        - "/home/linuxbrew/.linuxbrew/upcxx/bin"
+        - "/home/muyiwa/.cargo/bin"
+        - "/home/linuxbrew/.linuxbrew/bin"
+        - "/home/linuxbrew/.linuxbrew/sbin"
+        - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli"
+        - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand"
+        - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli"
+        - "/home/linuxbrew/.linuxbrew/bin"
+        - "/home/linuxbrew/.linuxbrew/sbin"
+        - "/usr/local/sbin"
+        - "/usr/local/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/bin"
+        - "/usr/games"
+        - "/usr/local/games"
+        - "/snap/bin"
+        - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts"
+      CMAKE_INSTALL_PREFIX: "/usr/local"
+      CMAKE_SYSTEM_PREFIX_PATH:
+        - "/usr/local"
+        - "/usr"
+        - "/"
+        - "/home/muyiwa"
+        - "/usr/local"
+        - "/usr/X11R6"
+        - "/usr/pkg"
+        - "/opt"
+      CMAKE_SYSTEM_LIBRARY_PATH:
+        - "/usr/lib/X11"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/FindPython/Support.cmake:3709 (find_path)"
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/FindPython3.cmake:656 (include)"
+      - "CMakeLists.txt:24 (find_package)"
+    mode: "path"
+    variable: "_Python3_INCLUDE_DIR"
+    description: "Path to a file."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: true
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: false
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "Python.h"
+    candidate_directories:
+      - "/home/muyiwa/.local/share/uv/python/cpython-3.13.5-linux-x86_64-gnu/include/python3.13/"
+    found: "/home/muyiwa/.local/share/uv/python/cpython-3.13.5-linux-x86_64-gnu/include/python3.13/"
+    search_context:
+      ENV{PATH}:
+        - "/home/linuxbrew/.linuxbrew/upcxx/bin"
+        - "/home/muyiwa/.cargo/bin"
+        - "/home/linuxbrew/.linuxbrew/bin"
+        - "/home/linuxbrew/.linuxbrew/sbin"
+        - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli"
+        - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand"
+        - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli"
+        - "/home/linuxbrew/.linuxbrew/bin"
+        - "/home/linuxbrew/.linuxbrew/sbin"
+        - "/usr/local/sbin"
+        - "/usr/local/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/bin"
+        - "/usr/games"
+        - "/usr/local/games"
+        - "/snap/bin"
+        - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts"
+      CMAKE_INSTALL_PREFIX: "/usr/local"
+      CMAKE_SYSTEM_PREFIX_PATH:
+        - "/usr/local"
+        - "/usr"
+        - "/"
+        - "/home/muyiwa"
+        - "/usr/local"
+        - "/usr/X11R6"
+        - "/usr/pkg"
+        - "/opt"
+      CMAKE_SYSTEM_INCLUDE_PATH:
+        - "/usr/include/X11"
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/Internal/CheckSourceCompiles.cmake:104 (try_compile)"
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/Internal/CheckCompilerFlag.cmake:18 (cmake_check_source_compiles)"
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CheckCXXCompilerFlag.cmake:103 (cmake_check_compiler_flag)"
+      - ".venv/lib/python3.13/site-packages/pybind11/share/cmake/pybind11/pybind11Common.cmake:321 (check_cxx_compiler_flag)"
+      - ".venv/lib/python3.13/site-packages/pybind11/share/cmake/pybind11/pybind11Common.cmake:361 (_pybind11_return_if_cxx_and_linker_flags_work)"
+      - ".venv/lib/python3.13/site-packages/pybind11/share/cmake/pybind11/pybind11Common.cmake:427 (_pybind11_generate_lto)"
+      - ".venv/lib/python3.13/site-packages/pybind11/share/cmake/pybind11/pybind11Config.cmake:257 (include)"
+      - "CMakeLists.txt:32 (find_package)"
+    checks:
+      - "Performing Test HAS_FLTO_THIN"
+    directories:
+      source: "/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/build/CMakeFiles/CMakeScratch/TryCompile-NzhhIY"
+      binary: "/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/build/CMakeFiles/CMakeScratch/TryCompile-NzhhIY"
+    cmakeVariables:
+      CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS: "/home/muyiwa/toolchain/clang-21/bin/clang-scan-deps"
+      CMAKE_CXX_FLAGS: ""
+      CMAKE_CXX_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+    buildResult:
+      variable: "HAS_FLTO_THIN"
+      cached: true
+      stdout: |
+        Change Dir: '/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/build/CMakeFiles/CMakeScratch/TryCompile-NzhhIY'
+        
+        Run Build Command(s): /home/muyiwa/toolchain-build/cmake-4.1.2/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_504c6/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_504c6.dir/build.make CMakeFiles/cmTC_504c6.dir/build
+        gmake[1]: Entering directory '/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/build/CMakeFiles/CMakeScratch/TryCompile-NzhhIY'
+        Building CXX object CMakeFiles/cmTC_504c6.dir/src.cxx.o
+        /home/muyiwa/toolchain/clang-21/bin/clang++ -DHAS_FLTO_THIN  -std=gnu++23   -flto -MD -MT CMakeFiles/cmTC_504c6.dir/src.cxx.o -MF CMakeFiles/cmTC_504c6.dir/src.cxx.o.d -o CMakeFiles/cmTC_504c6.dir/src.cxx.o -c /home/muyiwa/Development/FastestJSONInTheWest/python_bindings/build/CMakeFiles/CMakeScratch/TryCompile-NzhhIY/src.cxx
+        Linking CXX executable cmTC_504c6
+        /home/muyiwa/toolchain-build/cmake-4.1.2/bin/cmake -E cmake_link_script CMakeFiles/cmTC_504c6.dir/link.txt --verbose=1
+        /usr/bin/ld: /home/muyiwa/toolchain/clang-21/bin/../lib/LLVMgold.so: error loading plugin: /home/muyiwa/toolchain/clang-21/bin/../lib/LLVMgold.so: cannot open shared object file: No such file or directory
+        clang++: error: linker command failed with exit code 1 (use -v to see invocation)
+        /home/muyiwa/toolchain/clang-21/bin/clang++ CMakeFiles/cmTC_504c6.dir/src.cxx.o -o cmTC_504c6  -flto
+        gmake[1]: *** [CMakeFiles/cmTC_504c6.dir/build.make:103: cmTC_504c6] Error 1
+        gmake[1]: Leaving directory '/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/build/CMakeFiles/CMakeScratch/TryCompile-NzhhIY'
+        gmake: *** [Makefile:134: cmTC_504c6/fast] Error 2
+        
+      exitCode: 2
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/Internal/CheckSourceCompiles.cmake:104 (try_compile)"
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/Internal/CheckCompilerFlag.cmake:18 (cmake_check_source_compiles)"
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CheckCXXCompilerFlag.cmake:103 (cmake_check_compiler_flag)"
+      - ".venv/lib/python3.13/site-packages/pybind11/share/cmake/pybind11/pybind11Common.cmake:321 (check_cxx_compiler_flag)"
+      - ".venv/lib/python3.13/site-packages/pybind11/share/cmake/pybind11/pybind11Common.cmake:366 (_pybind11_return_if_cxx_and_linker_flags_work)"
+      - ".venv/lib/python3.13/site-packages/pybind11/share/cmake/pybind11/pybind11Common.cmake:427 (_pybind11_generate_lto)"
+      - ".venv/lib/python3.13/site-packages/pybind11/share/cmake/pybind11/pybind11Config.cmake:257 (include)"
+      - "CMakeLists.txt:32 (find_package)"
+    checks:
+      - "Performing Test HAS_FLTO_AUTO"
+    directories:
+      source: "/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/build/CMakeFiles/CMakeScratch/TryCompile-NmStGf"
+      binary: "/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/build/CMakeFiles/CMakeScratch/TryCompile-NmStGf"
+    cmakeVariables:
+      CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS: "/home/muyiwa/toolchain/clang-21/bin/clang-scan-deps"
+      CMAKE_CXX_FLAGS: ""
+      CMAKE_CXX_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+    buildResult:
+      variable: "HAS_FLTO_AUTO"
+      cached: true
+      stdout: |
+        Change Dir: '/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/build/CMakeFiles/CMakeScratch/TryCompile-NmStGf'
+        
+        Run Build Command(s): /home/muyiwa/toolchain-build/cmake-4.1.2/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_26bcd/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_26bcd.dir/build.make CMakeFiles/cmTC_26bcd.dir/build
+        gmake[1]: Entering directory '/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/build/CMakeFiles/CMakeScratch/TryCompile-NmStGf'
+        Building CXX object CMakeFiles/cmTC_26bcd.dir/src.cxx.o
+        /home/muyiwa/toolchain/clang-21/bin/clang++ -DHAS_FLTO_AUTO  -std=gnu++23   -flto=auto -MD -MT CMakeFiles/cmTC_26bcd.dir/src.cxx.o -MF CMakeFiles/cmTC_26bcd.dir/src.cxx.o.d -o CMakeFiles/cmTC_26bcd.dir/src.cxx.o -c /home/muyiwa/Development/FastestJSONInTheWest/python_bindings/build/CMakeFiles/CMakeScratch/TryCompile-NmStGf/src.cxx
+        Linking CXX executable cmTC_26bcd
+        /home/muyiwa/toolchain-build/cmake-4.1.2/bin/cmake -E cmake_link_script CMakeFiles/cmTC_26bcd.dir/link.txt --verbose=1
+        /usr/bin/ld: /home/muyiwa/toolchain/clang-21/bin/../lib/LLVMgold.so: error loading plugin: /home/muyiwa/toolchain/clang-21/bin/../lib/LLVMgold.so: cannot open shared object file: No such file or directory
+        clang++: error: linker command failed with exit code 1 (use -v to see invocation)
+        /home/muyiwa/toolchain/clang-21/bin/clang++ CMakeFiles/cmTC_26bcd.dir/src.cxx.o -o cmTC_26bcd  -flto=auto
+        gmake[1]: *** [CMakeFiles/cmTC_26bcd.dir/build.make:103: cmTC_26bcd] Error 1
+        gmake[1]: Leaving directory '/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/build/CMakeFiles/CMakeScratch/TryCompile-NmStGf'
+        gmake: *** [Makefile:134: cmTC_26bcd/fast] Error 2
+        
+      exitCode: 2
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/Internal/CheckSourceCompiles.cmake:104 (try_compile)"
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/Internal/CheckCompilerFlag.cmake:18 (cmake_check_source_compiles)"
+      - "/home/muyiwa/toolchain-build/cmake-4.1.2/Modules/CheckCXXCompilerFlag.cmake:103 (cmake_check_compiler_flag)"
+      - ".venv/lib/python3.13/site-packages/pybind11/share/cmake/pybind11/pybind11Common.cmake:321 (check_cxx_compiler_flag)"
+      - ".venv/lib/python3.13/site-packages/pybind11/share/cmake/pybind11/pybind11Common.cmake:371 (_pybind11_return_if_cxx_and_linker_flags_work)"
+      - ".venv/lib/python3.13/site-packages/pybind11/share/cmake/pybind11/pybind11Common.cmake:427 (_pybind11_generate_lto)"
+      - ".venv/lib/python3.13/site-packages/pybind11/share/cmake/pybind11/pybind11Config.cmake:257 (include)"
+      - "CMakeLists.txt:32 (find_package)"
+    checks:
+      - "Performing Test HAS_FLTO"
+    directories:
+      source: "/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/build/CMakeFiles/CMakeScratch/TryCompile-jSvvSp"
+      binary: "/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/build/CMakeFiles/CMakeScratch/TryCompile-jSvvSp"
+    cmakeVariables:
+      CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS: "/home/muyiwa/toolchain/clang-21/bin/clang-scan-deps"
+      CMAKE_CXX_FLAGS: ""
+      CMAKE_CXX_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+    buildResult:
+      variable: "HAS_FLTO"
+      cached: true
+      stdout: |
+        Change Dir: '/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/build/CMakeFiles/CMakeScratch/TryCompile-jSvvSp'
+        
+        Run Build Command(s): /home/muyiwa/toolchain-build/cmake-4.1.2/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_c9960/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_c9960.dir/build.make CMakeFiles/cmTC_c9960.dir/build
+        gmake[1]: Entering directory '/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/build/CMakeFiles/CMakeScratch/TryCompile-jSvvSp'
+        Building CXX object CMakeFiles/cmTC_c9960.dir/src.cxx.o
+        /home/muyiwa/toolchain/clang-21/bin/clang++ -DHAS_FLTO  -std=gnu++23   -flto -MD -MT CMakeFiles/cmTC_c9960.dir/src.cxx.o -MF CMakeFiles/cmTC_c9960.dir/src.cxx.o.d -o CMakeFiles/cmTC_c9960.dir/src.cxx.o -c /home/muyiwa/Development/FastestJSONInTheWest/python_bindings/build/CMakeFiles/CMakeScratch/TryCompile-jSvvSp/src.cxx
+        Linking CXX executable cmTC_c9960
+        /home/muyiwa/toolchain-build/cmake-4.1.2/bin/cmake -E cmake_link_script CMakeFiles/cmTC_c9960.dir/link.txt --verbose=1
+        /usr/bin/ld: /home/muyiwa/toolchain/clang-21/bin/../lib/LLVMgold.so: error loading plugin: /home/muyiwa/toolchain/clang-21/bin/../lib/LLVMgold.so: cannot open shared object file: No such file or directory
+        clang++: error: linker command failed with exit code 1 (use -v to see invocation)
+        /home/muyiwa/toolchain/clang-21/bin/clang++ CMakeFiles/cmTC_c9960.dir/src.cxx.o -o cmTC_c9960  -flto
+        gmake[1]: *** [CMakeFiles/cmTC_c9960.dir/build.make:103: cmTC_c9960] Error 1
+        gmake[1]: Leaving directory '/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/build/CMakeFiles/CMakeScratch/TryCompile-jSvvSp'
+        gmake: *** [Makefile:134: cmTC_c9960/fast] Error 2
+        
+      exitCode: 2
+  -
+    kind: "find_package-v1"
+    backtrace:
+      - "CMakeLists.txt:32 (find_package)"
+    name: "pybind11"
+    configs:
+      -
+        filename: "pybind11Config.cmake"
+        kind: "cmake"
+      -
+        filename: "pybind11-config.cmake"
+        kind: "cmake"
+    version_request:
+      exact: false
+    settings:
+      required: "required_explicit"
+      quiet: false
+      global: false
+      policy_scope: true
+      bypass_provider: false
+      names:
+        - "pybind11"
+      path_suffixes:
+        - ""
+      paths:
+        CMAKE_FIND_USE_CMAKE_PATH: true
+        CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+        CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+        CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+        CMAKE_FIND_USE_INSTALL_PREFIX: true
+        CMAKE_FIND_USE_PACKAGE_ROOT_PATH: true
+        CMAKE_FIND_USE_CMAKE_PACKAGE_REGISTRY: true
+        CMAKE_FIND_USE_SYSTEM_PACKAGE_REGISTRY: true
+        CMAKE_FIND_ROOT_PATH_MODE: "BOTH"
+    candidates:
+      -
+        path: "/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/build/CMakeFiles/pkgRedirects/pybind11Config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/build/CMakeFiles/pkgRedirects/pybind11-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+    found:
+      path: "/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/.venv/lib/python3.13/site-packages/pybind11/share/cmake/pybind11/pybind11Config.cmake"
+      mode: "config"
+      version: "3.0.1"
+    search_context:
+      ENV{PATH}:
+        - "/home/linuxbrew/.linuxbrew/upcxx/bin"
+        - "/home/muyiwa/.cargo/bin"
+        - "/home/linuxbrew/.linuxbrew/bin"
+        - "/home/linuxbrew/.linuxbrew/sbin"
+        - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli"
+        - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand"
+        - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli"
+        - "/home/linuxbrew/.linuxbrew/bin"
+        - "/home/linuxbrew/.linuxbrew/sbin"
+        - "/usr/local/sbin"
+        - "/usr/local/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/bin"
+        - "/usr/games"
+        - "/usr/local/games"
+        - "/snap/bin"
+        - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts"
+      CMAKE_INSTALL_PREFIX: "/usr/local"
+      CMAKE_SYSTEM_PREFIX_PATH:
+        - "/usr/local"
+        - "/usr"
+        - "/"
+        - "/home/muyiwa"
+        - "/usr/local"
+        - "/usr/X11R6"
+        - "/usr/pkg"
+        - "/opt"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "CMakeLists.txt:46 (find_library)"
+    mode: "library"
+    variable: "OPENMP_LIB"
+    description: "Path to a library."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: true
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "omp"
+    candidate_directories:
+      - "/opt/clang-21/lib/x86_64-unknown-linux-gnu/"
+    found: "/opt/clang-21/lib/x86_64-unknown-linux-gnu/libomp.so"
+    search_context:
+      ENV{PATH}:
+        - "/home/linuxbrew/.linuxbrew/upcxx/bin"
+        - "/home/muyiwa/.cargo/bin"
+        - "/home/linuxbrew/.linuxbrew/bin"
+        - "/home/linuxbrew/.linuxbrew/sbin"
+        - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli"
+        - "/home/muyiwa/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand"
+        - "/home/muyiwa/.vscode-server/cli/servers/Stable-ac4cbdf48759c7d8c3eb91ffe6bb04316e263c57/server/bin/remote-cli"
+        - "/home/linuxbrew/.linuxbrew/bin"
+        - "/home/linuxbrew/.linuxbrew/sbin"
+        - "/usr/local/sbin"
+        - "/usr/local/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/bin"
+        - "/usr/games"
+        - "/usr/local/games"
+        - "/snap/bin"
+        - "/home/muyiwa/.vscode-server/extensions/ms-python.debugpy-2025.16.0/bundled/scripts/noConfigScripts"
+      CMAKE_INSTALL_PREFIX: "/usr/local"
+      CMAKE_SYSTEM_PREFIX_PATH:
+        - "/usr/local"
+        - "/usr"
+        - "/"
+        - "/home/muyiwa"
+        - "/usr/local"
+        - "/usr/X11R6"
+        - "/usr/pkg"
+        - "/opt"
+      CMAKE_SYSTEM_LIBRARY_PATH:
+        - "/usr/lib/X11"
+...

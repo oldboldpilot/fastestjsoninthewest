@@ -1,0 +1,8 @@
+README.md
+pyproject.toml
+src/fastjson.egg-info/PKG-INFO
+src/fastjson.egg-info/SOURCES.txt
+src/fastjson.egg-info/dependency_links.txt
+src/fastjson.egg-info/requires.txt
+src/fastjson.egg-info/top_level.txt
+tests/test_fastjson.py
