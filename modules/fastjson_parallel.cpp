@@ -1,9 +1,10 @@
-// FastestJSONInTheWest - Parallel SIMD JSON Parser Implementation
+// FastestJSONInTheWest - Parallel SIMD JSON Parser Module
 // Copyright (c) 2025 - High-performance JSON parsing with OpenMP, SIMD, and GPU support
 // ============================================================================
 
-import logger;
+module;
 
+// Global module fragment - all includes must be here
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -20,6 +21,8 @@ import logger;
 #include <vector>
 
 #include "unicode.h"
+#include "fastjson_simd_index.h"
+#include "numa_allocator.h"
 
 #ifdef _OPENMP
     #include <omp.h>
@@ -31,19 +34,24 @@ import logger;
     #include <immintrin.h>
 #endif
 
-// SIMD structural indexing (Phase 1)
-#include "fastjson_simd_index.h"
+#ifdef __ARM_NEON
+    #include <arm_neon.h>
+#endif
 
-// NUMA-aware memory allocation
-#include "numa_allocator.h"
+#ifdef __linux__
+    #include <asm/hwcap.h>
+    #include <sys/auxv.h>
+#endif
 
-namespace fastjson {
+export module fastjson_parallel;
+
+export namespace fastjson_parallel {
 
 // ============================================================================
 // Configuration and Settings
 // ============================================================================
 
-struct parse_config {
+export struct parse_config {
     // Parallelism control
     int num_threads = 8;  // Default to 8 (physical cores)
                           // -1 = auto (use OMP_NUM_THREADS or hardware max)
@@ -85,15 +93,15 @@ static numa::numa_topology g_numa_topo;
 static std::atomic<bool> g_numa_initialized{false};
 
 // Configuration API
-auto set_parse_config(const parse_config& config) -> void {
+export auto set_parse_config(const parse_config& config) -> void {
     g_config = config;
 }
 
-auto get_parse_config() -> const parse_config& {
+export auto get_parse_config() -> const parse_config& {
     return g_config;
 }
 
-inline auto set_num_threads(int threads) -> void {
+export inline auto set_num_threads(int threads) -> void {
     g_config.num_threads = threads;
 #ifdef _OPENMP
     if (threads > 0) {
@@ -102,7 +110,7 @@ inline auto set_num_threads(int threads) -> void {
 #endif
 }
 
-inline auto get_num_threads() -> int {
+export inline auto get_num_threads() -> int {
 #ifdef _OPENMP
     if (g_config.num_threads == 0) {
         return 1;  // Parallelism disabled
@@ -130,7 +138,7 @@ inline auto get_effective_num_threads(size_t data_size) -> int {
 // JSON Type System
 // ============================================================================
 
-enum class json_error_code {
+export enum class json_error_code {
     empty_input,
     extra_tokens,
     max_depth_exceeded,
@@ -143,7 +151,7 @@ enum class json_error_code {
     invalid_unicode
 };
 
-struct json_error {
+export struct json_error {
     json_error_code code;
     std::string message;
     size_t line;
@@ -154,14 +162,20 @@ template <typename T> using json_result = std::expected<T, json_error>;
 
 using json_string = std::string;
 using json_number = double;
+using json_number_128 = __float128;       // Extended 128-bit float
+using json_int_128 = __int128;            // 128-bit signed integer
+using json_uint_128 = unsigned __int128;  // 128-bit unsigned integer
+using json_number_128 = __float128;       // Extended 128-bit float
+using json_int_128 = __int128;            // 128-bit signed integer
+using json_uint_128 = unsigned __int128;  // 128-bit unsigned integer
 using json_boolean = bool;
 using json_null = std::nullptr_t;
 
-class json_value;
+export class json_value;
 using json_array = std::vector<json_value>;
 using json_object = std::unordered_map<std::string, json_value>;
 
-class json_value {
+export class json_value {
 public:
     json_value() : data_(nullptr) {}
 
@@ -172,6 +186,18 @@ public:
     json_value(double d) : data_(d) {}
 
     json_value(int i) : data_(static_cast<double>(i)) {}
+
+    json_value(__float128 value) : data_(value) {}
+
+    json_value(__int128 value) : data_(value) {}
+
+    json_value(unsigned __int128 value) : data_(value) {}
+
+    json_value(__float128 value) : data_(value) {}
+
+    json_value(__int128 value) : data_(value) {}
+
+    json_value(unsigned __int128 value) : data_(value) {}
 
     json_value(const std::string& s) : data_(s) {}
 
@@ -187,28 +213,12 @@ public:
 
     // Destructor must be explicitly defined to handle recursive cleanup
     ~json_value() {
-#ifdef DEBUG_DESTRUCTOR
+#if defined(DEBUG_DESTRUCTOR) && !defined(FASTJSON_NO_LOGGER)
         static std::atomic<size_t> destroy_count{0};
         size_t count = ++destroy_count;
 
-        auto& log = logger::Logger::getInstance();
-        std::visit(
-            [&log, count](auto&& arg) {
-                using T = std::decay_t<decltype(arg)>;
-                if constexpr (std::is_same_v<T, json_array>) {
-                    log.debug("Destroying json_array {} with {} elements",
-                              logger::Logger::named_args("count", count, "size", arg.size()));
-                } else if constexpr (std::is_same_v<T, json_object>) {
-                    log.debug("Destroying json_object {} with {} keys",
-                              logger::Logger::named_args("count", count, "size", arg.size()));
-                } else if constexpr (std::is_same_v<T, json_string>) {
-                    log.debug("Destroying json_string {} length={}",
-                              logger::Logger::named_args("count", count, "length", arg.length()));
-                } else {
-                    log.debug("Destroying json_value {} (primitive)", count);
-                }
-            },
-            data_);
+        // Logger debug output (disabled when FASTJSON_NO_LOGGER is defined)
+        (void)count;  // Suppress unused warning
 #endif
         // The variant destructor will call the destructor of the active alternative.
         // For json_array (std::vector<json_value>) and json_object (std::unordered_map<std::string,
@@ -243,7 +253,7 @@ public:
     auto as_object() const -> const json_object& { return std::get<json_object>(data_); }
 
 private:
-    std::variant<json_null, json_boolean, json_number, json_string, json_array, json_object> data_;
+    std::variant<json_null, json_boolean, json_number, json_number_128, json_int_128, json_uint_128, json_string, json_array, json_object> data_;
 };
 
 // Destructor was moved inline to the class definition above since this is a header-only library
@@ -2420,12 +2430,12 @@ auto parser::parse_object_parallel(size_t estimated_size) -> json_result<json_va
 // Public API
 // ============================================================================
 
-auto parse(std::string_view input) -> json_result<json_value> {
+export auto parse(std::string_view input) -> json_result<json_value> {
     parser p(input);
     return p.parse();
 }
 
-auto parse_with_config(std::string_view input, const parse_config& config)
+export auto parse_with_config(std::string_view input, const parse_config& config)
     -> json_result<json_value> {
     auto old_config = g_config;
     g_config = config;
@@ -2435,25 +2445,25 @@ auto parse_with_config(std::string_view input, const parse_config& config)
 }
 
 // Helper functions for creating JSON values
-auto object() -> json_value {
+export auto object() -> json_value {
     return json_value{json_object{}};
 }
 
-auto array() -> json_value {
+export auto array() -> json_value {
     return json_value{json_array{}};
 }
 
-auto null() -> json_value {
+export auto null() -> json_value {
     return json_value{};
 }
 
 // Serialization stubs (to be implemented)
-auto stringify(const json_value& v) -> std::string {
+export auto stringify(const json_value& v) -> std::string {
     return "{}";
 }
 
-auto prettify(const json_value& v, int indent) -> std::string {
+export auto prettify(const json_value& v, int indent) -> std::string {
     return "{}";
 }
 
-}  // namespace fastjson
+}  // namespace fastjson_parallel_parallel
