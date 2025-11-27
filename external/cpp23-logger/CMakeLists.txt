@@ -26,6 +26,8 @@ project(cpp23-logger
 option(BUILD_TESTS "Build test suite" ON)
 option(BUILD_EXAMPLES "Build example programs" ON)
 option(ENABLE_CLANG_TIDY "Enable clang-tidy checks" OFF)
+option(ENABLE_NATIVE_OPTIMIZATIONS "Enable native CPU optimizations (AVX-512, AVX2, etc) to match parent project" OFF)
+option(ENABLE_OPENMP "Enable OpenMP parallel processing support" OFF)
 
 # ============================================================================
 # C++23 Standard Requirement
@@ -47,12 +49,24 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     # Clang C++23 modules flags
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++23 -stdlib=libc++")
 
+    # Optional: Add native CPU optimizations if requested by parent project
+    if(ENABLE_NATIVE_OPTIMIZATIONS)
+        message(STATUS "Enabling native CPU optimizations for module compatibility")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native -mavx512f -mavx512dq -mavx512bw -mavx512vl -mavx2 -mfma")
+    endif()
+
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
     if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS "14.0")
         message(FATAL_ERROR "GCC 14.0 or higher required for C++23 modules support")
     endif()
     # GCC C++23 modules flags
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++23 -fmodules-ts")
+
+    # Optional: Add native CPU optimizations if requested by parent project
+    if(ENABLE_NATIVE_OPTIMIZATIONS)
+        message(STATUS "Enabling native CPU optimizations for module compatibility")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native -mavx512f -mavx512dq -mavx512bw -mavx512vl -mavx2 -mfma")
+    endif()
 
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
     if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS "19.34")
@@ -112,6 +126,18 @@ target_include_directories(logger
 # Thread support required for std::mutex
 find_package(Threads REQUIRED)
 target_link_libraries(logger PUBLIC Threads::Threads)
+
+# Optional OpenMP support for parallel processing
+if(ENABLE_OPENMP)
+    find_package(OpenMP)
+    if(OpenMP_CXX_FOUND)
+        message(STATUS "Enabling OpenMP support for parallel processing")
+        target_compile_options(logger PRIVATE ${OpenMP_CXX_FLAGS})
+        target_link_libraries(logger PUBLIC OpenMP::OpenMP_CXX)
+    else()
+        message(WARNING "OpenMP requested but not found")
+    endif()
+endif()
 
 # Set module output directory and enable position-independent code for shared library linking
 set_target_properties(logger PROPERTIES

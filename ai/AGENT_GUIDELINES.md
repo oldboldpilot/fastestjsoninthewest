@@ -249,17 +249,62 @@ TEST(JsonValue, ParsesNullCorrectly) {
 // ✅ MANDATORY: Exact type definitions
 using json_null = std::nullptr_t;                              // nullptr equivalence
 using json_boolean = bool;
-using json_number = double;
+using json_number = double;                                    // 64-bit default
 using json_string = std::string;
 using json_array = std::vector<json_value>;                    // Vector for arrays
 using json_object = std::unordered_map<std::string, json_value>; // Map for objects
+
+// 128-bit numeric types (adaptive precision)
+using json_number_128 = __float128;                            // High-precision float
+using json_int_128 = __int128;                                 // Large signed integer  
+using json_uint_128 = unsigned __int128;                       // Large unsigned integer
+```
+
+### Adaptive Precision Number Parsing (NEW FEATURE)
+
+**Strategy**: Automatically select optimal numeric type based on precision requirements:
+
+1. **Fast Path (64-bit)**: Parse as `double` for common numbers
+   - Uses optimized `std::strtod`
+   - Handles 99% of real-world JSON numbers
+   - ~15 decimal digits of precision
+
+2. **Auto-Upgrade (128-bit)**: Switch to `__float128`/`__int128` when:
+   - Decimal places > 15 digits
+   - Exponent magnitude > 308  
+   - Integer exceeds int64_t/uint64_t range
+
+3. **Precision Verification**: For integers, convert back and compare to ensure no loss
+
+4. **Exception-Free API**: All numeric accessors return NaN/0 instead of throwing
+
+```cpp
+// ✅ MANDATORY: Exception-free numeric access
+auto val = parse("3.14159265358979323846264338327950288");
+if (val.has_value()) {
+    // Type checking
+    if (val.value().is_number_128()) {
+        __float128 precise = val.value().as_number_128();  // Full precision
+    }
+    
+    // Safe conversions (never throw, return NaN/0 for non-numeric)
+    double d = val.value().as_float64();       // Returns NaN if not numeric
+    int64_t i = val.value().as_int64();        // Returns 0 if not numeric
+    __float128 f128 = val.value().as_float128(); // Auto-converts from any numeric
+    __int128 i128 = val.value().as_int128();     // Auto-converts from any numeric
+    
+    // Always check NaN before use
+    if (!std::isnan(d)) {
+        // Safe to use value
+    }
+}
 ```
 
 ### Type Safety Requirements
-- **Variant Storage**: Use std::variant for type safety
+- **Variant Storage**: Use std::variant for type safety (including 128-bit types)
 - **Move Semantics**: Implement efficient move operations
 - **Const Correctness**: Proper const method design
-- **Exception Safety**: Strong exception guarantees
+- **Exception-Free**: Numeric accessors MUST NOT throw (return NaN/0 instead)
 
 ## Performance Optimization Guidelines
 

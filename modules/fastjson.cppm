@@ -82,24 +82,38 @@ inline auto detect_simd_capabilities() noexcept -> uint32_t {
         __cpuid(0, eax, ebx, ecx, edx);
         if (eax >= 1) {
             __cpuid(1, eax, ebx, ecx, edx);
-            if (edx & (1 << 26)) caps |= SIMD_SSE2;
-            if (ecx & (1 << 0)) caps |= SIMD_SSE3;
-            if (ecx & (1 << 9)) caps |= SIMD_SSSE3;
-            if (ecx & (1 << 19)) caps |= SIMD_SSE41;
-            if (ecx & (1 << 20)) caps |= SIMD_SSE42;
-            if (ecx & (1 << 28)) caps |= SIMD_AVX;
+            if (edx & (1 << 26))
+                caps |= SIMD_SSE2;
+            if (ecx & (1 << 0))
+                caps |= SIMD_SSE3;
+            if (ecx & (1 << 9))
+                caps |= SIMD_SSSE3;
+            if (ecx & (1 << 19))
+                caps |= SIMD_SSE41;
+            if (ecx & (1 << 20))
+                caps |= SIMD_SSE42;
+            if (ecx & (1 << 28))
+                caps |= SIMD_AVX;
         }
 
         if (eax >= 7) {
             __cpuid_count(7, 0, eax, ebx, ecx, edx);
-            if (ebx & (1 << 5)) caps |= SIMD_AVX2;
-            if (ebx & (1 << 16)) caps |= SIMD_AVX512F;
-            if (ebx & (1 << 30)) caps |= SIMD_AVX512BW;
-            if (ecx & (1 << 1)) caps |= SIMD_AVX512VBMI;
-            if (ecx & (1 << 6)) caps |= SIMD_AVX512VBMI2;
-            if (ecx & (1 << 11)) caps |= SIMD_AVX512VNNI;
-            if (edx & (1 << 24)) caps |= SIMD_AMX_TILE;
-            if (edx & (1 << 25)) caps |= SIMD_AMX_INT8;
+            if (ebx & (1 << 5))
+                caps |= SIMD_AVX2;
+            if (ebx & (1 << 16))
+                caps |= SIMD_AVX512F;
+            if (ebx & (1 << 30))
+                caps |= SIMD_AVX512BW;
+            if (ecx & (1 << 1))
+                caps |= SIMD_AVX512VBMI;
+            if (ecx & (1 << 6))
+                caps |= SIMD_AVX512VBMI2;
+            if (ecx & (1 << 11))
+                caps |= SIMD_AVX512VNNI;
+            if (edx & (1 << 24))
+                caps |= SIMD_AMX_TILE;
+            if (edx & (1 << 25))
+                caps |= SIMD_AMX_INT8;
         }
 
         cached_caps.store(caps, std::memory_order_release);
@@ -477,7 +491,7 @@ struct json_error {
     std::string message;
     size_t line;
     size_t column;
-    
+
     // String conversion for debugging
     auto to_string() const -> std::string {
         std::ostringstream oss;
@@ -496,16 +510,30 @@ template <typename T> using json_result = std::expected<T, json_error>;
 
 // JSON container type aliases using standard containers
 using json_string = std::string;
-using json_number = double;
+using json_number = double;               // Default 64-bit float
+using json_number_128 = __float128;       // Extended 128-bit float
+using json_int_128 = __int128;            // 128-bit signed integer
+using json_uint_128 = unsigned __int128;  // 128-bit unsigned integer
 using json_boolean = bool;
 using json_null = std::nullptr_t;            // Use nullptr_t for direct equivalence with nullptr
 using json_array = std::vector<json_value>;  // Array as std::vector
 using json_object =
     std::unordered_map<std::string, json_value>;  // Object as unordered_map with string keys
 
-// JSON value variant type
-using json_data =
-    std::variant<json_null, json_boolean, json_number, json_string, json_array, json_object>;
+// Precision information for adaptive number parsing
+struct number_precision_info {
+    int significant_digits = 0;  // Count of significant digits
+    int exponent = 0;            // Exponent value (0 if no exponent)
+    bool has_decimal = false;    // Whether number has decimal point
+    bool has_exponent = false;   // Whether number has exponent
+    bool is_negative = false;    // Whether number is negative
+    bool needs_128bit = false;   // Whether 128-bit precision is required
+    bool is_integer = false;     // Whether number is an integer (no decimal/exponent)
+};
+
+// JSON value variant type with 128-bit support
+using json_data = std::variant<json_null, json_boolean, json_number, json_number_128, json_int_128,
+                               json_uint_128, json_string, json_array, json_object>;
 
 // Main JSON value class with thread-safe operations
 class json_value {
@@ -532,6 +560,12 @@ public:
 
     json_value(double value) : data_(value) {}
 
+    json_value(__float128 value) : data_(value) {}
+
+    json_value(__int128 value) : data_(value) {}
+
+    json_value(unsigned __int128 value) : data_(value) {}
+
     json_value(const char* value) : data_(std::string(value)) {}
 
     json_value(const std::string& value) : data_(value) {}
@@ -556,6 +590,9 @@ public:
     auto is_null() const noexcept -> bool;
     auto is_boolean() const noexcept -> bool;
     auto is_number() const noexcept -> bool;
+    auto is_number_128() const noexcept -> bool;
+    auto is_int_128() const noexcept -> bool;
+    auto is_uint_128() const noexcept -> bool;
     auto is_string() const noexcept -> bool;
     auto is_array() const noexcept -> bool;
     auto is_object() const noexcept -> bool;
@@ -563,9 +600,19 @@ public:
     // Value accessor methods (declared here, implemented below)
     auto as_boolean() const -> bool;
     auto as_number() const -> double;
+    auto as_number_128() const -> __float128;
+    auto as_int_128() const -> __int128;
+    auto as_uint_128() const -> unsigned __int128;
     auto as_string() const -> const std::string&;
     auto as_array() const -> const json_array&;
     auto as_object() const -> const json_object&;
+
+    // Numeric conversion helpers with automatic type handling
+    // These methods convert between numeric types intelligently
+    auto as_int64() const -> int64_t;
+    auto as_float64() const -> double;
+    auto as_int128() const -> __int128;
+    auto as_float128() const -> __float128;
 
     // Mutable accessor methods
     auto as_array() -> json_array&;
@@ -617,6 +664,18 @@ auto json_value::is_number() const noexcept -> bool {
     return std::holds_alternative<double>(data_);
 }
 
+auto json_value::is_number_128() const noexcept -> bool {
+    return std::holds_alternative<__float128>(data_);
+}
+
+auto json_value::is_int_128() const noexcept -> bool {
+    return std::holds_alternative<__int128>(data_);
+}
+
+auto json_value::is_uint_128() const noexcept -> bool {
+    return std::holds_alternative<unsigned __int128>(data_);
+}
+
 auto json_value::is_string() const noexcept -> bool {
     return std::holds_alternative<std::string>(data_);
 }
@@ -639,9 +698,30 @@ auto json_value::as_boolean() const -> bool {
 
 auto json_value::as_number() const -> double {
     if (!is_number()) {
-        throw std::runtime_error("JSON value is not a number");
+        return std::numeric_limits<double>::quiet_NaN();
     }
     return std::get<double>(data_);
+}
+
+auto json_value::as_number_128() const -> __float128 {
+    if (!is_number_128()) {
+        return static_cast<__float128>(std::numeric_limits<double>::quiet_NaN());
+    }
+    return std::get<__float128>(data_);
+}
+
+auto json_value::as_int_128() const -> __int128 {
+    if (!is_int_128()) {
+        return 0;
+    }
+    return std::get<__int128>(data_);
+}
+
+auto json_value::as_uint_128() const -> unsigned __int128 {
+    if (!is_uint_128()) {
+        return 0;
+    }
+    return std::get<unsigned __int128>(data_);
 }
 
 auto json_value::as_string() const -> const std::string& {
@@ -649,6 +729,66 @@ auto json_value::as_string() const -> const std::string& {
         throw std::runtime_error("JSON value is not a string");
     }
     return std::get<std::string>(data_);
+}
+
+// Numeric conversion helpers with automatic type handling
+// Returns NaN for non-numeric types instead of throwing
+auto json_value::as_int64() const -> int64_t {
+    if (is_number()) {
+        double val = std::get<double>(data_);
+        if (std::isnan(val))
+            return 0;
+        return static_cast<int64_t>(val);
+    } else if (is_int_128()) {
+        return static_cast<int64_t>(std::get<__int128>(data_));
+    } else if (is_uint_128()) {
+        return static_cast<int64_t>(std::get<unsigned __int128>(data_));
+    } else if (is_number_128()) {
+        return static_cast<int64_t>(std::get<__float128>(data_));
+    }
+    return 0;  // Non-numeric type returns 0
+}
+
+auto json_value::as_float64() const -> double {
+    if (is_number()) {
+        return std::get<double>(data_);
+    } else if (is_int_128()) {
+        return static_cast<double>(std::get<__int128>(data_));
+    } else if (is_uint_128()) {
+        return static_cast<double>(std::get<unsigned __int128>(data_));
+    } else if (is_number_128()) {
+        return static_cast<double>(std::get<__float128>(data_));
+    }
+    return std::numeric_limits<double>::quiet_NaN();
+}
+
+auto json_value::as_int128() const -> __int128 {
+    if (is_int_128()) {
+        return std::get<__int128>(data_);
+    } else if (is_uint_128()) {
+        return static_cast<__int128>(std::get<unsigned __int128>(data_));
+    } else if (is_number()) {
+        double val = std::get<double>(data_);
+        if (std::isnan(val))
+            return 0;
+        return static_cast<__int128>(val);
+    } else if (is_number_128()) {
+        return static_cast<__int128>(std::get<__float128>(data_));
+    }
+    return 0;  // Non-numeric type returns 0
+}
+
+auto json_value::as_float128() const -> __float128 {
+    if (is_number_128()) {
+        return std::get<__float128>(data_);
+    } else if (is_number()) {
+        return static_cast<__float128>(std::get<double>(data_));
+    } else if (is_int_128()) {
+        return static_cast<__float128>(std::get<__int128>(data_));
+    } else if (is_uint_128()) {
+        return static_cast<__float128>(std::get<unsigned __int128>(data_));
+    }
+    return static_cast<__float128>(std::numeric_limits<double>::quiet_NaN());
 }
 
 auto json_value::as_array() const -> const json_array& {
@@ -850,6 +990,43 @@ auto json_value::serialize_to_buffer(std::string& buffer, int indent) const -> v
                 } else {
                     buffer += std::to_string(v);
                 }
+            } else if constexpr (std::is_same_v<T, __float128>) {
+                // Convert __float128 to long double for string conversion
+                // This preserves most precision while using standard library
+                long double ld_value = static_cast<long double>(v);
+                thread_local std::array<char, 128> num_buffer;
+                auto [ptr, ec] = std::to_chars(num_buffer.data(),
+                                               num_buffer.data() + num_buffer.size(), ld_value);
+                if (ec == std::errc{}) {
+                    buffer.append(num_buffer.data(), ptr);
+                }
+            } else if constexpr (std::is_same_v<T, __int128>) {
+                // Convert __int128 to string manually
+                bool is_negative = v < 0;
+                unsigned __int128 abs_val = is_negative ? -static_cast<unsigned __int128>(v)
+                                                        : static_cast<unsigned __int128>(v);
+                thread_local std::array<char, 64> num_buffer;
+                char* ptr = num_buffer.data() + num_buffer.size();
+                *--ptr = '\0';
+                do {
+                    *--ptr = '0' + (abs_val % 10);
+                    abs_val /= 10;
+                } while (abs_val > 0);
+                if (is_negative) {
+                    *--ptr = '-';
+                }
+                buffer += ptr;
+            } else if constexpr (std::is_same_v<T, unsigned __int128>) {
+                // Convert unsigned __int128 to string manually
+                unsigned __int128 val = v;
+                thread_local std::array<char, 64> num_buffer;
+                char* ptr = num_buffer.data() + num_buffer.size();
+                *--ptr = '\0';
+                do {
+                    *--ptr = '0' + (val % 10);
+                    val /= 10;
+                } while (val > 0);
+                buffer += ptr;
             } else if constexpr (std::is_same_v<T, std::string>) {
                 serialize_string_to_buffer(buffer, v);
             } else if constexpr (std::is_same_v<T, json_array>) {
@@ -1029,6 +1206,209 @@ auto json_value::serialize_pretty_object(std::string& buffer, const json_object&
 
     current_indent -= indent_size;
     buffer += std::string(current_indent, ' ') + '}';
+}
+
+// Number Precision Analysis for Adaptive Parsing
+// ============================================================================
+
+// Analyze a JSON number string to determine precision requirements
+inline auto analyze_number_precision(const char* start, const char* end) -> number_precision_info {
+    number_precision_info info;
+    const char* ptr = start;
+
+    // Check for negative sign
+    if (ptr < end && *ptr == '-') {
+        info.is_negative = true;
+        ++ptr;
+    }
+
+    // Count significant digits
+    bool leading_zero = false;
+    bool after_decimal = false;
+    int digits_before_decimal = 0;
+    int digits_after_decimal = 0;
+
+    while (ptr < end && (*ptr >= '0' && *ptr <= '9')) {
+        if (*ptr == '0' && digits_before_decimal == 0 && !after_decimal) {
+            leading_zero = true;
+        } else {
+            ++digits_before_decimal;
+        }
+        ++ptr;
+    }
+
+    // Check for decimal point
+    if (ptr < end && *ptr == '.') {
+        info.has_decimal = true;
+        after_decimal = true;
+        ++ptr;
+
+        while (ptr < end && (*ptr >= '0' && *ptr <= '9')) {
+            ++digits_after_decimal;
+            ++ptr;
+        }
+    }
+
+    info.significant_digits = digits_before_decimal + digits_after_decimal;
+
+    // Check for exponent
+    if (ptr < end && (*ptr == 'e' || *ptr == 'E')) {
+        info.has_exponent = true;
+        ++ptr;
+
+        bool exp_negative = false;
+        if (ptr < end && (*ptr == '+' || *ptr == '-')) {
+            exp_negative = (*ptr == '-');
+            ++ptr;
+        }
+
+        int exp_value = 0;
+        while (ptr < end && (*ptr >= '0' && *ptr <= '9')) {
+            exp_value = exp_value * 10 + (*ptr - '0');
+            ++ptr;
+        }
+
+        info.exponent = exp_negative ? -exp_value : exp_value;
+    }
+
+    // Determine if this is an integer (no decimal point, no exponent)
+    info.is_integer = !info.has_decimal && !info.has_exponent;
+
+    // Determine if 128-bit precision is needed
+    // For floats: > 15 significant digits (double precision limit)
+    // For exponents: outside ±308 range (double range)
+    // For integers: > 2^63 - 1 (int64_t limit) or > 2^64 - 1 (uint64_t limit)
+    if (info.is_integer) {
+        // Check if integer fits in 64-bit
+        if (digits_before_decimal > 19) {
+            // Definitely needs 128-bit
+            info.needs_128bit = true;
+        } else if (digits_before_decimal == 19) {
+            // Might need 128-bit, check exact value later
+            info.needs_128bit = true;
+        }
+    } else {
+        // Float precision check
+        if (info.significant_digits > 15) {
+            info.needs_128bit = true;
+        }
+        if (info.has_exponent && (info.exponent > 308 || info.exponent < -308)) {
+            info.needs_128bit = true;
+        }
+    }
+
+    return info;
+}
+
+// Parse __float128 from string using Clang's native support
+inline auto parse_float128(const char* str, size_t length) -> std::optional<__float128> {
+    if (length == 0 || length > 100) {
+        return std::nullopt;
+    }
+
+    // Use strtold for parsing and convert to __float128
+    // This preserves more precision than double
+    thread_local std::array<char, 128> buffer;
+    std::memcpy(buffer.data(), str, length);
+    buffer[length] = '\0';
+
+    char* endptr = nullptr;
+    long double value = std::strtold(buffer.data(), &endptr);
+
+    if (endptr != buffer.data() + length) {
+        return std::nullopt;
+    }
+
+    return static_cast<__float128>(value);
+}
+
+// Parse __int128 from string manually
+inline auto parse_int128(const char* str, size_t length, bool is_negative)
+    -> std::optional<__int128> {
+    if (length == 0 || length > 40) {  // Max 39 digits for __int128
+        return std::nullopt;
+    }
+
+    unsigned __int128 value = 0;
+    const char* ptr = str;
+    const char* end = str + length;
+
+    // Skip leading zeros
+    while (ptr < end && *ptr == '0') {
+        ++ptr;
+    }
+
+    // Parse digits
+    while (ptr < end) {
+        if (*ptr < '0' || *ptr > '9') {
+            return std::nullopt;
+        }
+
+        unsigned __int128 digit = *ptr - '0';
+
+        // Check for overflow
+        unsigned __int128 old_value = value;
+        value = value * 10 + digit;
+
+        if (value < old_value) {
+            return std::nullopt;  // Overflow
+        }
+
+        ++ptr;
+    }
+
+    if (is_negative) {
+        // Check if value fits in signed __int128
+        constexpr unsigned __int128 max_neg = static_cast<unsigned __int128>(1) << 127;
+        if (value > max_neg) {
+            return std::nullopt;
+        }
+        return -static_cast<__int128>(value);
+    } else {
+        // Check if value fits in signed __int128
+        constexpr unsigned __int128 max_pos = (static_cast<unsigned __int128>(1) << 127) - 1;
+        if (value > max_pos) {
+            return std::nullopt;
+        }
+        return static_cast<__int128>(value);
+    }
+}
+
+// Parse unsigned __int128 from string manually
+inline auto parse_uint128(const char* str, size_t length) -> std::optional<unsigned __int128> {
+    if (length == 0 || length > 40) {  // Max 39 digits for unsigned __int128
+        return std::nullopt;
+    }
+
+    unsigned __int128 value = 0;
+    const char* ptr = str;
+    const char* end = str + length;
+
+    // Skip leading zeros
+    while (ptr < end && *ptr == '0') {
+        ++ptr;
+    }
+
+    // Parse digits
+    while (ptr < end) {
+        if (*ptr < '0' || *ptr > '9') {
+            return std::nullopt;
+        }
+
+        unsigned __int128 digit = *ptr - '0';
+
+        // Check for overflow
+        unsigned __int128 old_value = value;
+        value = value * 10 + digit;
+
+        if (value < old_value) {
+            return std::nullopt;  // Overflow
+        }
+
+        ++ptr;
+    }
+
+    return value;
 }
 
 // Parser Class Definition
@@ -1215,21 +1595,94 @@ auto parser::parse_number() -> json_result<json_value> {
         }
     }
 
-    // Convert to double using thread-safe method
-    thread_local std::array<char, 64> buffer;
-    size_t length = std::min(static_cast<size_t>(current_ - start), buffer.size() - 1);
-    std::memcpy(buffer.data(), start, length);
-    buffer[length] = '\0';
+    // Analyze precision requirements
+    size_t length = current_ - start;
+    auto precision_info = analyze_number_precision(start, current_);
 
-    char* end_ptr;
-    double value = std::strtod(buffer.data(), &end_ptr);
+    // Adaptive precision parsing strategy:
+    // 1. Try 64-bit parsing first (fast path)
+    // 2. If precision info indicates need for 128-bit, or if 64-bit parsing loses precision,
+    // upgrade
+    // 3. If 128-bit parsing also fails, return NaN
 
-    if (end_ptr != buffer.data() + length) {
-        return std::unexpected(
-            make_error(json_error_code::invalid_number, "Failed to parse number"));
+    if (!precision_info.needs_128bit) {
+        // Fast path: Try 64-bit parsing first
+        thread_local std::array<char, 64> buffer;
+        if (length < buffer.size()) {
+            std::memcpy(buffer.data(), start, length);
+            buffer[length] = '\0';
+
+            char* end_ptr;
+            double value = std::strtod(buffer.data(), &end_ptr);
+
+            if (end_ptr == buffer.data() + length) {
+                // Verify no precision loss for integers
+                if (precision_info.is_integer) {
+                    // For integers, check if value exactly represents the parsed number
+                    // by converting back to string and comparing
+                    thread_local std::array<char, 32> verify_buffer;
+                    auto [ptr, ec] = std::to_chars(verify_buffer.data(),
+                                                   verify_buffer.data() + verify_buffer.size(),
+                                                   value, std::chars_format::fixed);
+
+                    if (ec == std::errc{}) {
+                        std::string_view original(start, length);
+                        std::string_view converted(verify_buffer.data(),
+                                                   ptr - verify_buffer.data());
+
+                        // If they match, no precision loss
+                        if (original == converted) {
+                            return json_value{value};
+                        }
+                        // Precision loss detected, upgrade to 128-bit
+                    } else {
+                        // Conversion failed, upgrade to 128-bit
+                    }
+                } else {
+                    // For floats with <= 15 significant digits and exponent in range,
+                    // 64-bit is sufficient
+                    return json_value{value};
+                }
+            }
+        }
     }
 
-    return json_value{value};
+    // Slow path: 128-bit parsing required
+    if (precision_info.is_integer) {
+        // Try 128-bit integer parsing
+        const char* num_start = start;
+        if (*num_start == '-') {
+            ++num_start;
+        }
+
+        auto result = parse_int128(num_start, current_ - num_start, precision_info.is_negative);
+        if (result) {
+            return json_value{*result};
+        }
+
+        // If signed parsing failed, try unsigned for positive numbers
+        if (!precision_info.is_negative) {
+            auto uresult = parse_uint128(num_start, current_ - num_start);
+            if (uresult) {
+                return json_value{*uresult};
+            }
+        }
+    } else {
+        // Try 128-bit float parsing
+        auto result = parse_float128(start, length);
+        if (result) {
+            return json_value{*result};
+        }
+    }
+
+    // All parsing attempts failed - return NaN for floats or error for integers
+    if (precision_info.is_integer) {
+        return std::unexpected(
+            make_error(json_error_code::invalid_number, "Integer value exceeds 128-bit range"));
+    } else {
+        // Return NaN for floating point overflow
+        return json_value{std::numeric_limits<double>::quiet_NaN()};
+    }
 }
 
 auto parser::parse_string() -> json_result<json_value> {

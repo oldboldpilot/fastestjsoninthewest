@@ -52,12 +52,49 @@ export namespace fastjson {
 using json_data = std::variant<
     std::nullptr_t,                                    // null
     bool,                                              // boolean
-    double,                                            // number
+    double,                                            // number (64-bit)
     std::string,                                       // string
     std::vector<json_value>,                          // array
-    std::unordered_map<std::string, json_value>       // object
+    std::unordered_map<std::string, json_value>,      // object
+    __float128,                                        // high-precision float (128-bit)
+    __int128,                                          // large signed integer (128-bit)
+    unsigned __int128                                  // large unsigned integer (128-bit)
 >;
 ```
+
+### Adaptive Precision Number Parsing
+
+#### Strategy
+FastestJSONInTheWest implements adaptive precision parsing that automatically selects the appropriate numeric type based on the number's characteristics:
+
+1. **Fast Path (64-bit)**: Most numbers are parsed as `double` using optimized `std::strtod`
+2. **Precision Analysis**: Analyzes decimal places, exponent, and integer size
+3. **Auto-Upgrade (128-bit)**: Upgrades to `__float128`/`__int128` when:
+   - Decimal places exceed 15 digits
+   - Exponent magnitude > 308
+   - Integer value exceeds int64_t/uint64_t range
+4. **Precision Verification**: For integers, converts back and compares to ensure no data loss
+
+#### 128-bit Type System
+
+```cpp
+struct number_precision_info {
+    bool needs_128bit;          // Requires 128-bit precision
+    bool is_integer;            // Integer vs floating-point
+    bool is_negative;           // Sign information
+    size_t integer_digits;      // Integer part digit count
+    size_t decimal_digits;      // Fractional part digit count  
+    int exponent;               // Scientific notation exponent
+};
+```
+
+#### Exception-Free Numeric API
+
+All numeric accessors use a safe, exception-free design:
+- **Float accessors**: Return `NaN` for non-numeric values
+- **Integer accessors**: Return `0` for non-numeric values
+- **Type conversions**: Auto-convert between 64-bit and 128-bit types
+- **Safety**: No exceptions thrown, easy to check with `std::isnan()` or comparison to zero
 
 ## Memory Management Strategy
 
