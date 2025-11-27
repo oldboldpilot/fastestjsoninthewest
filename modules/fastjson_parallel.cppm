@@ -36,20 +36,29 @@ module;
 
 #ifdef __ARM_NEON
     #include <arm_neon.h>
-#endif
-
-#ifdef __linux__
-    #include <asm/hwcap.h>
-    #include <sys/auxv.h>
+    #if defined(__linux__) && (defined(__aarch64__) || defined(_M_ARM64))
+        #include <asm/hwcap.h>
+        #include <sys/auxv.h>
+    #endif
 #endif
 
 export module fastjson_parallel;
 
-export namespace fastjson_parallel {
+namespace fastjson_parallel {
 
 // ============================================================================
 // Configuration and Settings
 // ============================================================================
+
+// Text encoding types for JSON input
+export enum class text_encoding {
+    UTF8,         // UTF-8 (default, standard JSON)
+    UTF16_LE,     // UTF-16 Little Endian
+    UTF16_BE,     // UTF-16 Big Endian
+    UTF32_LE,     // UTF-32 Little Endian
+    UTF32_BE,     // UTF-32 Big Endian
+    AUTO_DETECT   // Auto-detect from BOM or heuristics
+};
 
 export struct parse_config {
     // Parallelism control
@@ -83,25 +92,33 @@ export struct parse_config {
     // Performance tuning
     size_t chunk_size = 100;      // Elements per thread chunk in parallel parsing
     bool use_memory_pool = true;  // Use memory pooling for allocations
+
+    // Encoding support
+    text_encoding input_encoding = text_encoding::AUTO_DETECT;  // Input encoding (default: auto-detect)
 };
 
 // Global configuration (thread-local for safety)
-thread_local parse_config g_config;
+inline thread_local parse_config g_config;
 
 // NUMA topology (shared across threads, initialized once)
-static numa::numa_topology g_numa_topo;
-static std::atomic<bool> g_numa_initialized{false};
+inline fastjson::numa::numa_topology g_numa_topo;
+inline std::atomic<bool> g_numa_initialized{false};
 
 // Configuration API
-export auto set_parse_config(const parse_config& config) -> void {
+export auto set_parse_config(const parse_config& config) -> void;
+export auto get_parse_config() -> const parse_config&;
+export auto set_num_threads(int threads) -> void;
+export auto get_num_threads() -> int;
+
+auto set_parse_config(const parse_config& config) -> void {
     g_config = config;
 }
 
-export auto get_parse_config() -> const parse_config& {
+auto get_parse_config() -> const parse_config& {
     return g_config;
 }
 
-export inline auto set_num_threads(int threads) -> void {
+inline auto set_num_threads(int threads) -> void {
     g_config.num_threads = threads;
 #ifdef _OPENMP
     if (threads > 0) {
@@ -110,7 +127,7 @@ export inline auto set_num_threads(int threads) -> void {
 #endif
 }
 
-export inline auto get_num_threads() -> int {
+inline auto get_num_threads() -> int {
 #ifdef _OPENMP
     if (g_config.num_threads == 0) {
         return 1;  // Parallelism disabled
@@ -135,7 +152,225 @@ inline auto get_effective_num_threads(size_t data_size) -> int {
 }
 
 // ============================================================================
+// Text Encoding Detection and Conversion
+// ============================================================================
+
+// Detect encoding from BOM (Byte Order Mark)
+inline auto detect_encoding_from_bom(std::span<const uint8_t> data) -> std::pair<text_encoding, size_t> {
+    if (data.size() < 2) {
+        return {text_encoding::UTF8, 0};
+    }
+
+    // UTF-32 LE: FF FE 00 00
+    if (data.size() >= 4 && data[0] == 0xFF && data[1] == 0xFE && 
+        data[2] == 0x00 && data[3] == 0x00) {
+        return {text_encoding::UTF32_LE, 4};
+    }
+
+    // UTF-32 BE: 00 00 FE FF
+    if (data.size() >= 4 && data[0] == 0x00 && data[1] == 0x00 && 
+        data[2] == 0xFE && data[3] == 0xFF) {
+        return {text_encoding::UTF32_BE, 4};
+    }
+
+    // UTF-16 LE: FF FE
+    if (data[0] == 0xFF && data[1] == 0xFE) {
+        return {text_encoding::UTF16_LE, 2};
+    }
+
+    // UTF-16 BE: FE FF
+    if (data[0] == 0xFE && data[1] == 0xFF) {
+        return {text_encoding::UTF16_BE, 2};
+    }
+
+    // UTF-8: EF BB BF
+    if (data.size() >= 3 && data[0] == 0xEF && data[1] == 0xBB && data[2] == 0xBF) {
+        return {text_encoding::UTF8, 3};
+    }
+
+    // No BOM detected
+    return {text_encoding::UTF8, 0};
+}
+
+// Detect encoding using heuristics (when no BOM present)
+inline auto detect_encoding_heuristic(std::span<const uint8_t> data) -> text_encoding {
+    if (data.size() < 4) {
+        return text_encoding::UTF8;
+    }
+
+    // Check for UTF-32 patterns (lots of 00 bytes)
+    if (data[0] == 0x00 && data[1] == 0x00 && data[2] == 0x00 && data[3] != 0x00) {
+        return text_encoding::UTF32_BE;
+    }
+    if (data[0] != 0x00 && data[1] == 0x00 && data[2] == 0x00 && data[3] == 0x00) {
+        return text_encoding::UTF32_LE;
+    }
+
+    // Check for UTF-16 patterns (alternating nulls)
+    if (data[0] == 0x00 && data[2] == 0x00) {
+        return text_encoding::UTF16_BE;
+    }
+    if (data[1] == 0x00 && data[3] == 0x00) {
+        return text_encoding::UTF16_LE;
+    }
+
+    // Default to UTF-8
+    return text_encoding::UTF8;
+}
+
+// Convert UTF-16 to UTF-8
+inline auto convert_utf16_to_utf8(std::span<const uint8_t> data, bool big_endian) -> std::expected<std::string, std::string> {
+    std::string result;
+    result.reserve(data.size());  // Estimate
+
+    const uint16_t* ptr = reinterpret_cast<const uint16_t*>(data.data());
+    size_t len = data.size() / 2;
+
+    for (size_t i = 0; i < len; ++i) {
+        uint16_t code_unit = big_endian ? 
+            ((data[i*2] << 8) | data[i*2 + 1]) : 
+            (data[i*2] | (data[i*2 + 1] << 8));
+
+        // Check for surrogate pair
+        if (fastjson::unicode::is_high_surrogate(code_unit)) {
+            if (i + 1 >= len) {
+                return std::unexpected("Incomplete UTF-16 surrogate pair");
+            }
+            uint16_t low = big_endian ? 
+                ((data[(i+1)*2] << 8) | data[(i+1)*2 + 1]) : 
+                (data[(i+1)*2] | (data[(i+1)*2 + 1] << 8));
+            
+            if (!fastjson::unicode::is_low_surrogate(low)) {
+                return std::unexpected("Invalid UTF-16 surrogate pair");
+            }
+
+            uint32_t codepoint = fastjson::unicode::decode_surrogate_pair(code_unit, low);
+            if (!fastjson::unicode::encode_utf8(codepoint, result)) {
+                return std::unexpected("Invalid codepoint in surrogate pair");
+            }
+            ++i;  // Skip low surrogate
+        } else if (fastjson::unicode::is_low_surrogate(code_unit)) {
+            return std::unexpected("Unexpected low surrogate without high surrogate");
+        } else {
+            // BMP codepoint
+            if (!fastjson::unicode::encode_utf8(code_unit, result)) {
+                return std::unexpected("Invalid UTF-16 codepoint");
+            }
+        }
+    }
+
+    return result;
+}
+
+// Convert UTF-32 to UTF-8
+inline auto convert_utf32_to_utf8(std::span<const uint8_t> data, bool big_endian) -> std::expected<std::string, std::string> {
+    std::string result;
+    result.reserve(data.size());  // Estimate
+
+    size_t len = data.size() / 4;
+
+    for (size_t i = 0; i < len; ++i) {
+        uint32_t codepoint = big_endian ?
+            ((data[i*4] << 24) | (data[i*4 + 1] << 16) | (data[i*4 + 2] << 8) | data[i*4 + 3]) :
+            (data[i*4] | (data[i*4 + 1] << 8) | (data[i*4 + 2] << 16) | (data[i*4 + 3] << 24));
+
+        if (!fastjson::unicode::is_valid_codepoint(codepoint)) {
+            return std::unexpected("Invalid UTF-32 codepoint");
+        }
+
+        if (!fastjson::unicode::encode_utf8(codepoint, result)) {
+            return std::unexpected("Failed to encode UTF-8");
+        }
+    }
+
+    return result;
+}
+
+// Convert input data to UTF-8 based on detected or specified encoding
+export auto convert_to_utf8(std::string_view input, text_encoding encoding = text_encoding::AUTO_DETECT) 
+    -> std::expected<std::string, std::string>;
+
+auto convert_to_utf8(std::string_view input, text_encoding encoding) 
+    -> std::expected<std::string, std::string> {
+    
+    std::span<const uint8_t> data(reinterpret_cast<const uint8_t*>(input.data()), input.size());
+    
+    // Auto-detect encoding if requested
+    size_t bom_size = 0;
+    if (encoding == text_encoding::AUTO_DETECT) {
+        auto [detected, bom_len] = detect_encoding_from_bom(data);
+        if (bom_len > 0) {
+            encoding = detected;
+            bom_size = bom_len;
+        } else {
+            encoding = detect_encoding_heuristic(data);
+        }
+    }
+
+    // Skip BOM if present
+    data = data.subspan(bom_size);
+
+    // Convert based on encoding
+    switch (encoding) {
+        case text_encoding::UTF8:
+            // Already UTF-8, just return as string
+            return std::string(reinterpret_cast<const char*>(data.data()), data.size());
+
+        case text_encoding::UTF16_LE:
+            return convert_utf16_to_utf8(data, false);
+
+        case text_encoding::UTF16_BE:
+            return convert_utf16_to_utf8(data, true);
+
+        case text_encoding::UTF32_LE:
+            return convert_utf32_to_utf8(data, false);
+
+        case text_encoding::UTF32_BE:
+            return convert_utf32_to_utf8(data, true);
+
+        default:
+            return std::unexpected("Unknown encoding");
+    }
+}
+
+// ============================================================================
 // JSON Type System
+// ============================================================================
+//
+// Type Mappings (fastjson_parallel):
+// ===================================
+//
+// JSON Type          C++ Type                              Usage
+// ---------          --------                              -----
+// null               std::nullptr_t                        json_value(nullptr)
+// boolean            bool                                  json_value(true)
+// number             double                                json_value(42.0)
+// number (128-bit)   __float128                           json_value((__float128)3.14...)
+// integer (128-bit)  __int128                             json_value((__int128)large_int)
+// uint (128-bit)     unsigned __int128                    json_value((unsigned __int128)...)
+// string             std::string                           json_value("text")
+// array              std::vector<json_value>               json_value(json_array{...})
+// object             std::unordered_map<string, value>     json_value(json_object{...})
+//
+// Key Design Decisions:
+// ---------------------
+// - Object → std::unordered_map: O(1) average lookup, ideal for key-value access
+//   (not std::map: would be O(log n), slower for large objects)
+// - Array → std::vector: O(1) random access, dynamic sizing, cache-friendly
+//   (not std::array: requires compile-time size, JSON arrays are dynamic)
+// - String → std::string: SSO optimization, move semantics, UTF-8 native
+// - Number → double: Standard 64-bit float, sufficient for most JSON use cases
+// - 128-bit types: Extended precision for financial/scientific applications
+//
+// Thread Safety:
+// - Parsing is thread-safe (OpenMP parallelization)
+// - json_value instances are NOT thread-safe after construction
+// - Use separate json_value per thread or protect with mutex
+//
+// Performance Characteristics:
+// - Object lookup: O(1) average, O(n) worst case
+// - Array access: O(1) random access, O(1) amortized append
+// - Memory: Contiguous for arrays, hash-based for objects
 // ============================================================================
 
 export enum class json_error_code {
@@ -160,20 +395,21 @@ export struct json_error {
 
 template <typename T> using json_result = std::expected<T, json_error>;
 
-using json_string = std::string;
-using json_number = double;
-using json_number_128 = __float128;       // Extended 128-bit float
-using json_int_128 = __int128;            // 128-bit signed integer
-using json_uint_128 = unsigned __int128;  // 128-bit unsigned integer
-using json_number_128 = __float128;       // Extended 128-bit float
-using json_int_128 = __int128;            // 128-bit signed integer
-using json_uint_128 = unsigned __int128;  // 128-bit unsigned integer
-using json_boolean = bool;
-using json_null = std::nullptr_t;
+// Core JSON type aliases
+export using json_string = std::string;
+export using json_number = double;
+export using json_number_128 = __float128;       // Extended 128-bit float
+export using json_int_128 = __int128;            // 128-bit signed integer
+export using json_uint_128 = unsigned __int128;  // 128-bit unsigned integer
+export using json_boolean = bool;
+export using json_null = std::nullptr_t;
 
+// Forward declaration
 export class json_value;
-using json_array = std::vector<json_value>;
-using json_object = std::unordered_map<std::string, json_value>;
+
+// Container types - optimized for parallel processing
+export using json_array = std::vector<json_value>;                     // Dynamic array with O(1) access
+export using json_object = std::unordered_map<std::string, json_value>; // Hash map with O(1) lookup
 
 export class json_value {
 public:
@@ -193,11 +429,8 @@ public:
 
     json_value(unsigned __int128 value) : data_(value) {}
 
-    json_value(__float128 value) : data_(value) {}
 
-    json_value(__int128 value) : data_(value) {}
 
-    json_value(unsigned __int128 value) : data_(value) {}
 
     json_value(const std::string& s) : data_(s) {}
 
@@ -242,6 +475,13 @@ public:
 
     auto is_object() const -> bool { return std::holds_alternative<json_object>(data_); }
 
+    auto is_number_128() const -> bool { return std::holds_alternative<json_number_128>(data_); }
+
+    auto is_int_128() const -> bool { return std::holds_alternative<json_int_128>(data_); }
+
+    auto is_uint_128() const -> bool { return std::holds_alternative<json_uint_128>(data_); }
+
+    // Value accessors
     auto as_bool() const -> bool { return std::get<json_boolean>(data_); }
 
     auto as_number() const -> double { return std::get<json_number>(data_); }
@@ -252,11 +492,272 @@ public:
 
     auto as_object() const -> const json_object& { return std::get<json_object>(data_); }
 
+    auto as_number_128() const -> json_number_128 {
+        if (!is_number_128()) return static_cast<__float128>(std::numeric_limits<double>::quiet_NaN());
+        return std::get<json_number_128>(data_);
+    }
+
+    auto as_int_128() const -> json_int_128 {
+        if (!is_int_128()) return 0;
+        return std::get<json_int_128>(data_);
+    }
+
+    auto as_uint_128() const -> json_uint_128 {
+        if (!is_uint_128()) return 0;
+        return std::get<json_uint_128>(data_);
+    }
+
+    // Conversion helpers
+    auto as_int64() const -> int64_t {
+        if (is_number()) return static_cast<int64_t>(std::get<double>(data_));
+        if (is_int_128()) return static_cast<int64_t>(std::get<__int128>(data_));
+        if (is_uint_128()) return static_cast<int64_t>(std::get<unsigned __int128>(data_));
+        if (is_number_128()) return static_cast<int64_t>(std::get<__float128>(data_));
+        return 0;
+    }
+
+    auto as_float64() const -> double {
+        if (is_number()) return std::get<double>(data_);
+        if (is_int_128()) return static_cast<double>(std::get<__int128>(data_));
+        if (is_uint_128()) return static_cast<double>(std::get<unsigned __int128>(data_));
+        if (is_number_128()) return static_cast<double>(std::get<__float128>(data_));
+        return std::numeric_limits<double>::quiet_NaN();
+    }
+
+    auto as_int128() const -> __int128 {
+        if (is_int_128()) return std::get<__int128>(data_);
+        if (is_uint_128()) return static_cast<__int128>(std::get<unsigned __int128>(data_));
+        if (is_number()) return static_cast<__int128>(std::get<double>(data_));
+        if (is_number_128()) return static_cast<__int128>(std::get<__float128>(data_));
+        return 0;
+    }
+
+    auto as_float128() const -> __float128 {
+        if (is_number_128()) return std::get<__float128>(data_);
+        if (is_number()) return static_cast<__float128>(std::get<double>(data_));
+        if (is_int_128()) return static_cast<__float128>(std::get<__int128>(data_));
+        if (is_uint_128()) return static_cast<__float128>(std::get<unsigned __int128>(data_));
+        return static_cast<__float128>(std::numeric_limits<double>::quiet_NaN());
+    }
+
+    // Array/Object size operations
+    auto size() const noexcept -> size_t {
+        if (is_array()) return std::get<json_array>(data_).size();
+        if (is_object()) return std::get<json_object>(data_).size();
+        return 0;
+    }
+
+    auto empty() const noexcept -> bool {
+        if (is_array()) return std::get<json_array>(data_).empty();
+        if (is_object()) return std::get<json_object>(data_).empty();
+        return true;
+    }
+
+    // Array subscript operator
+    auto operator[](size_t index) const -> const json_value& {
+        return std::get<json_array>(data_)[index];
+    }
+
+    auto operator[](size_t index) -> json_value& {
+        return std::get<json_array>(data_)[index];
+    }
+
+    // Object subscript operator
+    auto operator[](const std::string& key) const -> const json_value& {
+        return std::get<json_object>(data_).at(key);
+    }
+
+    auto operator[](const std::string& key) -> json_value& {
+        return std::get<json_object>(data_)[key];
+    }
+
 private:
     std::variant<json_null, json_boolean, json_number, json_number_128, json_int_128, json_uint_128, json_string, json_array, json_object> data_;
 };
 
-// Destructor was moved inline to the class definition above since this is a header-only library
+// ============================================================================
+// Type Mapping Utilities
+// ============================================================================
+//
+// Helper functions for working with JSON type mappings:
+// - Type-safe extraction with std::optional for failure handling
+// - Batch conversion utilities for arrays
+// - Object key iteration and filtering
+// - Type validation and coercion
+
+export namespace json_utils {
+    // Extract value with optional for safe access
+    inline auto try_get_string(const json_value& val) -> std::optional<std::string> {
+        if (val.is_string()) return val.as_string();
+        return std::nullopt;
+    }
+
+    inline auto try_get_number(const json_value& val) -> std::optional<double> {
+        if (val.is_number()) return val.as_number();
+        return std::nullopt;
+    }
+
+    inline auto try_get_bool(const json_value& val) -> std::optional<bool> {
+        if (val.is_bool()) return val.as_bool();
+        return std::nullopt;
+    }
+
+    inline auto try_get_array(const json_value& val) -> std::optional<json_array> {
+        if (val.is_array()) return val.as_array();
+        return std::nullopt;
+    }
+
+    inline auto try_get_object(const json_value& val) -> std::optional<json_object> {
+        if (val.is_object()) return val.as_object();
+        return std::nullopt;
+    }
+
+    // Extract array of specific type with transformation
+    template<typename T, typename F>
+    auto map_array(const json_value& val, F&& transform) -> std::optional<std::vector<T>> {
+        if (!val.is_array()) return std::nullopt;
+        
+        std::vector<T> result;
+        result.reserve(val.size());
+        
+        for (const auto& item : val.as_array()) {
+            if (auto transformed = transform(item)) {
+                result.push_back(*transformed);
+            } else {
+                return std::nullopt; // Transformation failed
+            }
+        }
+        return result;
+    }
+
+    // Extract all string values from array
+    inline auto array_to_strings(const json_value& val) -> std::optional<std::vector<std::string>> {
+        return map_array<std::string>(val, [](const json_value& v) {
+            return try_get_string(v);
+        });
+    }
+
+    // Extract all numeric values from array
+    inline auto array_to_numbers(const json_value& val) -> std::optional<std::vector<double>> {
+        return map_array<double>(val, [](const json_value& v) {
+            return try_get_number(v);
+        });
+    }
+
+    // Get all keys from an object
+    inline auto object_keys(const json_value& val) -> std::optional<std::vector<std::string>> {
+        if (!val.is_object()) return std::nullopt;
+        
+        std::vector<std::string> keys;
+        const auto& obj = val.as_object();
+        keys.reserve(obj.size());
+        
+        for (const auto& [key, _] : obj) {
+            keys.push_back(key);
+        }
+        return keys;
+    }
+
+    // Get all values from an object
+    inline auto object_values(const json_value& val) -> std::optional<std::vector<json_value>> {
+        if (!val.is_object()) return std::nullopt;
+        
+        std::vector<json_value> values;
+        const auto& obj = val.as_object();
+        values.reserve(obj.size());
+        
+        for (const auto& [_, value] : obj) {
+            values.push_back(value);
+        }
+        return values;
+    }
+
+    // Check if object has key
+    inline auto has_key(const json_value& val, const std::string& key) -> bool {
+        if (!val.is_object()) return false;
+        return val.as_object().contains(key);
+    }
+
+    // Safe object key access with default
+    inline auto get_or(const json_value& val, const std::string& key, const json_value& default_val) -> json_value {
+        if (!val.is_object()) return default_val;
+        const auto& obj = val.as_object();
+        auto it = obj.find(key);
+        return (it != obj.end()) ? it->second : default_val;
+    }
+
+    // Filter object by predicate
+    template<typename Predicate>
+    auto filter_object(const json_value& val, Predicate&& pred) -> std::optional<json_object> {
+        if (!val.is_object()) return std::nullopt;
+        
+        json_object result;
+        for (const auto& [key, value] : val.as_object()) {
+            if (pred(key, value)) {
+                result[key] = value;
+            }
+        }
+        return result;
+    }
+
+    // Filter array by predicate
+    template<typename Predicate>
+    auto filter_array(const json_value& val, Predicate&& pred) -> std::optional<json_array> {
+        if (!val.is_array()) return std::nullopt;
+        
+        json_array result;
+        for (const auto& item : val.as_array()) {
+            if (pred(item)) {
+                result.push_back(item);
+            }
+        }
+        return result;
+    }
+
+    // Convert object to flat map of paths (for nested access)
+    auto flatten_object(const json_value& val, const std::string& prefix = "") -> std::unordered_map<std::string, json_value> {
+        std::unordered_map<std::string, json_value> result;
+        
+        if (!val.is_object()) {
+            result[prefix] = val;
+            return result;
+        }
+        
+        for (const auto& [key, value] : val.as_object()) {
+            std::string path = prefix.empty() ? key : prefix + "." + key;
+            
+            if (value.is_object()) {
+                auto nested = flatten_object(value, path);
+                result.insert(nested.begin(), nested.end());
+            } else {
+                result[path] = value;
+            }
+        }
+        return result;
+    }
+
+    // Type coercion with fallback
+    inline auto coerce_to_string(const json_value& val) -> std::string {
+        if (val.is_string()) return val.as_string();
+        if (val.is_number()) return std::to_string(val.as_number());
+        if (val.is_bool()) return val.as_bool() ? "true" : "false";
+        if (val.is_null()) return "null";
+        return "[complex type]";
+    }
+
+    inline auto coerce_to_number(const json_value& val) -> std::optional<double> {
+        if (val.is_number()) return val.as_number();
+        if (val.is_bool()) return val.as_bool() ? 1.0 : 0.0;
+        if (val.is_string()) {
+            try {
+                return std::stod(val.as_string());
+            } catch (...) {
+                return std::nullopt;
+            }
+        }
+        return std::nullopt;
+    }
+}
 
 // ============================================================================
 // SIMD Detection and Optimization
@@ -1466,7 +1967,7 @@ auto parser::parse_string() -> json_result<json_value> {
                     case 'u': {
                         // Use unicode module for proper UTF-16 surrogate pair handling
                         size_t remaining = input_.size() - pos_;
-                        auto result = unicode::decode_json_unicode_escape(input_.data() + pos_,
+                        auto result = fastjson::unicode::decode_json_unicode_escape(input_.data() + pos_,
                                                                           remaining, value);
 
                         if (!result.has_value()) {
@@ -1536,7 +2037,7 @@ auto parser::parse_string() -> json_result<json_value> {
                     // Use unicode module for proper UTF-16 surrogate pair handling
                     size_t remaining = input_.size() - pos_;
                     auto result =
-                        unicode::decode_json_unicode_escape(input_.data() + pos_, remaining, value);
+                        fastjson::unicode::decode_json_unicode_escape(input_.data() + pos_, remaining, value);
 
                     if (!result.has_value()) {
                         return std::unexpected(
@@ -1886,7 +2387,7 @@ parallel_parse:
     if (g_config.enable_numa && !g_numa_initialized.load(std::memory_order_acquire)) {
         bool expected = false;
         if (g_numa_initialized.compare_exchange_strong(expected, true)) {
-            g_numa_topo = numa::detect_numa_topology();
+            g_numa_topo = fastjson::numa::detect_numa_topology();
         }
     }
 
@@ -1900,9 +2401,9 @@ parallel_parse:
             if (!thread_bound) {
                 int thread_id = omp_get_thread_num();
                 int num_threads = omp_get_num_threads();
-                int node = numa::get_optimal_node_for_thread(thread_id, num_threads,
+                int node = fastjson::numa::get_optimal_node_for_thread(thread_id, num_threads,
                                                              g_numa_topo.num_nodes);
-                numa::bind_thread_to_numa_node(node);
+                fastjson::numa::bind_thread_to_numa_node(node);
                 thread_bound = true;
             }
 #endif
@@ -2354,9 +2855,9 @@ auto parser::parse_object_parallel(size_t estimated_size) -> json_result<json_va
             if (!thread_bound) {
                 int thread_id = omp_get_thread_num();
                 int num_threads = omp_get_num_threads();
-                int node = numa::get_optimal_node_for_thread(thread_id, num_threads,
+                int node = fastjson::numa::get_optimal_node_for_thread(thread_id, num_threads,
                                                              g_numa_topo.num_nodes);
-                numa::bind_thread_to_numa_node(node);
+                fastjson::numa::bind_thread_to_numa_node(node);
                 thread_bound = true;
             }
 #endif
@@ -2430,12 +2931,71 @@ auto parser::parse_object_parallel(size_t estimated_size) -> json_result<json_va
 // Public API
 // ============================================================================
 
-export auto parse(std::string_view input) -> json_result<json_value> {
+export auto parse(std::string_view input) -> json_result<json_value>;
+export auto parse(std::string_view input, text_encoding encoding) -> json_result<json_value>;
+export auto parse_with_config(std::string_view input, const parse_config& config) -> json_result<json_value>;
+export auto object() -> json_value;
+export auto array() -> json_value;
+export auto null() -> json_value;
+export auto stringify(const json_value& v) -> std::string;
+export auto prettify(const json_value& v, int indent) -> std::string;
+
+// Functional utilities
+export auto map(const json_value& arr, auto&& func) -> json_value;
+export auto filter(const json_value& arr, auto&& pred) -> json_value;
+export auto reduce(const json_value& arr, auto&& func, json_value init) -> json_value;
+export auto all(const json_value& arr, auto&& pred) -> bool;
+export auto any(const json_value& arr, auto&& pred) -> bool;
+export auto zip(const json_value& arr1, const json_value& arr2) -> json_value;
+export auto unzip(const json_value& arr) -> std::pair<json_value, json_value>;
+export auto reverse(const json_value& arr) -> json_value;
+export auto rotate(const json_value& arr, int n) -> json_value;
+export auto take(const json_value& arr, size_t n) -> json_value;
+export auto drop(const json_value& arr, size_t n) -> json_value;
+
+auto parse(std::string_view input) -> json_result<json_value> {
+    // Use encoding from config, or auto-detect
+    auto encoding = g_config.input_encoding;
+    if (encoding != text_encoding::UTF8 && encoding != text_encoding::AUTO_DETECT) {
+        // Need to convert to UTF-8
+        auto utf8_result = convert_to_utf8(input, encoding);
+        if (!utf8_result) {
+            return std::unexpected(json_error{json_error_code::invalid_syntax, utf8_result.error(), 0, 0});
+        }
+        parser p(utf8_result.value());
+        return p.parse();
+    } else if (encoding == text_encoding::AUTO_DETECT) {
+        // Auto-detect and convert if needed
+        auto utf8_result = convert_to_utf8(input, text_encoding::AUTO_DETECT);
+        if (!utf8_result) {
+            return std::unexpected(json_error{json_error_code::invalid_syntax, utf8_result.error(), 0, 0});
+        }
+        parser p(utf8_result.value());
+        return p.parse();
+    }
+
+    // Already UTF-8
     parser p(input);
     return p.parse();
 }
 
-export auto parse_with_config(std::string_view input, const parse_config& config)
+auto parse(std::string_view input, text_encoding encoding) -> json_result<json_value> {
+    // Convert to UTF-8 if needed
+    if (encoding != text_encoding::UTF8) {
+        auto utf8_result = convert_to_utf8(input, encoding);
+        if (!utf8_result) {
+            return std::unexpected(json_error{json_error_code::invalid_syntax, utf8_result.error(), 0, 0});
+        }
+        parser p(utf8_result.value());
+        return p.parse();
+    }
+
+    // Already UTF-8
+    parser p(input);
+    return p.parse();
+}
+
+auto parse_with_config(std::string_view input, const parse_config& config)
     -> json_result<json_value> {
     auto old_config = g_config;
     g_config = config;
@@ -2445,25 +3005,224 @@ export auto parse_with_config(std::string_view input, const parse_config& config
 }
 
 // Helper functions for creating JSON values
-export auto object() -> json_value {
+auto object() -> json_value {
     return json_value{json_object{}};
 }
 
-export auto array() -> json_value {
+auto array() -> json_value {
     return json_value{json_array{}};
 }
 
-export auto null() -> json_value {
+auto null() -> json_value {
     return json_value{};
 }
 
 // Serialization stubs (to be implemented)
-export auto stringify(const json_value& v) -> std::string {
+auto stringify(const json_value& v) -> std::string {
     return "{}";
 }
 
-export auto prettify(const json_value& v, int indent) -> std::string {
+auto prettify(const json_value& v, int indent) -> std::string {
     return "{}";
 }
 
-}  // namespace fastjson_parallel_parallel
+
+// ============================================================================
+// Functional Programming Utilities for JSON Arrays
+// ============================================================================
+
+// Map: Transform each element in a JSON array
+auto map(const json_value& arr, auto&& func) -> json_value {
+    if (!arr.is_array()) {
+        throw std::runtime_error("map() requires a JSON array");
+    }
+    
+    json_array result;
+    const auto& source = arr.as_array();
+    result.reserve(source.size());
+    
+    for (const auto& elem : source) {
+        result.push_back(func(elem));
+    }
+    
+    return json_value{std::move(result)};
+}
+
+// Filter: Keep only elements that satisfy a predicate
+auto filter(const json_value& arr, auto&& pred) -> json_value {
+    if (!arr.is_array()) {
+        throw std::runtime_error("filter() requires a JSON array");
+    }
+    
+    json_array result;
+    const auto& source = arr.as_array();
+    
+    for (const auto& elem : source) {
+        if (pred(elem)) {
+            result.push_back(elem);
+        }
+    }
+    
+    return json_value{std::move(result)};
+}
+
+// Reduce: Fold array elements into a single value
+auto reduce(const json_value& arr, auto&& func, json_value init) -> json_value {
+    if (!arr.is_array()) {
+        throw std::runtime_error("reduce() requires a JSON array");
+    }
+    
+    json_value accumulator = std::move(init);
+    const auto& source = arr.as_array();
+    
+    for (const auto& elem : source) {
+        accumulator = func(std::move(accumulator), elem);
+    }
+    
+    return accumulator;
+}
+
+// All: Check if all elements satisfy a predicate
+auto all(const json_value& arr, auto&& pred) -> bool {
+    if (!arr.is_array()) {
+        throw std::runtime_error("all() requires a JSON array");
+    }
+    
+    const auto& source = arr.as_array();
+    for (const auto& elem : source) {
+        if (!pred(elem)) {
+            return false;
+        }
+    }
+    
+    return true;
+}
+
+// Any: Check if any element satisfies a predicate
+auto any(const json_value& arr, auto&& pred) -> bool {
+    if (!arr.is_array()) {
+        throw std::runtime_error("any() requires a JSON array");
+    }
+    
+    const auto& source = arr.as_array();
+    for (const auto& elem : source) {
+        if (pred(elem)) {
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+// Zip: Combine two arrays element-wise
+auto zip(const json_value& arr1, const json_value& arr2) -> json_value {
+    if (!arr1.is_array() || !arr2.is_array()) {
+        throw std::runtime_error("zip() requires two JSON arrays");
+    }
+    
+    const auto& source1 = arr1.as_array();
+    const auto& source2 = arr2.as_array();
+    const size_t min_size = std::min(source1.size(), source2.size());
+    
+    json_array result;
+    result.reserve(min_size);
+    
+    for (size_t i = 0; i < min_size; ++i) {
+        json_array pair;
+        pair.push_back(source1[i]);
+        pair.push_back(source2[i]);
+        result.push_back(json_value{std::move(pair)});
+    }
+    
+    return json_value{std::move(result)};
+}
+
+// Unzip: Split an array of pairs into two arrays
+auto unzip(const json_value& arr) -> std::pair<json_value, json_value> {
+    if (!arr.is_array()) {
+        throw std::runtime_error("unzip() requires a JSON array");
+    }
+    
+    const auto& source = arr.as_array();
+    json_array first, second;
+    first.reserve(source.size());
+    second.reserve(source.size());
+    
+    for (const auto& elem : source) {
+        if (elem.is_array() && elem.as_array().size() >= 2) {
+            const auto& pair = elem.as_array();
+            first.push_back(pair[0]);
+            second.push_back(pair[1]);
+        }
+    }
+    
+    return {json_value{std::move(first)}, json_value{std::move(second)}};
+}
+
+// Reverse: Reverse the order of array elements
+auto reverse(const json_value& arr) -> json_value {
+    if (!arr.is_array()) {
+        throw std::runtime_error("reverse() requires a JSON array");
+    }
+    
+    const auto& source = arr.as_array();
+    json_array result(source.rbegin(), source.rend());
+    
+    return json_value{std::move(result)};
+}
+
+// Rotate: Rotate array elements left by n positions
+auto rotate(const json_value& arr, int n) -> json_value {
+    if (!arr.is_array()) {
+        throw std::runtime_error("rotate() requires a JSON array");
+    }
+    
+    const auto& source = arr.as_array();
+    if (source.empty()) {
+        return arr;
+    }
+    
+    // Normalize n to be within [0, size)
+    const size_t size = source.size();
+    n = ((n % static_cast<int>(size)) + static_cast<int>(size)) % static_cast<int>(size);
+    
+    json_array result;
+    result.reserve(size);
+    
+    for (size_t i = 0; i < size; ++i) {
+        result.push_back(source[(i + n) % size]);
+    }
+    
+    return json_value{std::move(result)};
+}
+
+// Take: Get first n elements
+auto take(const json_value& arr, size_t n) -> json_value {
+    if (!arr.is_array()) {
+        throw std::runtime_error("take() requires a JSON array");
+    }
+    
+    const auto& source = arr.as_array();
+    const size_t count = std::min(n, source.size());
+    
+    json_array result(source.begin(), source.begin() + count);
+    return json_value{std::move(result)};
+}
+
+// Drop: Skip first n elements
+auto drop(const json_value& arr, size_t n) -> json_value {
+    if (!arr.is_array()) {
+        throw std::runtime_error("drop() requires a JSON array");
+    }
+    
+    const auto& source = arr.as_array();
+    if (n >= source.size()) {
+        return json_value{json_array{}};
+    }
+    
+    json_array result(source.begin() + n, source.end());
+    return json_value{std::move(result)};
+}
+
+
+}  // namespace fastjson_parallel

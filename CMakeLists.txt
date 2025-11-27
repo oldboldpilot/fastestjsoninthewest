@@ -153,6 +153,47 @@ set_target_properties(fastjson PROPERTIES
     CXX_EXTENSIONS OFF
 )
 
+# Create FastJSON Parallel C++23 module library with OpenMP support
+add_library(fastjson_parallel)
+target_sources(fastjson_parallel
+    PUBLIC
+        FILE_SET CXX_MODULES FILES
+        modules/fastjson_parallel.cppm
+    PRIVATE
+        modules/numa_allocator.cpp
+)
+
+# Include directories for helper headers
+target_include_directories(fastjson_parallel PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/modules
+)
+
+# Enable SIMD support with thread safety and OpenMP
+target_compile_definitions(fastjson_parallel PRIVATE 
+    FASTJSON_ENABLE_SIMD
+    FASTJSON_THREAD_SAFE
+)
+
+# Add thread-safe compilation options
+target_compile_options(fastjson_parallel PRIVATE
+    -fPIC                   # Position Independent Code for shared libraries
+    -fstack-protector-strong # Stack protection
+    -D_FORTIFY_SOURCE=2     # Buffer overflow detection
+)
+
+# Set compile features and properties
+target_compile_features(fastjson_parallel PUBLIC cxx_std_23)
+set_target_properties(fastjson_parallel PROPERTIES
+    CXX_STANDARD 23
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF
+)
+
+# Link OpenMP if enabled
+if(ENABLE_OPENMP)
+    target_link_libraries(fastjson_parallel PUBLIC OpenMP::OpenMP_CXX)
+endif()
+
 # SIMD Optimizations - CPU-specific conditional compilation
 # Use -march=native to let compiler detect and enable all supported features
 include(CheckCXXCompilerFlag)
@@ -631,6 +672,124 @@ set_target_properties(test_conversion_helpers PROPERTIES
     CXX_STANDARD 23
     CXX_STANDARD_REQUIRED ON
     POSITION_INDEPENDENT_CODE ON
+    BUILD_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
+    INSTALL_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
+)
+
+# Tool: Generate large JSON test files
+add_executable(generate_test_file tools/generate_test_file.cpp)
+target_compile_options(generate_test_file PRIVATE
+    -std=c++23
+    -O3
+    -Wall
+    -Wextra
+)
+set_target_properties(generate_test_file PROPERTIES
+    CXX_STANDARD 23
+    CXX_STANDARD_REQUIRED ON
+)
+
+# Tool: Test large file parsing with current parser
+add_executable(test_large_file test_large_file.cpp)
+target_link_libraries(test_large_file PRIVATE fastjson)
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(test_large_file PRIVATE OpenMP::OpenMP_CXX)
+endif()
+target_compile_options(test_large_file PRIVATE
+    ${SIMD_FLAGS}
+    -fstack-protector-strong
+)
+target_compile_definitions(test_large_file PRIVATE ${SIMD_DEFINES} FASTJSON_ENABLE_SIMD)
+set_target_properties(test_large_file PROPERTIES
+    CXX_STANDARD 23
+    CXX_STANDARD_REQUIRED ON
+    POSITION_INDEPENDENT_CODE ON
+    BUILD_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
+    INSTALL_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
+)
+
+# Tool: Test large file parsing with parallel benchmarks
+add_executable(test_large_file_parallel test_large_file_parallel.cpp)
+target_link_libraries(test_large_file_parallel PRIVATE fastjson_parallel)
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(test_large_file_parallel PRIVATE OpenMP::OpenMP_CXX)
+endif()
+target_compile_options(test_large_file_parallel PRIVATE
+    ${SIMD_FLAGS}
+    -fstack-protector-strong
+    -fopenmp=libomp
+)
+target_compile_definitions(test_large_file_parallel PRIVATE ${SIMD_DEFINES} FASTJSON_ENABLE_SIMD FASTJSON_THREAD_SAFE)
+set_target_properties(test_large_file_parallel PROPERTIES
+    CXX_STANDARD 23
+    CXX_STANDARD_REQUIRED ON
+    POSITION_INDEPENDENT_CODE ON
+    BUILD_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
+    INSTALL_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
+)
+
+# Tool: Test using the legacy parallel parser (fastjson_parallel.cpp)
+add_executable(test_parallel_parser test_parallel_parser.cpp modules/fastjson_parallel.cpp)
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(test_parallel_parser PRIVATE OpenMP::OpenMP_CXX)
+endif()
+target_compile_options(test_parallel_parser PRIVATE
+    ${SIMD_FLAGS}
+    -O3
+    -DFASTJSON_NO_LOGGER
+    -DFASTJSON_ENABLE_SIMD
+)
+target_compile_definitions(test_parallel_parser PRIVATE ${SIMD_DEFINES} FASTJSON_ENABLE_SIMD FASTJSON_NO_LOGGER)
+set_target_properties(test_parallel_parser PROPERTIES
+    CXX_STANDARD 23
+    CXX_STANDARD_REQUIRED ON
+    POSITION_INDEPENDENT_CODE ON
+    BUILD_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
+    INSTALL_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
+)
+
+# Test executable for parallel module
+add_executable(test_parallel_module test_parallel_module.cpp)
+target_link_libraries(test_parallel_module PRIVATE fastjson_parallel)
+if(ENABLE_OPENMP)
+    target_link_libraries(test_parallel_module PRIVATE OpenMP::OpenMP_CXX)
+endif()
+target_compile_options(test_parallel_module PRIVATE
+    -fPIC
+    -fstack-protector-strong
+    -D_FORTIFY_SOURCE=2
+)
+target_compile_definitions(test_parallel_module PRIVATE 
+    FASTJSON_ENABLE_SIMD
+    FASTJSON_THREAD_SAFE
+)
+set_target_properties(test_parallel_module PROPERTIES
+    CXX_STANDARD 23
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF
+    BUILD_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
+    INSTALL_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
+)
+
+# Type mappings demonstration executable
+add_executable(type_mappings_demo examples/type_mappings_demo.cpp)
+target_link_libraries(type_mappings_demo PRIVATE fastjson_parallel)
+if(ENABLE_OPENMP)
+    target_link_libraries(type_mappings_demo PRIVATE OpenMP::OpenMP_CXX)
+endif()
+target_compile_options(type_mappings_demo PRIVATE
+    -fPIC
+    -fstack-protector-strong
+    -D_FORTIFY_SOURCE=2
+)
+target_compile_definitions(type_mappings_demo PRIVATE 
+    FASTJSON_ENABLE_SIMD
+    FASTJSON_THREAD_SAFE
+)
+set_target_properties(type_mappings_demo PROPERTIES
+    CXX_STANDARD 23
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF
     BUILD_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
     INSTALL_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
 )
