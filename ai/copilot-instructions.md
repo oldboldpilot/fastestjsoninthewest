@@ -9,7 +9,25 @@ High-performance C++23 JSON parser with SIMD acceleration, 128-bit precision sup
 - **Standard**: C++23 with modules
 - **OpenMP**: Enabled for parallel processing
 
-## Code Style
+## LINQ Module (C++23)
+- **File**: `modules/json_linq.cppm` (not `.h`)
+- **Import syntax**: `import json_linq;` (not `#include`)
+- **Namespace**: `fastjson::linq`
+- **Classes**: `query_result<T>` (sequential), `parallel_query_result<T>` (OpenMP)
+- **Containers**: `std::unordered_map`, `std::unordered_set` for consistency with fastjson
+- **40+ operations**: where, select, order_by, group_by, sum, min, max, aggregate, etc.
+- **Helper functions**: `from()`, `from_parallel()`
+
+Example:
+```cpp
+import json_linq;
+using namespace fastjson::linq;
+
+auto result = from(data)
+    .where([](auto& x) { return x > 5; })
+    .select([](auto& x) { return x * 2; })
+    .to_vector();
+```
 
 ### Naming Conventions
 - **Functions**: `snake_case` with trailing syntax (e.g., `auto parse() -> result`)
@@ -34,10 +52,26 @@ using json_number_128 = __float128;   // High precision
 using json_int_128 = __int128;        // Large integers
 using json_uint_128 = unsigned __int128;
 
-// Exception-free accessors
-double as_number() const;          // Returns NaN for non-numeric
-__float128 as_number_128() const;  // Returns NaN for non-numeric
-__int128 as_int_128() const;       // Returns 0 for non-numeric
+// Exception-free accessors - THREE categories:
+
+// 1. PRIMARY (JSON standard - always double)
+double as_number() const;          // Converts any numeric to double
+
+// 2. STRICT (return default if wrong type)
+__float128 as_number_128() const;  // Returns NaN if not __float128
+__int128 as_int_128() const;       // Returns 0 if not __int128
+unsigned __int128 as_uint_128() const; // Returns 0 if not unsigned __int128
+
+// 3. CONVERTING (auto-convert between types)
+int64_t as_int64() const;          // Any numeric → int64_t
+uint64_t as_uint64() const;        // Any numeric → uint64_t
+double as_float64() const;         // Any numeric → double
+__int128 as_int128() const;        // Any numeric → __int128
+unsigned __int128 as_uint128() const; // Any numeric → unsigned __int128
+__float128 as_float128() const;    // Any numeric → __float128
+
+// IMPORTANT: Storage preserves exact type, use converting accessors
+// to recover values with appropriate conversions.
 ```
 
 ### Type System
