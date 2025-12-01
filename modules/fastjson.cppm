@@ -610,8 +610,10 @@ public:
     // Numeric conversion helpers with automatic type handling
     // These methods convert between numeric types intelligently
     auto as_int64() const -> int64_t;
+    auto as_uint64() const -> uint64_t;
     auto as_float64() const -> double;
     auto as_int128() const -> __int128;
+    auto as_uint128() const -> unsigned __int128;
     auto as_float128() const -> __float128;
 
     // Mutable accessor methods
@@ -697,31 +699,85 @@ auto json_value::as_boolean() const -> bool {
 }
 
 auto json_value::as_number() const -> double {
-    if (!is_number()) {
-        return std::numeric_limits<double>::quiet_NaN();
+    // Try 64-bit double first (fast path)
+    if (is_number()) {
+        return std::get<double>(data_);
     }
-    return std::get<double>(data_);
+    
+    // Fallback: Convert from 128-bit types (with potential precision loss)
+    if (is_number_128()) {
+        return static_cast<double>(std::get<__float128>(data_));
+    }
+    if (is_int_128()) {
+        return static_cast<double>(std::get<__int128>(data_));
+    }
+    if (is_uint_128()) {
+        return static_cast<double>(std::get<unsigned __int128>(data_));
+    }
+    
+    // Not a numeric type at all
+    return std::numeric_limits<double>::quiet_NaN();
 }
 
 auto json_value::as_number_128() const -> __float128 {
-    if (!is_number_128()) {
-        return static_cast<__float128>(std::numeric_limits<double>::quiet_NaN());
+    // Try 128-bit float first
+    if (is_number_128()) {
+        return std::get<__float128>(data_);
     }
-    return std::get<__float128>(data_);
+    
+    // Fallback: Convert from other numeric types (upcast or precision loss)
+    if (is_number()) {
+        return static_cast<__float128>(std::get<double>(data_));
+    }
+    if (is_int_128()) {
+        return static_cast<__float128>(std::get<__int128>(data_));
+    }
+    if (is_uint_128()) {
+        return static_cast<__float128>(std::get<unsigned __int128>(data_));
+    }
+    
+    // Not a numeric type at all
+    return static_cast<__float128>(std::numeric_limits<double>::quiet_NaN());
 }
 
 auto json_value::as_int_128() const -> __int128 {
-    if (!is_int_128()) {
-        return 0;
+    // Try signed 128-bit first
+    if (is_int_128()) {
+        return std::get<__int128>(data_);
     }
-    return std::get<__int128>(data_);
+    // Fallback: Convert from other numeric types
+    if (is_uint_128()) {
+        return static_cast<__int128>(std::get<unsigned __int128>(data_));
+    }
+    if (is_number()) {
+        double val = std::get<double>(data_);
+        if (std::isnan(val)) return 0;
+        return static_cast<__int128>(val);
+    }
+    if (is_number_128()) {
+        return static_cast<__int128>(std::get<__float128>(data_));
+    }
+    return 0;
 }
 
 auto json_value::as_uint_128() const -> unsigned __int128 {
-    if (!is_uint_128()) {
-        return 0;
+    // Try unsigned 128-bit first
+    if (is_uint_128()) {
+        return std::get<unsigned __int128>(data_);
     }
-    return std::get<unsigned __int128>(data_);
+    // Fallback: Convert from other numeric types
+    if (is_int_128()) {
+        return static_cast<unsigned __int128>(std::get<__int128>(data_));
+    }
+    if (is_number()) {
+        double val = std::get<double>(data_);
+        if (std::isnan(val)) return 0;
+        return static_cast<unsigned __int128>(val);
+    }
+    if (is_number_128()) {
+        return static_cast<unsigned __int128>(std::get<__float128>(data_));
+    }
+    return 0;
 }
 
 auto json_value::as_string() const -> const std::string& {
@@ -745,6 +801,22 @@ auto json_value::as_int64() const -> int64_t {
         return static_cast<int64_t>(std::get<unsigned __int128>(data_));
     } else if (is_number_128()) {
         return static_cast<int64_t>(std::get<__float128>(data_));
+    }
+    return 0;  // Non-numeric type returns 0
+}
+
+auto json_value::as_uint64() const -> uint64_t {
+    if (is_number()) {
+        double val = std::get<double>(data_);
+        if (std::isnan(val))
+            return 0;
+        return static_cast<uint64_t>(val);
+    } else if (is_uint_128()) {
+        return static_cast<uint64_t>(std::get<unsigned __int128>(data_));
+    } else if (is_int_128()) {
+        return static_cast<uint64_t>(std::get<__int128>(data_));
+    } else if (is_number_128()) {
+        return static_cast<uint64_t>(std::get<__float128>(data_));
     }
     return 0;  // Non-numeric type returns 0
 }
@@ -774,6 +846,22 @@ auto json_value::as_int128() const -> __int128 {
         return static_cast<__int128>(val);
     } else if (is_number_128()) {
         return static_cast<__int128>(std::get<__float128>(data_));
+    }
+    return 0;  // Non-numeric type returns 0
+}
+
+auto json_value::as_uint128() const -> unsigned __int128 {
+    if (is_uint_128()) {
+        return std::get<unsigned __int128>(data_);
+    } else if (is_int_128()) {
+        return static_cast<unsigned __int128>(std::get<__int128>(data_));
+    } else if (is_number()) {
+        double val = std::get<double>(data_);
+        if (std::isnan(val))
+            return 0;
+        return static_cast<unsigned __int128>(val);
+    } else if (is_number_128()) {
+        return static_cast<unsigned __int128>(std::get<__float128>(data_));
     }
     return 0;  // Non-numeric type returns 0
 }

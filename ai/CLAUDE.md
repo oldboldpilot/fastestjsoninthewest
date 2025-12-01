@@ -45,18 +45,43 @@ ninja -j$(nproc)
 - **Type conversions**: Safe cross-type conversions (64↔128 bit)
 
 ### Exception-Free Numeric API
-```cpp
-// All methods return NaN for floats, 0 for integers (no exceptions)
-double as_number() const;              // 64-bit float
-__float128 as_number_128() const;      // 128-bit float
-__int128 as_int_128() const;           // 128-bit signed int
-unsigned __int128 as_uint_128() const; // 128-bit unsigned int
 
-// Conversion helpers (auto-convert between types)
-int64_t as_int64() const;        // To 64-bit int
-double as_float64() const;       // To 64-bit float  
-__int128 as_int128() const;      // To 128-bit int
-__float128 as_float128() const;  // To 128-bit float
+**Design Philosophy**:
+- `as_number()` follows JSON standard (returns double)
+- Storage preserves exact type for precision
+- Specialized accessors allow exact recovery if you know the type
+- Converting accessors handle cross-type conversions safely
+
+```cpp
+// PRIMARY ACCESSORS (JSON standard: double)
+double as_number() const;              // Always returns double, converts from any numeric type
+                                       // Returns NaN for non-numeric types
+
+// STRICT TYPE ACCESSORS (return default if wrong type stored)
+__float128 as_number_128() const;      // Returns NaN if not stored as __float128
+__int128 as_int_128() const;           // Returns 0 if not stored as __int128
+unsigned __int128 as_uint_128() const; // Returns 0 if not stored as unsigned __int128
+
+// CONVERTING ACCESSORS (auto-convert between numeric types)
+int64_t as_int64() const;              // Converts any numeric → int64_t, returns 0 for non-numeric
+uint64_t as_uint64() const;            // Converts any numeric → uint64_t, returns 0 for non-numeric
+double as_float64() const;             // Converts any numeric → double, returns NaN for non-numeric
+__int128 as_int128() const;            // Converts any numeric → __int128, returns 0 for non-numeric
+unsigned __int128 as_uint128() const;  // Converts any numeric → unsigned __int128, returns 0 for non-numeric
+__float128 as_float128() const;        // Converts any numeric → __float128, returns NaN for non-numeric
+
+// USAGE EXAMPLES:
+// JSON: "9007199254740993" (2^53 + 1, stored as __int128)
+auto val = parse("9007199254740993");
+val->as_number();      // Returns ~9.007e15 (double, precision loss acceptable)
+val->as_int128();      // Returns exact 9007199254740993 (__int128)
+val->as_float128();    // Returns exact 9007199254740993.0 (__float128, no precision loss)
+
+// JSON: "1.23456789012345" (stored as double)
+auto val2 = parse("1.23456789012345");
+val2->as_number();     // Returns 1.23456789012345
+val2->as_int64();      // Returns 1 (truncates to integer)
+val2->as_float128();   // Returns 1.23456789012345 (upcast to __float128)
 ```
 
 ### SIMD Acceleration
@@ -64,10 +89,44 @@ __float128 as_float128() const;  // To 128-bit float
 - **ARM**: NEON 128-bit support
 - **Automatic detection**: Runtime instruction set selection
 
-### LINQ & Functional Programming
-- 40+ LINQ operations with sequential and parallel execution
-- Functional primitives: map, filter, reduce, zip, scan
-- Method chaining with fluent API
+### LINQ & Functional Programming (C++23 Module)
+- **Module**: `json_linq.cppm` (814 lines, 40+ operations)
+- **Import**: `import json_linq;` (not `#include`)
+- **Containers**: Uses `std::unordered_map` and `std::unordered_set` for O(1) performance
+- **OpenMP**: Parallel operations require `-DENABLE_OPENMP=ON`
+
+```cpp
+import json_linq;
+import fastjson_parallel;
+using namespace fastjson::linq;
+
+// Query JSON with LINQ
+auto json = parse_json(R"([{"id":1,"value":100},{"id":2,"value":200}])");
+auto objects = json.extract_objects();
+
+auto result = from(objects)
+    .where([](const json_object& obj) { return obj.at("value").as_number() > 150; })
+    .select([](const json_object& obj) { return obj.at("id").as_number(); })
+    .to_vector();  // Result: [2]
+
+// Parallel query with OpenMP
+auto sum = from_parallel(large_data)
+    .where(predicate)
+    .sum(selector);
+```
+
+**40+ Operations**:
+- **Filtering**: where, filter, distinct, take, skip, take_while, skip_while
+- **Projection**: select, map
+- **Aggregation**: sum, min, max, average, count, any, all, aggregate/reduce
+- **Ordering**: order_by, order_by_descending (parallel with OpenMP)
+- **Set ops**: concat, union_with, intersect, except (hash-based O(n))
+- **Functional**: for_each, find, find_index, zip, prefix_sum/scan
+- **Grouping**: group_by, join
+
+**Key Files**:
+- `modules/json_linq.cppm` - LINQ module implementation
+- `benchmarks/linq_benchmark.cpp` - Performance tests showing parallel speedup
 
 ### Unicode Support
 - UTF-8 (native), UTF-16 (surrogate pairs), UTF-32 (code points)
@@ -78,22 +137,24 @@ __float128 as_float128() const;  // To 128-bit float
 ```
 FastestJSONInTheWest/
 ├── modules/
-│   ├── fastjson.cppm         # Core parser module (C++23)
-│   ├── fastjson.cpp          # Implementation
-│   ├── json_linq.h           # LINQ query interface
-│   └── fastjson_parallel.cpp # Parallel processing
+│   ├── fastjson.cppm            # Core parser module (C++23)
+│   ├── fastjson_parallel.cppm   # Parallel processing module  
+│   ├── json_linq.cppm           # LINQ query module (814 lines)
+│   └── unicode.h                # UTF-16/32 support
 ├── ai/
-│   ├── AGENT_GUIDELINES.md   # Comprehensive dev guidelines
-│   ├── AGENT_TEST_POLICY.md  # Testing requirements
-│   ├── CLAUDE.md             # This file
-│   └── coding_standards.md   # Code style rules
+│   ├── AGENT_GUIDELINES.md      # Comprehensive dev guidelines
+│   ├── AGENT_TEST_POLICY.md     # Testing requirements
+│   ├── CLAUDE.md                # This file
+│   ├── copilot-instructions.md  # GitHub Copilot instructions
+│   └── coding_standards.md      # Code style rules
 ├── docs/
-│   └── ARCHITECTURE.md       # System architecture
+│   └── ARCHITECTURE.md          # System architecture
 ├── documents/
-│   └── API_REFERENCE.md      # Complete API docs
-├── tests/                    # Test suite
-├── benchmarks/              # Performance benchmarks
-└── python_bindings/         # Python wrapper (pybind11)
+│   └── API_REFERENCE.md         # Complete API docs
+├── tests/                       # Test suite
+├── benchmarks/                  # Performance benchmarks
+│   └── linq_benchmark.cpp       # LINQ performance tests
+└── python_bindings/             # Python wrapper (pybind11)
 ```
 
 ## Common Tasks
