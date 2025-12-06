@@ -1,5 +1,7 @@
 # FastestJSONInTheWest - GitHub Copilot Instructions
 
+> **SYNC POLICY**: This file MUST be kept in sync with `ai/CLAUDE.md`. When updating either file, copy the changes to both. Last sync: December 4, 2025.
+
 ## Project Context
 High-performance C++23 JSON parser with SIMD acceleration, 128-bit precision support, and LINQ-style queries.
 

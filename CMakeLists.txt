@@ -11,14 +11,18 @@ cmake_minimum_required(VERSION 3.28)
 # Can be overridden via: cmake -DCLANG_DEFAULT_PATH=/custom/path ...
 # Or via environment: CC=/custom/clang CXX=/custom/clang++ cmake ...
 
-# Default toolchain paths (can be overridden)
-set(CLANG_DEFAULT_PATH "/opt/clang-21/bin" CACHE STRING "Default path for Clang binaries")
-set(LIBCXX_DEFAULT_INCLUDE "/opt/clang-21/include/c++/v1" CACHE STRING "Default path for libc++ headers")
-set(LIBCXX_DEFAULT_LIB "/opt/clang-21/lib" CACHE STRING "Default path for libc++ libraries")
+# Only configure compiler paths when building standalone (not as submodule)
+# and when the toolchain exists
+if(NOT CMAKE_CXX_COMPILER AND EXISTS "/opt/clang-21/bin/clang++")
+    # Default toolchain paths (can be overridden)
+    set(CLANG_DEFAULT_PATH "/opt/clang-21/bin" CACHE STRING "Default path for Clang binaries")
+    set(LIBCXX_DEFAULT_INCLUDE "/opt/clang-21/include/c++/v1" CACHE STRING "Default path for libc++ headers")
+    set(LIBCXX_DEFAULT_LIB "/opt/clang-21/lib" CACHE STRING "Default path for libc++ libraries")
 
-# Set compilers using the configurable paths
-set(CMAKE_CXX_COMPILER "${CLANG_DEFAULT_PATH}/clang++")
-set(CMAKE_C_COMPILER "${CLANG_DEFAULT_PATH}/clang")
+    # Set compilers using the configurable paths
+    set(CMAKE_CXX_COMPILER "${CLANG_DEFAULT_PATH}/clang++")
+    set(CMAKE_C_COMPILER "${CLANG_DEFAULT_PATH}/clang")
+endif()
 
 project(FastestJSONInTheWest
     VERSION 1.0.0
@@ -32,7 +36,8 @@ project(FastestJSONInTheWest
 
 option(USE_FETCHCONTENT_LOGGER "Use FetchContent to fetch cpp23-logger instead of submodule" OFF)
 option(ENABLE_NATIVE_OPTIMIZATIONS "Enable native CPU optimizations (AVX-512, AVX2, etc) to match parent project" OFF)
-option(ENABLE_OPENMP "Enable OpenMP parallel processing support" OFF)
+option(ENABLE_OPENMP "Enable OpenMP parallel processing support (legacy)" OFF)
+option(ENABLE_PARALLEL_STL "Enable Parallel STL with Intel TBB (recommended for Clang)" ON)
 
 # Parent project CPU feature overrides (for WSL2/VM compatibility)
 # These allow parent projects to override auto-detection
@@ -66,14 +71,62 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # Find required libraries
 find_package(Threads REQUIRED)
 
-# Optional OpenMP support for parallel JSON parsing
+# Optional OpenMP support for parallel JSON parsing (legacy)
 if(ENABLE_OPENMP)
     find_package(OpenMP)
     if(OpenMP_CXX_FOUND)
-        message(STATUS "Enabling OpenMP support for parallel JSON parsing")
+        message(STATUS "Enabling OpenMP support for parallel JSON parsing (legacy)")
     else()
         message(WARNING "OpenMP requested but not found")
     endif()
+endif()
+
+# ============================================================================
+# Intel TBB for Parallel STL Support (Clang + libc++)
+# ============================================================================
+# Clang with libc++ requires TBB to enable std::execution parallel policies
+# We use FetchContent to get oneTBB (Intel's modern TBB implementation)
+
+if(ENABLE_PARALLEL_STL)
+    message(STATUS "Enabling Parallel STL with Intel TBB...")
+
+    include(FetchContent)
+
+    # Fetch Intel oneTBB (latest stable version)
+    FetchContent_Declare(
+        TBB
+        GIT_REPOSITORY https://github.com/oneapi-src/oneTBB.git
+        GIT_TAG        v2022.3.0  # Latest stable release
+        GIT_SHALLOW    TRUE
+    )
+
+    # Configure TBB options
+    set(TBB_TEST OFF CACHE BOOL "Don't build TBB tests" FORCE)
+    set(TBB_EXAMPLES OFF CACHE BOOL "Don't build TBB examples" FORCE)
+    set(TBB_STRICT OFF CACHE BOOL "Disable strict warnings" FORCE)
+
+    # Make TBB available
+    FetchContent_MakeAvailable(TBB)
+
+    # Export TBB configuration for parent projects
+    # NOTE: Unlike std.pcm, TBB doesn't require flag matching for binary compatibility
+    # because it's a regular shared library with a stable ABI. However, we export
+    # these variables so parent projects can reuse the same TBB instance.
+    get_target_property(TBB_INCLUDE_DIRS TBB::tbb INTERFACE_INCLUDE_DIRECTORIES)
+
+    set(FASTJSON_TBB_VERSION "v2022.3.0" CACHE STRING "TBB version used by fastjson" FORCE)
+    set(FASTJSON_TBB_TARGET "TBB::tbb" CACHE STRING "TBB target name" FORCE)
+    set(FASTJSON_TBB_INCLUDE_DIRS "${TBB_INCLUDE_DIRS}" CACHE STRING "TBB include directories" FORCE)
+    set(FASTJSON_HAS_PARALLEL_STL ON CACHE BOOL "fastjson has Parallel STL support" FORCE)
+
+    mark_as_advanced(FASTJSON_TBB_VERSION FASTJSON_TBB_TARGET FASTJSON_TBB_INCLUDE_DIRS FASTJSON_HAS_PARALLEL_STL)
+
+    message(STATUS "✓ Intel TBB fetched and configured")
+    message(STATUS "  TBB version: 2022.3.0")
+    message(STATUS "  TBB target: TBB::tbb (available to parent projects)")
+    message(STATUS "  Parallel STL execution policies available: std::execution::par, par_unseq")
+else()
+    set(FASTJSON_HAS_PARALLEL_STL OFF CACHE BOOL "fastjson has Parallel STL support" FORCE)
 endif()
 
 # Add Clang library paths using configurable variables
@@ -108,7 +161,14 @@ else()
     # Guard against duplicate inclusion (in case parent project already includes logger)
     if(NOT TARGET logger)
         if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/cpp23-logger/CMakeLists.txt")
+            # Disable tests and examples for cpp23-logger (directories may not exist in sync)
+            set(BUILD_TESTS_LOGGER_BACKUP ${BUILD_TESTS})
+            set(BUILD_EXAMPLES_LOGGER_BACKUP ${BUILD_EXAMPLES})
+            set(BUILD_TESTS OFF CACHE BOOL "" FORCE)
+            set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
             add_subdirectory(external/cpp23-logger EXCLUDE_FROM_ALL)
+            set(BUILD_TESTS ${BUILD_TESTS_LOGGER_BACKUP} CACHE BOOL "" FORCE)
+            set(BUILD_EXAMPLES ${BUILD_EXAMPLES_LOGGER_BACKUP} CACHE BOOL "" FORCE)
         else()
             message(FATAL_ERROR "cpp23-logger submodule not found. Run: git submodule update --init --recursive")
         endif()
@@ -121,6 +181,111 @@ endif()
 find_program(CLANG_TIDY_EXE NAMES clang-tidy-21 clang-tidy
     PATHS ${CLANG_DEFAULT_PATH} /usr/local/bin /usr/bin
     DOC "Path to clang-tidy executable")
+
+# ============================================================================
+# Auto-Build Standard Library Module PCM (std.pcm)
+# ============================================================================
+# Build std.pcm with the SAME flags as fastjson library to ensure binary
+# compatibility. This PCM can be used by any code that links against fastjson.
+
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    # Configurable path to libc++ std module source
+    # Try multiple common locations, can be overridden via cmake -DLIBCXX_MODULES_PATH=...
+    if(NOT LIBCXX_MODULES_PATH)
+        if(EXISTS "${LIBCXX_DEFAULT_INCLUDE}")
+            set(LIBCXX_MODULES_PATH "${LIBCXX_DEFAULT_INCLUDE}" CACHE STRING "Path to libc++ module sources")
+        elseif(EXISTS "/usr/local/share/libc++/v1")
+            set(LIBCXX_MODULES_PATH "/usr/local/share/libc++/v1" CACHE STRING "Path to libc++ module sources")
+        elseif(EXISTS "/usr/local/include/c++/v1")
+            set(LIBCXX_MODULES_PATH "/usr/local/include/c++/v1" CACHE STRING "Path to libc++ module sources")
+        else()
+            message(FATAL_ERROR "Could not find libc++ module sources. Please set LIBCXX_MODULES_PATH")
+        endif()
+    endif()
+
+    set(STD_CPPM "${LIBCXX_MODULES_PATH}/std.cppm")
+    set(STD_COMPAT_CPPM "${LIBCXX_MODULES_PATH}/std.compat.cppm")
+
+    if(NOT EXISTS "${STD_CPPM}")
+        message(FATAL_ERROR "std.cppm not found at ${STD_CPPM}. Please set LIBCXX_MODULES_PATH correctly.")
+    endif()
+
+    # Output PCM files in modules/ subdirectory
+    set(FASTJSON_STD_PCM "${CMAKE_CURRENT_BINARY_DIR}/modules/std.pcm")
+    set(FASTJSON_STD_COMPAT_PCM "${CMAKE_CURRENT_BINARY_DIR}/modules/std.compat.pcm")
+
+    file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/modules")
+
+    # Collect all compiler flags that will be used for fastjson
+    set(FASTJSON_STD_PCM_FLAGS
+        -std=c++23
+        -stdlib=libc++
+        -fPIC
+    )
+
+    # Add optimization flags if building in Release mode
+    if(CMAKE_BUILD_TYPE MATCHES "Release")
+        list(APPEND FASTJSON_STD_PCM_FLAGS -O3)
+    endif()
+
+    # Add native optimizations if enabled (must match fastjson compilation)
+    # NOTE: -march=native automatically detects and uses only CPU-supported instructions
+    if(ENABLE_NATIVE_OPTIMIZATIONS)
+        list(APPEND FASTJSON_STD_PCM_FLAGS -march=native)
+    endif()
+
+    # Add OpenMP flags if enabled (must match fastjson compilation)
+    if(ENABLE_OPENMP)
+        find_package(OpenMP QUIET)
+        if(OpenMP_CXX_FOUND)
+            list(APPEND FASTJSON_STD_PCM_FLAGS -fopenmp=libomp)
+        endif()
+    endif()
+
+    # Build std.pcm
+    add_custom_command(
+        OUTPUT ${FASTJSON_STD_PCM}
+        COMMAND ${CMAKE_CXX_COMPILER} ${FASTJSON_STD_PCM_FLAGS}
+                --precompile ${STD_CPPM} -o ${FASTJSON_STD_PCM}
+        DEPENDS ${STD_CPPM}
+        COMMENT "Precompiling libc++ std module for fastjson (std.pcm)"
+        VERBATIM
+    )
+
+    # Build std.compat.pcm (depends on std.pcm)
+    add_custom_command(
+        OUTPUT ${FASTJSON_STD_COMPAT_PCM}
+        COMMAND ${CMAKE_CXX_COMPILER} ${FASTJSON_STD_PCM_FLAGS}
+                -fprebuilt-module-path=${CMAKE_CURRENT_BINARY_DIR}/modules
+                --precompile ${STD_COMPAT_CPPM} -o ${FASTJSON_STD_COMPAT_PCM}
+        DEPENDS ${STD_COMPAT_CPPM} ${FASTJSON_STD_PCM}
+        COMMENT "Precompiling libc++ std.compat module for fastjson (std.compat.pcm)"
+        VERBATIM
+    )
+
+    # Custom target to build both PCM files
+    add_custom_target(build_fastjson_std_modules
+        DEPENDS ${FASTJSON_STD_PCM} ${FASTJSON_STD_COMPAT_PCM}
+        COMMENT "Building standard library modules for fastjson"
+    )
+
+    message(STATUS "fastjson std module PCM auto-build enabled:")
+    message(STATUS "  Module source: ${LIBCXX_MODULES_PATH}")
+    message(STATUS "  Output: ${CMAKE_CURRENT_BINARY_DIR}/modules/")
+    message(STATUS "  Compiler: ${CMAKE_CXX_COMPILER}")
+    message(STATUS "  Flags: ${FASTJSON_STD_PCM_FLAGS}")
+    message(STATUS "  OpenMP: ${ENABLE_OPENMP}")
+    message(STATUS "  Native opts: ${ENABLE_NATIVE_OPTIMIZATIONS}")
+
+    # Export variables for external projects (parent CMakeLists.txt)
+    # These allow external code to use the same PCM with binary compatibility
+    set(FASTJSON_STD_PCM "${FASTJSON_STD_PCM}" CACHE PATH "Path to fastjson's precompiled std.pcm" FORCE)
+    set(FASTJSON_STD_COMPAT_PCM "${FASTJSON_STD_COMPAT_PCM}" CACHE PATH "Path to fastjson's precompiled std.compat.pcm" FORCE)
+    set(FASTJSON_STD_PCM_FLAGS "${FASTJSON_STD_PCM_FLAGS}" CACHE STRING "Compiler flags used for fastjson's std.pcm" FORCE)
+    set(FASTJSON_STD_PCM_DIR "${CMAKE_CURRENT_BINARY_DIR}/modules" CACHE PATH "Directory containing fastjson's PCM files" FORCE)
+
+    mark_as_advanced(FASTJSON_STD_PCM FASTJSON_STD_COMPAT_PCM FASTJSON_STD_PCM_FLAGS FASTJSON_STD_PCM_DIR)
+endif()
 
 # Create FastJSON C++23 module library
 add_library(fastjson)
@@ -194,9 +359,17 @@ set_target_properties(fastjson_parallel PROPERTIES
     CXX_EXTENSIONS OFF
 )
 
-# Link OpenMP if enabled
-if(ENABLE_OPENMP)
+# Link parallel processing libraries
+if(ENABLE_PARALLEL_STL)
+    # Link Intel TBB for Parallel STL support (std::execution::par, par_unseq)
+    target_link_libraries(fastjson_parallel PUBLIC TBB::tbb)
+    target_compile_definitions(fastjson_parallel PUBLIC FASTJSON_USE_PARALLEL_STL)
+    message(STATUS "fastjson_parallel: Linked with Intel TBB for Parallel STL")
+elseif(ENABLE_OPENMP)
+    # Legacy OpenMP support
     target_link_libraries(fastjson_parallel PUBLIC OpenMP::OpenMP_CXX)
+    target_compile_definitions(fastjson_parallel PUBLIC FASTJSON_USE_OPENMP)
+    message(STATUS "fastjson_parallel: Linked with OpenMP (legacy)")
 endif()
 
 # Create JSON LINQ C++23 module library
@@ -663,82 +836,90 @@ message(STATUS "  - Build: mkdir python_bindings/build && cd python_bindings/bui
 message(STATUS "  - Tests: uv run pytest python_bindings/tests/ -v")
 message(STATUS "========================================")
 
-# Quick object parsing test
-add_executable(test_simple test_simple.cpp)
-target_link_libraries(test_simple PRIVATE fastjson)
-target_compile_options(test_simple PRIVATE 
-    ${SIMD_FLAGS}
-    -fstack-protector-strong
-)
-target_compile_definitions(test_simple PRIVATE ${SIMD_DEFINES} FASTJSON_ENABLE_SIMD)
-find_package(OpenMP)
-if(OpenMP_CXX_FOUND)
-    target_link_libraries(test_simple PRIVATE OpenMP::OpenMP_CXX)
+# Quick object parsing test (only if source exists)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/test_simple.cpp")
+    add_executable(test_simple test_simple.cpp)
+    target_link_libraries(test_simple PRIVATE fastjson)
+    target_compile_options(test_simple PRIVATE
+        ${SIMD_FLAGS}
+        -fstack-protector-strong
+    )
+    target_compile_definitions(test_simple PRIVATE ${SIMD_DEFINES} FASTJSON_ENABLE_SIMD)
+    find_package(OpenMP)
+    if(OpenMP_CXX_FOUND)
+        target_link_libraries(test_simple PRIVATE OpenMP::OpenMP_CXX)
+    endif()
+    set_target_properties(test_simple PROPERTIES
+        CXX_STANDARD 23
+        CXX_STANDARD_REQUIRED ON
+        POSITION_INDEPENDENT_CODE ON
+        BUILD_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
+        INSTALL_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
+    )
 endif()
-set_target_properties(test_simple PROPERTIES
-    CXX_STANDARD 23
-    CXX_STANDARD_REQUIRED ON
-    POSITION_INDEPENDENT_CODE ON
-    BUILD_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
-    INSTALL_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
-)
 
-# Comprehensive test suite (70+ tests)
-add_executable(test_comprehensive test_comprehensive.cpp)
-target_link_libraries(test_comprehensive PRIVATE fastjson)
-target_compile_options(test_comprehensive PRIVATE 
-    ${SIMD_FLAGS}
-    -fstack-protector-strong
-)
-target_compile_definitions(test_comprehensive PRIVATE ${SIMD_DEFINES} FASTJSON_ENABLE_SIMD)
-if(OpenMP_CXX_FOUND)
-    target_link_libraries(test_comprehensive PRIVATE OpenMP::OpenMP_CXX)
+# Comprehensive test suite (only if source exists)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/test_comprehensive.cpp")
+    add_executable(test_comprehensive test_comprehensive.cpp)
+    target_link_libraries(test_comprehensive PRIVATE fastjson)
+    target_compile_options(test_comprehensive PRIVATE
+        ${SIMD_FLAGS}
+        -fstack-protector-strong
+    )
+    target_compile_definitions(test_comprehensive PRIVATE ${SIMD_DEFINES} FASTJSON_ENABLE_SIMD)
+    if(OpenMP_CXX_FOUND)
+        target_link_libraries(test_comprehensive PRIVATE OpenMP::OpenMP_CXX)
+    endif()
+    set_target_properties(test_comprehensive PROPERTIES
+        CXX_STANDARD 23
+        CXX_STANDARD_REQUIRED ON
+        POSITION_INDEPENDENT_CODE ON
+        BUILD_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
+        INSTALL_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
+    )
 endif()
-set_target_properties(test_comprehensive PROPERTIES
-    CXX_STANDARD 23
-    CXX_STANDARD_REQUIRED ON
-    POSITION_INDEPENDENT_CODE ON
-    BUILD_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
-    INSTALL_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
-)
 
-# 128-bit number parsing test suite
-add_executable(test_128bit test_128bit.cpp)
-target_link_libraries(test_128bit PRIVATE fastjson)
-target_compile_options(test_128bit PRIVATE 
-    ${SIMD_FLAGS}
-    -fstack-protector-strong
-)
-target_compile_definitions(test_128bit PRIVATE ${SIMD_DEFINES} FASTJSON_ENABLE_SIMD)
-if(OpenMP_CXX_FOUND)
-    target_link_libraries(test_128bit PRIVATE OpenMP::OpenMP_CXX)
+# 128-bit number parsing test suite (only if source exists)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/test_128bit.cpp")
+    add_executable(test_128bit test_128bit.cpp)
+    target_link_libraries(test_128bit PRIVATE fastjson)
+    target_compile_options(test_128bit PRIVATE
+        ${SIMD_FLAGS}
+        -fstack-protector-strong
+    )
+    target_compile_definitions(test_128bit PRIVATE ${SIMD_DEFINES} FASTJSON_ENABLE_SIMD)
+    if(OpenMP_CXX_FOUND)
+        target_link_libraries(test_128bit PRIVATE OpenMP::OpenMP_CXX)
+    endif()
+    set_target_properties(test_128bit PROPERTIES
+        CXX_STANDARD 23
+        CXX_STANDARD_REQUIRED ON
+        POSITION_INDEPENDENT_CODE ON
+        BUILD_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
+        INSTALL_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
+    )
 endif()
-set_target_properties(test_128bit PROPERTIES
-    CXX_STANDARD 23
-    CXX_STANDARD_REQUIRED ON
-    POSITION_INDEPENDENT_CODE ON
-    BUILD_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
-    INSTALL_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
-)
 
-# Numeric conversion helpers test suite
-add_executable(test_conversion_helpers test_conversion_helpers.cpp)
-target_link_libraries(test_conversion_helpers PRIVATE fastjson)
-target_compile_options(test_conversion_helpers PRIVATE 
-    ${SIMD_FLAGS}
-    -fstack-protector-strong
-)
-target_compile_definitions(test_conversion_helpers PRIVATE ${SIMD_DEFINES} FASTJSON_ENABLE_SIMD)
-if(OpenMP_CXX_FOUND)
-    target_link_libraries(test_conversion_helpers PRIVATE OpenMP::OpenMP_CXX)
+# Numeric conversion helpers test suite (only if source exists)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/test_conversion_helpers.cpp")
+    add_executable(test_conversion_helpers test_conversion_helpers.cpp)
+    target_link_libraries(test_conversion_helpers PRIVATE fastjson)
+    target_compile_options(test_conversion_helpers PRIVATE
+        ${SIMD_FLAGS}
+        -fstack-protector-strong
+    )
+    target_compile_definitions(test_conversion_helpers PRIVATE ${SIMD_DEFINES} FASTJSON_ENABLE_SIMD)
+    if(OpenMP_CXX_FOUND)
+        target_link_libraries(test_conversion_helpers PRIVATE OpenMP::OpenMP_CXX)
+    endif()
+    set_target_properties(test_conversion_helpers PROPERTIES
+        CXX_STANDARD 23
+        CXX_STANDARD_REQUIRED ON
+        POSITION_INDEPENDENT_CODE ON
+        BUILD_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
+        INSTALL_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
+    )
 endif()
-set_target_properties(test_conversion_helpers PROPERTIES
-    CXX_STANDARD 23
-    CXX_STANDARD_REQUIRED ON
-    POSITION_INDEPENDENT_CODE ON
-    BUILD_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
-    INSTALL_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
-)
 
 # Tool: Generate large JSON test files
 add_executable(generate_test_file tools/generate_test_file.cpp)
@@ -753,87 +934,95 @@ set_target_properties(generate_test_file PROPERTIES
     CXX_STANDARD_REQUIRED ON
 )
 
-# Tool: Test large file parsing with current parser
-add_executable(test_large_file test_large_file.cpp)
-target_link_libraries(test_large_file PRIVATE fastjson)
-if(OpenMP_CXX_FOUND)
-    target_link_libraries(test_large_file PRIVATE OpenMP::OpenMP_CXX)
+# Tool: Test large file parsing with current parser (only if source exists)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/test_large_file.cpp")
+    add_executable(test_large_file test_large_file.cpp)
+    target_link_libraries(test_large_file PRIVATE fastjson)
+    if(OpenMP_CXX_FOUND)
+        target_link_libraries(test_large_file PRIVATE OpenMP::OpenMP_CXX)
+    endif()
+    target_compile_options(test_large_file PRIVATE
+        ${SIMD_FLAGS}
+        -fstack-protector-strong
+    )
+    target_compile_definitions(test_large_file PRIVATE ${SIMD_DEFINES} FASTJSON_ENABLE_SIMD)
+    set_target_properties(test_large_file PROPERTIES
+        CXX_STANDARD 23
+        CXX_STANDARD_REQUIRED ON
+        POSITION_INDEPENDENT_CODE ON
+        BUILD_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
+        INSTALL_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
+    )
 endif()
-target_compile_options(test_large_file PRIVATE
-    ${SIMD_FLAGS}
-    -fstack-protector-strong
-)
-target_compile_definitions(test_large_file PRIVATE ${SIMD_DEFINES} FASTJSON_ENABLE_SIMD)
-set_target_properties(test_large_file PROPERTIES
-    CXX_STANDARD 23
-    CXX_STANDARD_REQUIRED ON
-    POSITION_INDEPENDENT_CODE ON
-    BUILD_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
-    INSTALL_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
-)
 
-# Tool: Test large file parsing with parallel benchmarks
-add_executable(test_large_file_parallel test_large_file_parallel.cpp)
-target_link_libraries(test_large_file_parallel PRIVATE fastjson_parallel)
-if(OpenMP_CXX_FOUND)
-    target_link_libraries(test_large_file_parallel PRIVATE OpenMP::OpenMP_CXX)
+# Tool: Test large file parsing with parallel benchmarks (only if source exists)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/test_large_file_parallel.cpp")
+    add_executable(test_large_file_parallel test_large_file_parallel.cpp)
+    target_link_libraries(test_large_file_parallel PRIVATE fastjson_parallel)
+    if(OpenMP_CXX_FOUND)
+        target_link_libraries(test_large_file_parallel PRIVATE OpenMP::OpenMP_CXX)
+    endif()
+    target_compile_options(test_large_file_parallel PRIVATE
+        ${SIMD_FLAGS}
+        -fstack-protector-strong
+        -fopenmp=libomp
+    )
+    target_compile_definitions(test_large_file_parallel PRIVATE ${SIMD_DEFINES} FASTJSON_ENABLE_SIMD FASTJSON_THREAD_SAFE)
+    set_target_properties(test_large_file_parallel PROPERTIES
+        CXX_STANDARD 23
+        CXX_STANDARD_REQUIRED ON
+        POSITION_INDEPENDENT_CODE ON
+        BUILD_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
+        INSTALL_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
+    )
 endif()
-target_compile_options(test_large_file_parallel PRIVATE
-    ${SIMD_FLAGS}
-    -fstack-protector-strong
-    -fopenmp=libomp
-)
-target_compile_definitions(test_large_file_parallel PRIVATE ${SIMD_DEFINES} FASTJSON_ENABLE_SIMD FASTJSON_THREAD_SAFE)
-set_target_properties(test_large_file_parallel PROPERTIES
-    CXX_STANDARD 23
-    CXX_STANDARD_REQUIRED ON
-    POSITION_INDEPENDENT_CODE ON
-    BUILD_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
-    INSTALL_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
-)
 
-# Tool: Test using the legacy parallel parser (fastjson_parallel.cpp)
-add_executable(test_parallel_parser test_parallel_parser.cpp modules/fastjson_parallel.cpp)
-if(OpenMP_CXX_FOUND)
-    target_link_libraries(test_parallel_parser PRIVATE OpenMP::OpenMP_CXX)
+# Tool: Test using the legacy parallel parser (only if source exists)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/test_parallel_parser.cpp")
+    add_executable(test_parallel_parser test_parallel_parser.cpp modules/fastjson_parallel.cpp)
+    if(OpenMP_CXX_FOUND)
+        target_link_libraries(test_parallel_parser PRIVATE OpenMP::OpenMP_CXX)
+    endif()
+    target_compile_options(test_parallel_parser PRIVATE
+        ${SIMD_FLAGS}
+        -O3
+        -DFASTJSON_NO_LOGGER
+        -DFASTJSON_ENABLE_SIMD
+    )
+    target_compile_definitions(test_parallel_parser PRIVATE ${SIMD_DEFINES} FASTJSON_ENABLE_SIMD FASTJSON_NO_LOGGER)
+    set_target_properties(test_parallel_parser PROPERTIES
+        CXX_STANDARD 23
+        CXX_STANDARD_REQUIRED ON
+        POSITION_INDEPENDENT_CODE ON
+        BUILD_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
+        INSTALL_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
+    )
 endif()
-target_compile_options(test_parallel_parser PRIVATE
-    ${SIMD_FLAGS}
-    -O3
-    -DFASTJSON_NO_LOGGER
-    -DFASTJSON_ENABLE_SIMD
-)
-target_compile_definitions(test_parallel_parser PRIVATE ${SIMD_DEFINES} FASTJSON_ENABLE_SIMD FASTJSON_NO_LOGGER)
-set_target_properties(test_parallel_parser PROPERTIES
-    CXX_STANDARD 23
-    CXX_STANDARD_REQUIRED ON
-    POSITION_INDEPENDENT_CODE ON
-    BUILD_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
-    INSTALL_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
-)
 
-# Test executable for parallel module
-add_executable(test_parallel_module test_parallel_module.cpp)
-target_link_libraries(test_parallel_module PRIVATE fastjson_parallel)
-if(ENABLE_OPENMP)
-    target_link_libraries(test_parallel_module PRIVATE OpenMP::OpenMP_CXX)
+# Test executable for parallel module (only if source exists)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/test_parallel_module.cpp")
+    add_executable(test_parallel_module test_parallel_module.cpp)
+    target_link_libraries(test_parallel_module PRIVATE fastjson_parallel)
+    if(ENABLE_OPENMP)
+        target_link_libraries(test_parallel_module PRIVATE OpenMP::OpenMP_CXX)
+    endif()
+    target_compile_options(test_parallel_module PRIVATE
+        -fPIC
+        -fstack-protector-strong
+        -D_FORTIFY_SOURCE=2
+    )
+    target_compile_definitions(test_parallel_module PRIVATE
+        FASTJSON_ENABLE_SIMD
+        FASTJSON_THREAD_SAFE
+    )
+    set_target_properties(test_parallel_module PROPERTIES
+        CXX_STANDARD 23
+        CXX_STANDARD_REQUIRED ON
+        CXX_EXTENSIONS OFF
+        BUILD_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
+        INSTALL_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
+    )
 endif()
-target_compile_options(test_parallel_module PRIVATE
-    -fPIC
-    -fstack-protector-strong
-    -D_FORTIFY_SOURCE=2
-)
-target_compile_definitions(test_parallel_module PRIVATE 
-    FASTJSON_ENABLE_SIMD
-    FASTJSON_THREAD_SAFE
-)
-set_target_properties(test_parallel_module PROPERTIES
-    CXX_STANDARD 23
-    CXX_STANDARD_REQUIRED ON
-    CXX_EXTENSIONS OFF
-    BUILD_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
-    INSTALL_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
-)
 
 # Type mappings demonstration executable
 add_executable(type_mappings_demo examples/type_mappings_demo.cpp)
