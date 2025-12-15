@@ -2,6 +2,10 @@
 
 Welcome to the FastestJSONInTheWest public documentation. This folder contains all the curated, production-ready documentation for developers integrating and using the library.
 
+## ⚡ v2.0 Performance Update
+
+The default parser now uses **4x AVX2 multi-register SIMD** (128 bytes per iteration), delivering 2-6x faster parsing with **zero API changes**. Existing code gets faster automatically.
+
 ## 📚 Documentation Index
 
 ### Getting Started

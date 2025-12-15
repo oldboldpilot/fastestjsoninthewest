@@ -1,0 +1,45 @@
+# Bazel configuration for cpp23-logger
+#
+# C++23 module support configuration
+# Bzlmod-compatible configuration
+
+# Enable Bzlmod (modern module system)
+common --enable_bzlmod
+
+# Build settings
+build --cxxopt=-std=c++23
+build --cxxopt=-stdlib=libc++
+build --linkopt=-lc++
+build --linkopt=-lpthread
+
+# Use Clang compiler (recommended for C++23 modules)
+build --action_env=CC=clang
+build --action_env=CXX=clang++
+
+# Enable C++23 features
+build --cxxopt=-fmodules-ts
+
+# Optimization flags
+build:opt --copt=-O3
+build:opt --copt=-DNDEBUG
+build:opt --copt=-march=native
+
+# Debug build
+build:debug --copt=-O0
+build:debug --copt=-g
+build:debug --copt=-DDEBUG
+build:debug --strip=never
+
+# Test configuration
+test --test_output=errors
+test --test_verbose_timeout_warnings
+
+# Platform-specific settings
+build:linux --cxxopt=-pthread
+build:macos --cxxopt=-pthread
+
+# Color output
+common --color=yes
+
+# Show compiler errors
+build --verbose_failures

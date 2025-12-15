@@ -183,109 +183,11 @@ find_program(CLANG_TIDY_EXE NAMES clang-tidy-21 clang-tidy
     DOC "Path to clang-tidy executable")
 
 # ============================================================================
-# Auto-Build Standard Library Module PCM (std.pcm)
+# Build C++23 std modules from locally-built libc++
 # ============================================================================
-# Build std.pcm with the SAME flags as fastjson library to ensure binary
-# compatibility. This PCM can be used by any code that links against fastjson.
-
-if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    # Configurable path to libc++ std module source
-    # Try multiple common locations, can be overridden via cmake -DLIBCXX_MODULES_PATH=...
-    if(NOT LIBCXX_MODULES_PATH)
-        if(EXISTS "${LIBCXX_DEFAULT_INCLUDE}")
-            set(LIBCXX_MODULES_PATH "${LIBCXX_DEFAULT_INCLUDE}" CACHE STRING "Path to libc++ module sources")
-        elseif(EXISTS "/usr/local/share/libc++/v1")
-            set(LIBCXX_MODULES_PATH "/usr/local/share/libc++/v1" CACHE STRING "Path to libc++ module sources")
-        elseif(EXISTS "/usr/local/include/c++/v1")
-            set(LIBCXX_MODULES_PATH "/usr/local/include/c++/v1" CACHE STRING "Path to libc++ module sources")
-        else()
-            message(FATAL_ERROR "Could not find libc++ module sources. Please set LIBCXX_MODULES_PATH")
-        endif()
-    endif()
-
-    set(STD_CPPM "${LIBCXX_MODULES_PATH}/std.cppm")
-    set(STD_COMPAT_CPPM "${LIBCXX_MODULES_PATH}/std.compat.cppm")
-
-    if(NOT EXISTS "${STD_CPPM}")
-        message(FATAL_ERROR "std.cppm not found at ${STD_CPPM}. Please set LIBCXX_MODULES_PATH correctly.")
-    endif()
-
-    # Output PCM files in modules/ subdirectory
-    set(FASTJSON_STD_PCM "${CMAKE_CURRENT_BINARY_DIR}/modules/std.pcm")
-    set(FASTJSON_STD_COMPAT_PCM "${CMAKE_CURRENT_BINARY_DIR}/modules/std.compat.pcm")
-
-    file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/modules")
-
-    # Collect all compiler flags that will be used for fastjson
-    set(FASTJSON_STD_PCM_FLAGS
-        -std=c++23
-        -stdlib=libc++
-        -fPIC
-    )
-
-    # Add optimization flags if building in Release mode
-    if(CMAKE_BUILD_TYPE MATCHES "Release")
-        list(APPEND FASTJSON_STD_PCM_FLAGS -O3)
-    endif()
-
-    # Add native optimizations if enabled (must match fastjson compilation)
-    # NOTE: -march=native automatically detects and uses only CPU-supported instructions
-    if(ENABLE_NATIVE_OPTIMIZATIONS)
-        list(APPEND FASTJSON_STD_PCM_FLAGS -march=native)
-    endif()
-
-    # Add OpenMP flags if enabled (must match fastjson compilation)
-    if(ENABLE_OPENMP)
-        find_package(OpenMP QUIET)
-        if(OpenMP_CXX_FOUND)
-            list(APPEND FASTJSON_STD_PCM_FLAGS -fopenmp=libomp)
-        endif()
-    endif()
-
-    # Build std.pcm
-    add_custom_command(
-        OUTPUT ${FASTJSON_STD_PCM}
-        COMMAND ${CMAKE_CXX_COMPILER} ${FASTJSON_STD_PCM_FLAGS}
-                --precompile ${STD_CPPM} -o ${FASTJSON_STD_PCM}
-        DEPENDS ${STD_CPPM}
-        COMMENT "Precompiling libc++ std module for fastjson (std.pcm)"
-        VERBATIM
-    )
-
-    # Build std.compat.pcm (depends on std.pcm)
-    add_custom_command(
-        OUTPUT ${FASTJSON_STD_COMPAT_PCM}
-        COMMAND ${CMAKE_CXX_COMPILER} ${FASTJSON_STD_PCM_FLAGS}
-                -fprebuilt-module-path=${CMAKE_CURRENT_BINARY_DIR}/modules
-                --precompile ${STD_COMPAT_CPPM} -o ${FASTJSON_STD_COMPAT_PCM}
-        DEPENDS ${STD_COMPAT_CPPM} ${FASTJSON_STD_PCM}
-        COMMENT "Precompiling libc++ std.compat module for fastjson (std.compat.pcm)"
-        VERBATIM
-    )
-
-    # Custom target to build both PCM files
-    add_custom_target(build_fastjson_std_modules
-        DEPENDS ${FASTJSON_STD_PCM} ${FASTJSON_STD_COMPAT_PCM}
-        COMMENT "Building standard library modules for fastjson"
-    )
-
-    message(STATUS "fastjson std module PCM auto-build enabled:")
-    message(STATUS "  Module source: ${LIBCXX_MODULES_PATH}")
-    message(STATUS "  Output: ${CMAKE_CURRENT_BINARY_DIR}/modules/")
-    message(STATUS "  Compiler: ${CMAKE_CXX_COMPILER}")
-    message(STATUS "  Flags: ${FASTJSON_STD_PCM_FLAGS}")
-    message(STATUS "  OpenMP: ${ENABLE_OPENMP}")
-    message(STATUS "  Native opts: ${ENABLE_NATIVE_OPTIMIZATIONS}")
-
-    # Export variables for external projects (parent CMakeLists.txt)
-    # These allow external code to use the same PCM with binary compatibility
-    set(FASTJSON_STD_PCM "${FASTJSON_STD_PCM}" CACHE PATH "Path to fastjson's precompiled std.pcm" FORCE)
-    set(FASTJSON_STD_COMPAT_PCM "${FASTJSON_STD_COMPAT_PCM}" CACHE PATH "Path to fastjson's precompiled std.compat.pcm" FORCE)
-    set(FASTJSON_STD_PCM_FLAGS "${FASTJSON_STD_PCM_FLAGS}" CACHE STRING "Compiler flags used for fastjson's std.pcm" FORCE)
-    set(FASTJSON_STD_PCM_DIR "${CMAKE_CURRENT_BINARY_DIR}/modules" CACHE PATH "Directory containing fastjson's PCM files" FORCE)
-
-    mark_as_advanced(FASTJSON_STD_PCM FASTJSON_STD_COMPAT_PCM FASTJSON_STD_PCM_FLAGS FASTJSON_STD_PCM_DIR)
-endif()
+message(STATUS "Building C++23 std modules from locally-built libc++...")
+add_subdirectory(external/std)
+message(STATUS "✓ std modules will be built at: ${CMAKE_BINARY_DIR}/external/std")
 
 # Create FastJSON C++23 module library
 add_library(fastjson)
@@ -296,6 +198,16 @@ target_sources(fastjson
     PRIVATE
         modules/fastjson.cpp
 )
+
+# Link with std_module for import std; support
+target_link_libraries(fastjson PUBLIC $<TARGET_NAME_IF_EXISTS:std_module>)
+
+# Add std module support for import std;
+if(TARGET std_module)
+    target_compile_options(fastjson PRIVATE
+        -fprebuilt-module-path=${CMAKE_BINARY_DIR}/external/std/CMakeFiles/std_module.dir
+    )
+endif()
 
 # Enable SIMD support with thread safety - defines are added after CPU detection
 target_compile_definitions(fastjson PRIVATE 
@@ -308,6 +220,11 @@ target_compile_options(fastjson PRIVATE
     -fPIC                   # Position Independent Code for shared libraries
     -fstack-protector-strong # Stack protection
     -D_FORTIFY_SOURCE=2     # Buffer overflow detection
+    -stdlib=libc++          # Use custom libc++
+)
+target_link_options(fastjson PRIVATE 
+    -stdlib=libc++
+    -L/opt/clang-21/lib
 )
 
 # Set compile features and properties
@@ -326,10 +243,41 @@ target_sources(fastjson_parallel
         modules/fastjson_parallel.cppm
     PRIVATE
         modules/numa_allocator.cpp
+        modules/fastjson_simd_multiregister.cpp
+        modules/fastjson_simd_api.cpp
+)
+
+# Link with std_module for import std; support
+target_link_libraries(fastjson_parallel PUBLIC $<TARGET_NAME_IF_EXISTS:std_module>)
+
+# Add std module support for import std;
+if(TARGET std_module)
+    target_compile_options(fastjson_parallel PRIVATE
+        -fprebuilt-module-path=${CMAKE_BINARY_DIR}/external/std/CMakeFiles/std_module.dir
+    )
+endif()
+
+# Create standalone SIMD Multi-Register library for high-performance JSON primitives
+add_library(fastjson_simd_multiregister STATIC)
+target_sources(fastjson_simd_multiregister
+    PUBLIC
+        modules/fastjson_simd_api.h
+    PRIVATE
+        modules/fastjson_simd_multiregister.cpp
+        modules/fastjson_simd_api.cpp
+    PUBLIC
+        FILE_SET CXX_MODULES 
+        BASE_DIRS modules
+        FILES
+            modules/fastjson_simd_multiregister.cppm
 )
 
 # Include directories for helper headers
 target_include_directories(fastjson_parallel PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/modules
+)
+
+target_include_directories(fastjson_simd_multiregister PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/modules
 )
 
@@ -338,6 +286,16 @@ target_compile_definitions(fastjson_parallel PRIVATE
     FASTJSON_ENABLE_SIMD
     FASTJSON_THREAD_SAFE
 )
+
+# Configure SIMD multi-register library with aggressive optimizations
+target_compile_definitions(fastjson_simd_multiregister PUBLIC
+    FASTJSON_ENABLE_SIMD
+    FASTJSON_MULTIREGISTER_SIMD
+)
+
+# Set compile features for both libraries
+target_compile_features(fastjson_parallel PUBLIC cxx_std_23)
+target_compile_features(fastjson_simd_multiregister PUBLIC cxx_std_23)
 
 # Add thread-safe compilation options
 target_compile_options(fastjson_parallel PRIVATE
@@ -349,14 +307,107 @@ target_compile_options(fastjson_parallel PRIVATE
     -funroll-loops          # Loop unrolling
     -fvectorize             # Vectorization
     -fslp-vectorize         # SLP vectorization
+    -stdlib=libc++          # Use custom libc++
+)
+target_link_options(fastjson_parallel PRIVATE 
+    -stdlib=libc++
+    -L/opt/clang-21/lib
+)
+
+# Aggressive optimization for SIMD multi-register library
+target_compile_options(fastjson_simd_multiregister PRIVATE
+    -O3                     # Maximum optimization
+    -fPIC                   # Position Independent Code
+    -ffast-math             # Aggressive fast math
+    -funroll-loops          # Loop unrolling
+    -fvectorize             # Auto-vectorization
+    -fslp-vectorize         # SLP vectorization
+    -stdlib=libc++          # Use custom libc++
+    -march=native           # Native CPU optimizations (if enabled)
+    -mtune=native           # Tune for native CPU
+    $<$<BOOL:${FASTJSON_FORCE_AVX512}>:-mavx512f -mavx512bw>
+    $<$<BOOL:${ENABLE_NATIVE_OPTIMIZATIONS}>:-mavx2 -mfma>
+)
+target_link_options(fastjson_simd_multiregister PRIVATE 
+    -stdlib=libc++
+    -L/opt/clang-21/lib
 )
 
 # Set compile features and properties
 target_compile_features(fastjson_parallel PUBLIC cxx_std_23)
+target_compile_features(fastjson_simd_multiregister PUBLIC cxx_std_23)
+
 set_target_properties(fastjson_parallel PROPERTIES
     CXX_STANDARD 23
     CXX_STANDARD_REQUIRED ON
     CXX_EXTENSIONS OFF
+)
+
+set_target_properties(fastjson_simd_multiregister PROPERTIES
+    CXX_STANDARD 23
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF
+    ARCHIVE_OUTPUT_NAME fastjson_simd_multiregister
+)
+
+# Create Multi-Register SIMD Parser library with complete fluent API
+# Self-contained module with SIMD primitives and fluent parser API
+add_library(fastjson_multiregister_parser STATIC)
+target_sources(fastjson_multiregister_parser
+    PUBLIC
+        FILE_SET CXX_MODULES 
+        BASE_DIRS modules
+        FILES
+            modules/fastjson_multiregister_parser.cppm
+)
+
+target_include_directories(fastjson_multiregister_parser PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/modules
+)
+
+target_compile_definitions(fastjson_multiregister_parser PUBLIC
+    ${SIMD_DEFINES}
+    FASTJSON_ENABLE_SIMD
+    FASTJSON_MULTIREGISTER_SIMD
+)
+
+target_compile_features(fastjson_multiregister_parser PUBLIC cxx_std_23)
+
+# IMPORTANT: Use explicit SIMD flags to avoid C++23 module configuration mismatch
+# The flags MUST match exactly between the parser module and any consuming modules
+# Using AVX2 only - this CPU doesn't support AVX-512 in hardware
+set(MULTIREGISTER_SIMD_FLAGS 
+    -stdlib=libc++
+    -march=native 
+    -mtune=native 
+    -mavx2 
+    -mfma
+    -fstack-protector-strong
+    -D_FORTIFY_SOURCE=2
+)
+
+target_compile_options(fastjson_multiregister_parser PRIVATE
+    -O3
+    ${MULTIREGISTER_SIMD_FLAGS}
+    -fprebuilt-module-path=${CMAKE_CURRENT_BINARY_DIR}
+    -fprebuilt-module-path=${CMAKE_CURRENT_BINARY_DIR}/external/std/CMakeFiles/std_module.dir
+)
+
+target_link_options(fastjson_multiregister_parser PRIVATE 
+    -stdlib=libc++
+    -L/opt/clang-21/lib
+)
+
+set_target_properties(fastjson_multiregister_parser PROPERTIES
+    CXX_STANDARD 23
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF
+    ARCHIVE_OUTPUT_NAME fastjson_multiregister_parser
+)
+
+# Link dependencies for fastjson_multiregister_parser
+add_dependencies(fastjson_multiregister_parser 
+    std_module 
 )
 
 # Link parallel processing libraries
@@ -415,31 +466,165 @@ include(CheckCXXCompilerFlag)
 
 message(STATUS "Detecting CPU instruction set support...")
 
+# Runtime CPU feature detection from /proc/cpuinfo (Linux)
+if(EXISTS "/proc/cpuinfo")
+    file(READ "/proc/cpuinfo" CPUINFO_CONTENT)
+    
+    # Look for flags line containing actual CPU features
+    string(REGEX MATCH "flags[ \t]*:([^\n]*)" FLAGS_MATCH "${CPUINFO_CONTENT}")
+    if(FLAGS_MATCH)
+        string(REGEX REPLACE "flags[ \t]*:" "" CPU_FLAGS "${FLAGS_MATCH}")
+        string(TOLOWER "${CPU_FLAGS}" CPU_FLAGS)
+        
+        # Check for each instruction set in the actual CPU flags
+        if(CPU_FLAGS MATCHES "avx2")
+            set(RUNTIME_CPU_SUPPORTS_AVX2 TRUE)
+            message(STATUS "  ✓ AVX2 (detected in /proc/cpuinfo)")
+        else()
+            set(RUNTIME_CPU_SUPPORTS_AVX2 FALSE)
+            message(STATUS "  ✗ AVX2 (not found in /proc/cpuinfo)")
+        endif()
+        
+        if(CPU_FLAGS MATCHES "avx512f")
+            set(RUNTIME_CPU_SUPPORTS_AVX512F TRUE)
+            message(STATUS "  ✓ AVX-512F (detected in /proc/cpuinfo)")
+        else()
+            set(RUNTIME_CPU_SUPPORTS_AVX512F FALSE)
+            message(STATUS "  ✗ AVX-512F (not found in /proc/cpuinfo)")
+        endif()
+        
+        if(CPU_FLAGS MATCHES "avx512bw")
+            set(RUNTIME_CPU_SUPPORTS_AVX512BW TRUE)
+            message(STATUS "  ✓ AVX-512BW (detected in /proc/cpuinfo)")
+        else()
+            set(RUNTIME_CPU_SUPPORTS_AVX512BW FALSE)
+            message(STATUS "  ✗ AVX-512BW (not found in /proc/cpuinfo)")
+        endif()
+        
+        message(STATUS "CPU flags summary: ${CPU_FLAGS}")
+    else()
+        message(WARNING "Could not parse /proc/cpuinfo flags")
+        set(RUNTIME_CPU_SUPPORTS_AVX2 FALSE)
+        set(RUNTIME_CPU_SUPPORTS_AVX512F FALSE)
+        set(RUNTIME_CPU_SUPPORTS_AVX512BW FALSE)
+    endif()
+else()
+    message(STATUS "  /proc/cpuinfo not available, using compiler detection")
+    set(RUNTIME_CPU_SUPPORTS_AVX2 FALSE)
+    set(RUNTIME_CPU_SUPPORTS_AVX512F FALSE)
+    set(RUNTIME_CPU_SUPPORTS_AVX512BW FALSE)
+endif()
+
+message(STATUS "Detecting CPU instruction set support...")
+
 # Option 1: Use -march=native for automatic CPU detection (recommended)
 # Note: ENABLE_NATIVE_OPTIMIZATIONS is defined at the top of this file
 
 if(ENABLE_NATIVE_OPTIMIZATIONS)
     check_cxx_compiler_flag("-march=native" COMPILER_SUPPORTS_MARCH_NATIVE)
     if(COMPILER_SUPPORTS_MARCH_NATIVE)
+        # Test actual CPU runtime support, not just compiler capabilities
+        include(CheckCXXSourceRuns)
+        
+        # Detect SSE2 (always available on x86_64)
         set(CPU_SUPPORTS_SSE2 TRUE)
-        set(CPU_SUPPORTS_SSE3 TRUE)
-        set(CPU_SUPPORTS_SSSE3 TRUE)
-        set(CPU_SUPPORTS_SSE41 TRUE)
-        set(CPU_SUPPORTS_SSE42 TRUE)
-        set(CPU_SUPPORTS_AVX TRUE)
-        set(CPU_SUPPORTS_AVX2 TRUE)
-        # Check for AVX-512 support by testing compilation
-        check_cxx_compiler_flag("-mavx512f" COMPILER_HAS_AVX512F)
-        if(COMPILER_HAS_AVX512F)
-            include(CheckCXXSourceCompiles)
-            set(CMAKE_REQUIRED_FLAGS "-march=native -mavx512f")
-            check_cxx_source_compiles("
+        message(STATUS "  ✓ SSE2 (baseline)")
+        
+        # Test SSE3
+        set(CMAKE_REQUIRED_FLAGS "-msse3")
+        check_cxx_source_runs("
+            #include <immintrin.h>
+            int main() {
+                __m128i a = _mm_set1_epi32(1);
+                __m128i b = _mm_hadd_epi32(a, a);  // SSE3 instruction
+                return _mm_cvtsi128_si32(b);
+            }
+        " CPU_SUPPORTS_SSE3)
+        
+        # Test SSSE3
+        set(CMAKE_REQUIRED_FLAGS "-mssse3")
+        check_cxx_source_runs("
+            #include <immintrin.h>
+            int main() {
+                __m128i a = _mm_set1_epi8(1);
+                __m128i b = _mm_abs_epi8(a);  // SSSE3 instruction
+                return _mm_cvtsi128_si32(b);
+            }
+        " CPU_SUPPORTS_SSSE3)
+        
+        # Test SSE4.1
+        set(CMAKE_REQUIRED_FLAGS "-msse4.1")
+        check_cxx_source_runs("
+            #include <immintrin.h>
+            int main() {
+                __m128i a = _mm_set1_epi32(1);
+                __m128i b = _mm_mullo_epi32(a, a);  // SSE4.1 instruction
+                return _mm_cvtsi128_si32(b);
+            }
+        " CPU_SUPPORTS_SSE41)
+        
+        # Test SSE4.2
+        set(CMAKE_REQUIRED_FLAGS "-msse4.2")
+        check_cxx_source_runs("
+            #include <immintrin.h>
+            int main() {
+                __m128i a = _mm_set1_epi8(65);
+                int result = _mm_cmpestri(a, 1, a, 1, 0);  // SSE4.2 instruction
+                return result;
+            }
+        " CPU_SUPPORTS_SSE42)
+        
+        # Test AVX
+        set(CMAKE_REQUIRED_FLAGS "-mavx")
+        check_cxx_source_runs("
+            #include <immintrin.h>
+            int main() {
+                __m256 a = _mm256_set1_ps(1.0f);
+                __m256 b = _mm256_add_ps(a, a);  // AVX instruction
+                return (int)_mm256_cvtss_f32(b);
+            }
+        " CPU_SUPPORTS_AVX)
+        
+        # Test AVX2
+        set(CMAKE_REQUIRED_FLAGS "-mavx2")
+        check_cxx_source_runs("
+            #include <immintrin.h>
+            int main() {
+                __m256i a = _mm256_set1_epi32(1);
+                __m256i b = _mm256_mullo_epi32(a, a);  // AVX2 instruction
+                return _mm256_extract_epi32(b, 0);
+            }
+        " CPU_SUPPORTS_AVX2)
+        
+        # Test AVX-512F (Foundation)
+        set(CMAKE_REQUIRED_FLAGS "-mavx512f")
+        check_cxx_source_runs("
+            #include <immintrin.h>
+            int main() {
+                __m512i a = _mm512_set1_epi32(1);
+                __m512i b = _mm512_add_epi32(a, a);  // AVX-512F instruction
+                return _mm512_cvtsi512_si32(b);
+            }
+        " CPU_SUPPORTS_AVX512F)
+        
+        # Only test higher AVX-512 features if AVX-512F is supported
+        if(CPU_SUPPORTS_AVX512F)
+            # Test AVX-512BW (Byte/Word)
+            set(CMAKE_REQUIRED_FLAGS "-mavx512f -mavx512bw")
+            check_cxx_source_runs("
                 #include <immintrin.h>
-                int main() { __m512i a = _mm512_setzero_si512(); return 0; }
-            " CPU_SUPPORTS_AVX512F)
-            set(CMAKE_REQUIRED_FLAGS)
+                int main() {
+                    __m512i a = _mm512_set1_epi8(1);
+                    __m512i b = _mm512_add_epi8(a, a);  // AVX-512BW instruction
+                    return _mm512_cvtsi512_si32(b);
+                }
+            " CPU_SUPPORTS_AVX512BW)
+        else()
+            set(CPU_SUPPORTS_AVX512BW FALSE)
         endif()
-        message(STATUS "  Using -march=native (auto-detects CPU features)")
+        
+        set(CMAKE_REQUIRED_FLAGS)
+        message(STATUS "  Using runtime CPU detection for optimal SIMD selection")
     else()
         message(WARNING "-march=native not supported, falling back to manual detection")
         set(ENABLE_NATIVE_OPTIMIZATIONS OFF)
@@ -461,6 +646,21 @@ if(NOT ENABLE_NATIVE_OPTIMIZATIONS)
     check_cxx_compiler_flag("-mavx512vbmi2" CPU_SUPPORTS_AVX512VBMI2)
     check_cxx_compiler_flag("-mavx512vnni" CPU_SUPPORTS_AVX512VNNI)
     check_cxx_compiler_flag("-mamx-tile" CPU_SUPPORTS_AMX)
+endif()
+
+# Set unsupported advanced features to FALSE if not detected
+if(NOT CPU_SUPPORTS_AVX512F)
+    set(CPU_SUPPORTS_AVX512BW FALSE)
+    set(CPU_SUPPORTS_AVX512VBMI FALSE)
+    set(CPU_SUPPORTS_AVX512VBMI2 FALSE)
+    set(CPU_SUPPORTS_AVX512VNNI FALSE)
+else()
+    # Only enable if both compiler and runtime support
+    if(NOT CPU_SUPPORTS_AVX512BW)
+        set(CPU_SUPPORTS_AVX512VBMI FALSE)
+        set(CPU_SUPPORTS_AVX512VBMI2 FALSE)
+        set(CPU_SUPPORTS_AVX512VNNI FALSE)
+    endif()
 endif()
 
 # Parent project overrides for WSL2/VM environments
@@ -562,6 +762,9 @@ if(CPU_SUPPORTS_AVX512F)
     list(APPEND SIMD_LEVELS "AVX-512F")
     if(NOT ENABLE_NATIVE_OPTIMIZATIONS)
         list(APPEND SIMD_FLAGS "-mavx512f")
+    else()
+        # Add explicit AVX-512 support without deprecated EVEX512
+        list(APPEND SIMD_FLAGS "-mavx512f" "-mavx512bw")
     endif()
     message(STATUS "  ✓ AVX-512 F (Foundation)")
 endif()
@@ -979,7 +1182,8 @@ endif()
 
 # Tool: Test using the legacy parallel parser (only if source exists)
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/test_parallel_parser.cpp")
-    add_executable(test_parallel_parser test_parallel_parser.cpp modules/fastjson_parallel.cpp)
+    add_executable(test_parallel_parser test_parallel_parser.cpp)
+    target_link_libraries(test_parallel_parser PRIVATE fastjson_parallel)
     if(OpenMP_CXX_FOUND)
         target_link_libraries(test_parallel_parser PRIVATE OpenMP::OpenMP_CXX)
     endif()
@@ -1046,3 +1250,246 @@ set_target_properties(type_mappings_demo PROPERTIES
     BUILD_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
     INSTALL_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
 )
+
+# ============================================================================
+# SIMD Multi-Register Performance Tests and Benchmarks
+# ============================================================================
+
+# SIMD Multi-Register Performance Test Executable  
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_simd_multiregister_performance.cpp")
+    add_executable(test_simd_multiregister_performance tests/test_simd_multiregister_performance.cpp)
+    target_link_libraries(test_simd_multiregister_performance PRIVATE 
+        fastjson_simd_multiregister
+        fastjson_parallel
+        gtest_main
+        gtest
+    )
+    
+    target_compile_options(test_simd_multiregister_performance PRIVATE
+        -O3                     # Maximum optimization
+        -fPIC
+        -ffast-math
+        -funroll-loops
+        -fvectorize
+        -fslp-vectorize
+        -march=native
+        -mtune=native
+        $<$<BOOL:${FASTJSON_FORCE_AVX512}>:-mavx512f -mavx512bw>
+        $<$<BOOL:${ENABLE_NATIVE_OPTIMIZATIONS}>:-mavx2 -mfma>
+    )
+    
+    target_compile_definitions(test_simd_multiregister_performance PRIVATE
+        FASTJSON_ENABLE_SIMD
+        FASTJSON_MULTIREGISTER_SIMD
+    )
+    
+    set_target_properties(test_simd_multiregister_performance PROPERTIES
+        CXX_STANDARD 23
+        CXX_STANDARD_REQUIRED ON
+        CXX_EXTENSIONS OFF
+        BUILD_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
+        INSTALL_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
+    )
+endif()
+
+# SIMD Multi-Register Benchmark Executable (if Google Benchmark is available)
+find_package(benchmark QUIET)
+if(benchmark_FOUND AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/simd_multiregister_benchmark.cpp")
+    add_executable(simd_multiregister_benchmark benchmarks/simd_multiregister_benchmark.cpp)
+    target_link_libraries(simd_multiregister_benchmark PRIVATE
+        fastjson_simd_multiregister
+        fastjson_parallel
+        benchmark::benchmark
+        benchmark::benchmark_main
+    )
+    
+    target_compile_options(simd_multiregister_benchmark PRIVATE
+        -O3                     # Maximum optimization for benchmarking
+        -fPIC
+        -ffast-math
+        -funroll-loops
+        -fvectorize
+        -fslp-vectorize
+        -march=native
+        -mtune=native
+        $<$<BOOL:${FASTJSON_FORCE_AVX512}>:-mavx512f -mavx512bw>
+        $<$<BOOL:${ENABLE_NATIVE_OPTIMIZATIONS}>:-mavx2 -mfma>
+    )
+    
+    target_compile_definitions(simd_multiregister_benchmark PRIVATE
+        FASTJSON_ENABLE_SIMD
+        FASTJSON_MULTIREGISTER_SIMD
+    )
+    
+    set_target_properties(simd_multiregister_benchmark PROPERTIES
+        CXX_STANDARD 23
+        CXX_STANDARD_REQUIRED ON
+        CXX_EXTENSIONS OFF
+        BUILD_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
+        INSTALL_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
+    )
+    
+    message(STATUS "Added SIMD multi-register benchmark executable")
+else()
+    message(STATUS "Google Benchmark not found, skipping benchmark executable")
+endif()
+
+# Standalone SIMD Multi-Register Demo
+add_executable(simd_multiregister_demo examples/simd_multiregister_demo.cpp)
+target_link_libraries(simd_multiregister_demo PRIVATE 
+    fastjson_simd_multiregister
+    fastjson_parallel
+)
+
+target_compile_options(simd_multiregister_demo PRIVATE
+    -O2
+    -fPIC
+    -ffast-math
+    -march=native
+    $<$<BOOL:${FASTJSON_FORCE_AVX512}>:-mavx512f -mavx512bw>
+    $<$<BOOL:${ENABLE_NATIVE_OPTIMIZATIONS}>:-mavx2 -mfma>
+)
+
+target_compile_definitions(simd_multiregister_demo PRIVATE
+    FASTJSON_ENABLE_SIMD
+    FASTJSON_MULTIREGISTER_SIMD
+)
+
+set_target_properties(simd_multiregister_demo PROPERTIES
+    CXX_STANDARD 23
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF
+    BUILD_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
+    INSTALL_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
+)
+
+# ============================================================================
+# Multi-Register Parser Module Tests (Self-contained C++23 Module)
+# ============================================================================
+
+# Test module for multiregister parser (if test module exists)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_multiregister_parser.cppm")
+    add_library(test_multiregister_parser_lib STATIC)
+    target_sources(test_multiregister_parser_lib
+        PUBLIC
+            FILE_SET CXX_MODULES 
+            BASE_DIRS tests
+            FILES
+                tests/test_multiregister_parser.cppm
+    )
+    
+    # IMPORTANT: Compile flags MUST match fastjson_multiregister_parser exactly
+    # to avoid C++23 module configuration mismatch errors
+    target_compile_options(test_multiregister_parser_lib PRIVATE
+        -O3
+        ${MULTIREGISTER_SIMD_FLAGS}
+        -fprebuilt-module-path=${CMAKE_CURRENT_BINARY_DIR}
+        -fprebuilt-module-path=${CMAKE_CURRENT_BINARY_DIR}/external/std/CMakeFiles/std_module.dir
+        -fprebuilt-module-path=${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/fastjson_multiregister_parser.dir
+    )
+    
+    target_link_options(test_multiregister_parser_lib PRIVATE 
+        -stdlib=libc++
+        -L/opt/clang-21/lib
+    )
+    
+    # Link to parser module to get the PCM file dependency
+    target_link_libraries(test_multiregister_parser_lib PRIVATE
+        fastjson_multiregister_parser
+    )
+    
+    add_dependencies(test_multiregister_parser_lib 
+        std_module 
+        fastjson_multiregister_parser
+    )
+    
+    set_target_properties(test_multiregister_parser_lib PROPERTIES
+        CXX_STANDARD 23
+        CXX_STANDARD_REQUIRED ON
+        CXX_EXTENSIONS OFF
+    )
+endif()
+
+# Test executable for multiregister parser
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_multiregister_main.cpp")
+    add_executable(test_multiregister_parser tests/test_multiregister_main.cpp)
+    target_link_libraries(test_multiregister_parser PRIVATE 
+        test_multiregister_parser_lib
+        fastjson_multiregister_parser
+    )
+    
+    target_compile_options(test_multiregister_parser PRIVATE
+        -O3
+        ${MULTIREGISTER_SIMD_FLAGS}
+        -fprebuilt-module-path=${CMAKE_CURRENT_BINARY_DIR}
+        -fprebuilt-module-path=${CMAKE_CURRENT_BINARY_DIR}/external/std/CMakeFiles/std_module.dir
+        -fprebuilt-module-path=${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/fastjson_multiregister_parser.dir
+        -fprebuilt-module-path=${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/test_multiregister_parser_lib.dir
+    )
+    
+    target_link_options(test_multiregister_parser PRIVATE 
+        -stdlib=libc++
+        -L/opt/clang-21/lib
+    )
+    
+    add_dependencies(test_multiregister_parser 
+        test_multiregister_parser_lib
+        fastjson_multiregister_parser
+    )
+    
+    set_target_properties(test_multiregister_parser PROPERTIES
+        CXX_STANDARD 23
+        CXX_STANDARD_REQUIRED ON
+        CXX_EXTENSIONS OFF
+        BUILD_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
+        INSTALL_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
+    )
+    
+    message(STATUS "Added Multi-Register Parser test executable")
+endif()
+
+# Benchmark executable for multiregister vs original parser
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/benchmark_multiregister.cpp")
+    add_executable(benchmark_multiregister tests/benchmark_multiregister.cpp)
+    
+    target_link_libraries(benchmark_multiregister PRIVATE 
+        fastjson_multiregister_parser
+        fastjson
+    )
+    
+    target_compile_options(benchmark_multiregister PRIVATE
+        -O3
+        -stdlib=libc++
+        -march=native
+        -mtune=native
+        -mavx2
+        -mfma
+        # Must match fastjson module flags for module compatibility
+        -fstack-protector-strong
+        -D_FORTIFY_SOURCE=2
+        -fprebuilt-module-path=${CMAKE_CURRENT_BINARY_DIR}
+        -fprebuilt-module-path=${CMAKE_CURRENT_BINARY_DIR}/external/std/CMakeFiles/std_module.dir
+        -fprebuilt-module-path=${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/fastjson_multiregister_parser.dir
+        -fprebuilt-module-path=${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/fastjson.dir
+    )
+    
+    target_link_options(benchmark_multiregister PRIVATE 
+        -stdlib=libc++
+        -L/opt/clang-21/lib
+    )
+    
+    add_dependencies(benchmark_multiregister 
+        fastjson_multiregister_parser
+        fastjson
+    )
+    
+    set_target_properties(benchmark_multiregister PROPERTIES
+        CXX_STANDARD 23
+        CXX_STANDARD_REQUIRED ON
+        CXX_EXTENSIONS OFF
+        BUILD_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
+        INSTALL_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
+    )
+    
+    message(STATUS "Added Multi-Register Parser benchmark executable")
+endif()

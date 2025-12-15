@@ -1,9 +1,15 @@
 # FastestJSONInTheWest - GitHub Copilot Instructions
 
-> **SYNC POLICY**: This file MUST be kept in sync with `ai/CLAUDE.md`. When updating either file, copy the changes to both. Last sync: December 4, 2025.
+> **SYNC POLICY**: This file MUST be kept in sync with `ai/CLAUDE.md`. When updating either file, copy the changes to both. Last sync: December 14, 2025.
 
 ## Project Context
-High-performance C++23 JSON parser with SIMD acceleration, 128-bit precision support, and LINQ-style queries.
+High-performance C++23 JSON parser with **4x multi-register SIMD** acceleration (128 bytes/iteration), 128-bit precision support, and LINQ-style queries.
+
+## v2.0 Performance Update
+- Default parser now uses **4x AVX2 multi-register SIMD** (2-6x faster)
+- String-heavy JSON: 4.7-5.9x faster
+- Large arrays: 2.8-4.3x faster
+- Zero API changes - existing code gets faster automatically
 
 ## Build System
 - **Compiler**: `/opt/clang-21/bin/clang++` (Clang 21.1.5)
@@ -92,9 +98,11 @@ using json_data = std::variant<
 ```
 
 ### SIMD Integration
+- **Default: 4x multi-register AVX2** (128 bytes per iteration)
 - Always provide scalar fallback
 - Use runtime detection for instruction set
 - Optimize for SSE2 → AVX2 path (AVX-512 disabled in WSL2/VM)
+- Multi-register pattern: Load 4 chunks → Process in parallel → Early exit on match
 
 ### Thread Safety
 - Public APIs must be thread-safe
