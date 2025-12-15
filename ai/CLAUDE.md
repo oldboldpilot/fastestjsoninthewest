@@ -111,6 +111,10 @@ using json_data = std::variant<
 
 ## Testing Requirements
 - All tests in `tests/` directory
+- **Local test framework**: `tests/test_framework.h` - zero-dependency C++23 framework
+  - Uses `std::expected<void, std::string>` for test results
+  - No C libraries (no cassert) - pure modern C++
+  - Macros: TEST(suite, name), EXPECT_*, ASSERT_*, RUN_ALL_TESTS()
 - Categorize: unit/, integration/, performance/
 - Aim for >95% code coverage
 - Test 128-bit precision edge cases
@@ -217,7 +221,10 @@ LD_LIBRARY_PATH=/opt/clang-21/lib/x86_64-unknown-linux-gnu:$LD_LIBRARY_PATH pyte
 - 1.13x-1.51x faster than simdjson
 - >100 MB/s throughput
 - <1% UTF-8 validation overhead
-- 151/154 tests passing (98%)
+- 193/193 tests passing (100%)
+  - C++ test_framework_validation: 14/14
+  - C++ test_multiregister_parser: 140/140
+  - Python bindings: 38/39 (1 intentionally skipped)
 
 ## Important Notes
 1. No libquadmath - use Clang native `__float128`

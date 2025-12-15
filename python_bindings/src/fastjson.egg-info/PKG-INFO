@@ -1,19 +1,23 @@
 Metadata-Version: 2.4
 Name: fastjson
-Version: 1.0.0
-Summary: FastestJSONInTheWest - Ultra-high-performance JSON library with Python bindings
+Version: 2.0.0
+Summary: FastestJSONInTheWest v2.0 - Ultra-high-performance JSON library with 4x multi-register SIMD, LINQ queries, and GIL-free parallel operations
 Author: Olumuyiwa Oluwasanmi
 License: BSD-4-Clause
 Project-URL: Homepage, https://github.com/oldboldpilot/fastestjsoninthewest
 Project-URL: Repository, https://github.com/oldboldpilot/fastestjsoninthewest.git
-Keywords: json,parser,simd,performance,c++23
+Keywords: json,parser,simd,avx2,performance,c++23,linq,parallel,gil-free
 Classifier: Development Status :: 4 - Beta
 Classifier: Intended Audience :: Developers
 Classifier: License :: OSI Approved :: BSD License
 Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
 Classifier: Programming Language :: Python :: 3.13
 Classifier: Topic :: Software Development :: Libraries :: Python Modules
-Requires-Python: ==3.13.*
+Classifier: Topic :: Text Processing :: Markup
+Classifier: Operating System :: POSIX :: Linux
+Requires-Python: >=3.11
 Description-Content-Type: text/markdown
 Requires-Dist: pybind11>=3.0.1
 Requires-Dist: numpy>=2.0.0

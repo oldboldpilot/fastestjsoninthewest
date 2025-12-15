@@ -1,0 +1,29 @@
+###############################################################################
+# FastestJSONInTheWest - Bazel Module Definition (Bzlmod)
+# Author: Olumuyiwa Oluwasanmi
+# High-Performance JSON Library with C++23 Modules
+###############################################################################
+
+module(
+    name = "fastestjsoninthewest",
+    version = "1.0.0",
+)
+
+# Rules for building C++ code
+bazel_dep(name = "rules_cc", version = "0.0.16")
+
+# Bazel Skylib for utility functions
+bazel_dep(name = "bazel_skylib", version = "1.5.0")
+
+# Git repository extension for fetching cpp23-logger
+git_override(
+    module_name = "cpp23_logger",
+    remote = "https://github.com/oldboldpilot/cpp23-logger.git",
+    commit = "HEAD",
+)
+
+# Register cpp23-logger as local path override (for submodule development)
+local_path_override(
+    module_name = "cpp23_logger",
+    path = "external/cpp23-logger",
+)

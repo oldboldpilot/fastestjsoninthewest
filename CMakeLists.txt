@@ -243,8 +243,6 @@ target_sources(fastjson_parallel
         modules/fastjson_parallel.cppm
     PRIVATE
         modules/numa_allocator.cpp
-        modules/fastjson_simd_multiregister.cpp
-        modules/fastjson_simd_api.cpp
 )
 
 # Link with std_module for import std; support
@@ -1261,8 +1259,6 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_simd_multiregister_performance
     target_link_libraries(test_simd_multiregister_performance PRIVATE 
         fastjson_simd_multiregister
         fastjson_parallel
-        gtest_main
-        gtest
     )
     
     target_compile_options(test_simd_multiregister_performance PRIVATE
