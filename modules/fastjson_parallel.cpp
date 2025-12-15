@@ -38,7 +38,7 @@ module;
     #include <arm_neon.h>
 #endif
 
-#ifdef __linux__
+#if defined(__linux__) && (defined(__aarch64__) || defined(_M_ARM64))
     #include <asm/hwcap.h>
     #include <sys/auxv.h>
 #endif
@@ -362,8 +362,7 @@ static auto detect_simd_capabilities() -> simd_capabilities {
 
     // Check for optional extensions via hwcaps on Linux
     #ifdef __linux__
-        #include <asm/hwcap.h>
-        #include <sys/auxv.h>
+        // Headers already included at the top
 
     unsigned long hwcaps = getauxval(AT_HWCAP);
 

@@ -116,22 +116,43 @@
 // ============================================================================
 module;
 
-// POSIX functions not in C++ standard library module
-#include <time.h>  // localtime_r, gmtime_r (POSIX)
+#include <array>
+#include <atomic>
+#include <chrono>
+#include <concepts>
+#include <cstdint>
+#include <ctime>
+#include <filesystem>
+#include <format>
+#include <fstream>
+#include <iomanip>
+#include <iostream>
+#include <locale>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <source_location>
+#include <span>
+#include <sstream>
+#include <string>
+#include <string_view>
+#include <tuple>
+#include <type_traits>
+#include <unordered_map>
+#include <utility>
+#include <variant>
+#include <vector>
 
 // ============================================================================
 // 2. MODULE DECLARATION
 // ============================================================================
 export module logger;
 
-// Use import std for faster compilation and better module isolation
-import std;
-
 // ============================================================================
 // 2.1 Custom Formatters for std::format
 // ============================================================================
 // std::filesystem::path formatter (not provided by standard library)
-export template <>
+template <>
 struct std::formatter<std::filesystem::path> : std::formatter<std::string> {
     auto format(std::filesystem::path const& p, std::format_context& ctx) const {
         return std::formatter<std::string>::format(p.string(), ctx);
@@ -1893,7 +1914,7 @@ class Logger::Impl {
                     bool color = true) -> void {
         std::lock_guard<std::mutex> lock(mutex_);
 
-        current_level.store(level, std::memory_order_relaxed);
+        current_level = level;
         console_enabled = console;
         console_color = color;
 
@@ -1917,7 +1938,8 @@ class Logger::Impl {
     }
 
     auto setLevel(LogLevel level) -> void {
-        current_level.store(level, std::memory_order_relaxed);
+        std::lock_guard<std::mutex> lock(mutex_);
+        current_level = level;
     }
 
     auto enableColors(bool enable) -> void {
@@ -1931,12 +1953,12 @@ class Logger::Impl {
     }
 
     [[nodiscard]] auto getLevel() const -> LogLevel {
-        return current_level.load(std::memory_order_relaxed);
+        std::lock_guard<std::mutex> lock(mutex_);
+        return current_level;
     }
 
     auto log(LogLevel level, std::string const& msg, std::source_location const& loc) -> void {
-        // Thread-safe level check using atomic load
-        if (level < current_level.load(std::memory_order_relaxed)) {
+        if (level < current_level) {
             return; // Skip if level is below threshold
         }
 
@@ -2074,7 +2096,7 @@ class Logger::Impl {
         }
     }
 
-    std::atomic<LogLevel> current_level;
+    LogLevel current_level;
     bool console_enabled;
     bool console_color;
     bool initialized;

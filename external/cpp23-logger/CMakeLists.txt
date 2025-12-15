@@ -1,18 +1,6 @@
 cmake_minimum_required(VERSION 3.28)
 
 # ============================================================================
-# C++23 import std; Support (MUST be before project())
-# ============================================================================
-# Enable experimental import std support - requires CMake 3.30+
-# This MUST come before project() call
-if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.30)
-    set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD "0e5b6991-d74f-4b3d-a41c-cf096e0b2508")
-    message(STATUS "CMake 3.30+ detected: import std; support enabled for logger")
-else()
-    message(STATUS "CMake ${CMAKE_VERSION} < 3.30: import std; will use parent's prebuilt std.pcm")
-endif()
-
-# ============================================================================
 # Toolchain Configuration (before project())
 # ============================================================================
 # Configurable toolchain paths with fallback detection
@@ -49,42 +37,6 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Enable C++23 module dependency scanning
-set(CMAKE_EXPERIMENTAL_CXX_MODULE_DYNDEP 1)
-set(CMAKE_CXX_SCAN_FOR_MODULES ON)
-
-# ============================================================================
-# Standard Library Module Configuration
-# ============================================================================
-# Parent projects can override these via CMake cache variables
-
-# Path to libc++ module interface sources (std.cppm, std.compat.cppm)
-if(NOT DEFINED LIBCXX_MODULES_PATH)
-    set(LIBCXX_MODULES_PATH "/usr/local/share/libc++/v1" CACHE STRING "Path to libc++ module sources")
-endif()
-
-# Path to precompiled std.pcm directory
-# Parent can set this (e.g., BIGBROTHER_STD_PCM_DIR, MYPROJECT_STD_PCM_DIR, etc.)
-# Otherwise use local build directory
-if(NOT DEFINED STD_PCM_DIR)
-    # Check for common parent project variables
-    if(DEFINED BIGBROTHER_STD_PCM_DIR)
-        set(STD_PCM_DIR "${BIGBROTHER_STD_PCM_DIR}" CACHE PATH "Directory for std.pcm from parent")
-    else()
-        set(STD_PCM_DIR "${CMAKE_BINARY_DIR}/modules" CACHE PATH "Directory for std.pcm")
-        file(MAKE_DIRECTORY "${STD_PCM_DIR}")
-    endif()
-endif()
-
-message(STATUS "Logger: libc++ module sources: ${LIBCXX_MODULES_PATH}")
-message(STATUS "Logger: std.pcm directory: ${STD_PCM_DIR}")
-
-# Use standard library modules (CMake 3.30+ feature)
-if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.30)
-    set(CMAKE_CXX_MODULE_STD 1)
-    message(STATUS "Logger: CMAKE_CXX_MODULE_STD enabled (CMake 3.30+)")
-endif()
-
 # ============================================================================
 # Compiler Detection and Configuration
 # ============================================================================
@@ -98,9 +50,10 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++23 -stdlib=libc++")
 
     # Optional: Add native CPU optimizations if requested by parent project
+    # Note: Use -march=native only (no explicit AVX512 flags) to allow runtime detection
     if(ENABLE_NATIVE_OPTIMIZATIONS)
         message(STATUS "Enabling native CPU optimizations for module compatibility")
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native -mavx512f -mavx512dq -mavx512bw -mavx512vl -mavx2 -mfma")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native -mavx2 -mfma")
     endif()
 
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
@@ -111,9 +64,10 @@ elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++23 -fmodules-ts")
 
     # Optional: Add native CPU optimizations if requested by parent project
+    # Note: Use -march=native only (no explicit AVX512 flags) to allow runtime detection
     if(ENABLE_NATIVE_OPTIMIZATIONS)
         message(STATUS "Enabling native CPU optimizations for module compatibility")
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native -mavx512f -mavx512dq -mavx512bw -mavx512vl -mavx2 -mfma")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native -mavx2 -mfma")
     endif()
 
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
@@ -170,16 +124,6 @@ target_include_directories(logger
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>
 )
-
-# Add prebuilt module path for import std;
-# CMake 3.30+ with CMAKE_CXX_MODULE_STD=1 will automatically build/use std.pcm
-target_compile_options(logger PRIVATE -fprebuilt-module-path=${STD_PCM_DIR})
-
-# Add dependency on parent's std module build target if it exists
-if(TARGET build_std_modules)
-    add_dependencies(logger build_std_modules)
-    message(STATUS "Logger: Added dependency on parent's build_std_modules target")
-endif()
 
 # Thread support required for std::mutex
 find_package(Threads REQUIRED)
