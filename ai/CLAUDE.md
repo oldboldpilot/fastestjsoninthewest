@@ -1,6 +1,6 @@
 # FastestJSONInTheWest - GitHub Copilot Instructions
 
-> **SYNC POLICY**: This file MUST be kept in sync with `ai/copilot-instructions.md`. When updating either file, copy the changes to both. Last sync: December 14, 2025.
+> **SYNC POLICY**: This file MUST be kept in sync with `ai/copilot-instructions.md`. When updating either file, copy the changes to both. Last sync: December 15, 2025.
 
 ## Project Context
 High-performance C++23 JSON parser with **4x multi-register SIMD** acceleration (128 bytes/iteration), 128-bit precision support, and LINQ-style queries.
@@ -160,8 +160,32 @@ auto process_data(const char* data, size_t len) -> result {
 ## File Locations
 - **Core**: `modules/fastjson.cppm`, `modules/fastjson.cpp`
 - **LINQ**: `modules/json_linq.h`
-- **Tests**: `test_*.cpp` (root level for now)
+- **Python Bindings**: `python_bindings/src/fastjson_bindings.cpp`
+- **Tests**: `tests/unit/`, `tests/integration/`, `tests/performance/`
 - **Docs**: `docs/`, `documents/`, `ai/`
+- **Scripts**: `scripts/`
+
+## Python Bindings (v2.0)
+- **pybind11**: Full Python bindings with GIL release
+- **LINQ API**: `query()` and `parallel_query()` with fluent interface
+- **Installation**: `cd python_bindings && uv pip install -e .`
+- **OpenMP**: Set `LD_LIBRARY_PATH=/opt/clang-21/lib/x86_64-unknown-linux-gnu`
+
+```python
+import fastjson
+
+# Parse with GIL release
+data = fastjson.parse('{"name": "Alice"}')
+
+# LINQ-style queries
+result = (fastjson.query(data["users"])
+    .where(lambda u: u["active"])
+    .select(lambda u: u["name"])
+    .to_list())
+
+# Parallel queries (OpenMP)
+result = fastjson.parallel_query(large_list).filter(pred).to_list()
+```
 
 ## Build Commands
 ```bash
@@ -171,11 +195,12 @@ cmake -G Ninja -DCMAKE_CXX_COMPILER=/opt/clang-21/bin/clang++ -DENABLE_OPENMP=ON
 # Build
 ninja -j$(nproc)
 
-# Test
-./test_simple && ./test_comprehensive && ./test_128bit && ./test_conversion_helpers
+# Test C++
+cd tests && ctest --output-on-failure
 
-# Benchmark
-LD_LIBRARY_PATH=/opt/clang-21/lib:$LD_LIBRARY_PATH ./comparative_benchmark
+# Test Python
+cd python_bindings && source .venv/bin/activate
+LD_LIBRARY_PATH=/opt/clang-21/lib/x86_64-unknown-linux-gnu:$LD_LIBRARY_PATH pytest tests/ -v
 ```
 
 ## Current Features
@@ -183,9 +208,10 @@ LD_LIBRARY_PATH=/opt/clang-21/lib:$LD_LIBRARY_PATH ./comparative_benchmark
 - ✅ Exception-free numeric API
 - ✅ Type conversion helpers
 - ✅ SIMD acceleration (SSE2-AVX2)
-- ✅ LINQ query interface
+- ✅ LINQ query interface (C++ and Python)
 - ✅ Unicode support (UTF-8/16/32)
 - ✅ Parallel processing with OpenMP
+- ✅ Python bindings with GIL release
 
 ## Performance Metrics
 - 1.13x-1.51x faster than simdjson
@@ -204,4 +230,4 @@ LD_LIBRARY_PATH=/opt/clang-21/lib:$LD_LIBRARY_PATH ./comparative_benchmark
 - Guidelines: `ai/AGENT_GUIDELINES.md`
 - Architecture: `docs/ARCHITECTURE.md`  
 - API Reference: `documents/API_REFERENCE.md`
-- Context: `ai/CLAUDE.md`
+- Quick Start: `QUICKSTART.md`
