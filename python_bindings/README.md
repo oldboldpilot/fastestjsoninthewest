@@ -139,6 +139,9 @@ assert json_str == '{"key":"value"}'
 Run the comprehensive test suite:
 
 ```bash
+# Set OpenMP library path (required for Clang 21 builds)
+export LD_LIBRARY_PATH="/opt/clang-21/lib/x86_64-unknown-linux-gnu:$LD_LIBRARY_PATH"
+
 # Run all tests
 uv run pytest tests/
 

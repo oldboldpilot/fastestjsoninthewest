@@ -28,7 +28,6 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 # Find required packages
 find_package(OpenMP)
-find_package(GTest QUIET)
 
 # Configure compiler for modules
 if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
@@ -76,9 +75,6 @@ target_compile_definitions(fastjson_module PUBLIC
 set(TEST_COMMON_LIBRARIES fastjson_module)
 if(OpenMP_FOUND)
     list(APPEND TEST_COMMON_LIBRARIES OpenMP::OpenMP_CXX)
-endif()
-if(GTest_FOUND)
-    list(APPEND TEST_COMMON_LIBRARIES GTest::gtest GTest::gtest_main)
 endif()
 
 # ============================================================================
