@@ -39,6 +39,9 @@ pybind11_add_module(fastjson
     src/fastjson_bindings.cpp
 )
 
+# Add AVX2 SIMD flags for multi-register optimization
+set(SIMD_FLAGS "-mavx2 -mfma -mbmi2")
+
 # Link with OpenMP from clang toolchain
 set(OPENMP_LIB_PATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu")
 
@@ -46,15 +49,27 @@ set(OPENMP_LIB_PATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu")
 find_library(OPENMP_LIB NAMES omp PATHS ${OPENMP_LIB_PATH} HINTS ${OPENMP_LIB_PATH} NO_DEFAULT_PATH)
 
 if(NOT OPENMP_LIB)
-    message(FATAL_ERROR "OpenMP library not found at ${OPENMP_LIB_PATH}")
+    message(WARNING "OpenMP library not found at ${OPENMP_LIB_PATH}, parallel features disabled")
+    set(OPENMP_LIB "")
+    set(OPENMP_FLAGS "")
+else()
+    set(OPENMP_FLAGS "-fopenmp")
 endif()
 
-# Add OpenMP flags
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fopenmp")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fopenmp")
+# Add compile flags
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${SIMD_FLAGS} ${OPENMP_FLAGS}")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${SIMD_FLAGS} ${OPENMP_FLAGS}")
+
+# Add compile definitions
+target_compile_definitions(fastjson PRIVATE 
+    FASTJSON_SIMD_ENABLED=1
+    FASTJSON_VERSION="2.0.0"
+)
 
 # Link the library
-target_link_libraries(fastjson PRIVATE ${OPENMP_LIB})
+if(OPENMP_LIB)
+    target_link_libraries(fastjson PRIVATE ${OPENMP_LIB})
+endif()
 
 # Set output directory
 set_target_properties(fastjson PROPERTIES
