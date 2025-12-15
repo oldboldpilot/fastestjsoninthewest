@@ -1,0 +1,16 @@
+[1/16] Scanning /home/muyiwa/Development/FastestJSONInTheWest/benchmarks/comparative_benchmark.cpp for CXX dependencies
+[2/16] Scanning /home/muyiwa/Development/FastestJSONInTheWest/external/cpp23-logger/include/logger/code_generator.cppm for CXX dependencies
+[3/16] Scanning /home/muyiwa/Development/FastestJSONInTheWest/external/cpp23-logger/include/logger/logger.cppm for CXX dependencies
+[4/16] Scanning /home/muyiwa/Development/FastestJSONInTheWest/modules/fastjson.cppm for CXX dependencies
+[5/16] Scanning /home/muyiwa/Development/FastestJSONInTheWest/modules/fastjson.cpp for CXX dependencies
+[6/16] Generating CXX dyndep file external/cpp23-logger/CMakeFiles/logger.dir/CXX.dd
+[7/16] Generating CXX dyndep file CMakeFiles/comparative_benchmark.dir/CXX.dd
+[8/16] Generating CXX dyndep file CMakeFiles/fastjson.dir/CXX.dd
+[9/16] Building CXX object CMakeFiles/fastjson.dir/modules/fastjson.cpp.o
+[10/16] Building CXX object external/cpp23-logger/CMakeFiles/logger.dir/include/logger/code_generator.cppm.o
+[11/16] Building CXX object external/cpp23-logger/CMakeFiles/logger.dir/include/logger/logger.cppm.o
+[12/16] Linking CXX static library lib/liblogger.a
+[13/16] Building CXX object CMakeFiles/comparative_benchmark.dir/benchmarks/comparative_benchmark.cpp.o
+[14/16] Linking CXX executable comparative_benchmark
+[15/16] Building CXX object CMakeFiles/fastjson.dir/modules/fastjson.cppm.o
+[16/16] Linking CXX static library libfastjson.a

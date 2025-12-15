@@ -1,0 +1,50 @@
+cmake_minimum_required(VERSION 3.20)
+project(FastJSON_Benchmark CXX)
+
+# Set C++23 standard
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+# Find required packages
+find_package(OpenMP REQUIRED)
+
+# Configure compiler for modules
+if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    add_compile_options(-fmodules -fbuiltin-module-map -fimplicit-modules -fimplicit-module-maps)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
+endif()
+
+# Add optimization flags
+set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG -march=native")
+
+# Create the fastjson module
+add_library(fastjson_module)
+target_sources(fastjson_module
+    PUBLIC
+        FILE_SET CXX_MODULES FILES
+            modules/fastjson.cppm
+)
+
+# Link OpenMP to the module
+target_link_libraries(fastjson_module PUBLIC OpenMP::OpenMP_CXX)
+
+# Enable SIMD optimizations
+target_compile_definitions(fastjson_module PUBLIC
+    FASTJSON_ENABLE_SIMD
+    HAVE_SSE2 HAVE_SSE3 HAVE_SSSE3 HAVE_SSE41 HAVE_SSE42
+    HAVE_AVX HAVE_AVX2 HAVE_AVX512F HAVE_AVX512BW
+)
+
+# Create the benchmark executable
+add_executable(large_file_benchmark large_file_benchmark.cpp)
+target_link_libraries(large_file_benchmark PRIVATE fastjson_module OpenMP::OpenMP_CXX)
+
+# Set build type to Release for performance
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release)
+endif()
+
+message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
+message(STATUS "CXX flags: ${CMAKE_CXX_FLAGS}")
+message(STATUS "CXX flags Release: ${CMAKE_CXX_FLAGS_RELEASE}")
