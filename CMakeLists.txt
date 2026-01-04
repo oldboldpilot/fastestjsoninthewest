@@ -185,9 +185,13 @@ find_program(CLANG_TIDY_EXE NAMES clang-tidy-21 clang-tidy
 # ============================================================================
 # Build C++23 std modules from locally-built libc++
 # ============================================================================
-message(STATUS "Building C++23 std modules from locally-built libc++...")
-add_subdirectory(external/std)
-message(STATUS "✓ std modules will be built at: ${CMAKE_BINARY_DIR}/external/std")
+if(NOT TARGET std_module AND NOT FASTJSON_SKIP_STD_MODULE)
+    message(STATUS "Building C++23 std modules from locally-built libc++...")
+    add_subdirectory(external/std)
+    message(STATUS "✓ std modules will be built at: ${CMAKE_BINARY_DIR}/external/std")
+else()
+    message(STATUS "⊗ Skipping std_module (parent project provides it)")
+endif()
 
 # Create FastJSON C++23 module library
 add_library(fastjson)
