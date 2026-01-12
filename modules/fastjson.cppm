@@ -4,31 +4,8 @@
 
 module;
 
-// Global module fragment - all includes must be here
-#include <algorithm>
-#include <array>
-#include <atomic>
-#include <cctype>
-#include <charconv>
-#include <cmath>
-#include <cstdint>
-#include <cstring>
-#include <expected>
-#include <iomanip>
-#include <iostream>
-#include <memory>
-#include <mutex>
-#include <optional>
-#include <sstream>
-#include <stdexcept>
-#include <string>
-#include <string_view>
-#include <thread>
-#include <type_traits>
-#include <unordered_map>
-#include <variant>
-#include <vector>
-
+// SIMD intrinsics MUST be in global module fragment to avoid declaration conflicts
+#include <cstdlib>
 #if defined(__x86_64__) || defined(_M_X64)
     #include <cpuid.h>
     #include <immintrin.h>
@@ -43,7 +20,12 @@ module;
     #include <omp.h>
 #endif
 
+// C++ headers needed for module purview
+#include <sstream>
+
 export module fastjson;
+
+import std;
 
 export namespace fastjson {
 
