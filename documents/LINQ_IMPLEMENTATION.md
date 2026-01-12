@@ -5,6 +5,23 @@ Implemented a comprehensive LINQ-style query interface for JSON data processing 
 
 ## Features
 
+## Python Integration (v2.0)
+
+The LINQ interface is exposed to Python via the `fastjson.query()` wrapper.
+
+```python
+import fastjson
+data = fastjson.parse(json_str)
+
+# Fluent chaining
+result = (fastjson.query(data)
+          .where(lambda x: x["active"].as_bool())
+          .select(lambda x: x["value"].as_int())
+          .to_list())
+```
+
+Note: Python lambdas incur a GIL overhead. For maximum performance in tight loops, consider using C++ logic or batched operations if available.
+
 ### Sequential LINQ Operations (`query_result<T>`)
 
 #### Filtering
