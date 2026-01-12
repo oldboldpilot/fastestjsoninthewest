@@ -54,6 +54,40 @@ int main() {
 }
 ```
 
+## Python Bindings (v2.0)
+
+**Version:** 2.0.0 (Nanobind + UV)
+
+### `fastjson` Module
+
+#### Core Parsing
+```python
+# Parse string (releases GIL)
+val = fastjson.parse('{"key": "value"}')
+
+# Parse file (releases GIL)
+val = fastjson.parse_file("path/to/file.json")
+
+# Parallel Parse (releases GIL, uses OpenMP)
+val = fastjson.parse_parallel(large_json_str)
+
+# LINQ Query
+query = fastjson.query(val)
+result = (query
+    .where(lambda x: x["age"].as_int() > 10)
+    .to_list())
+```
+
+#### Templating
+```python
+# Render Mustache Template
+context = fastjson.parse('{"user": "Admin"}')
+html = fastjson.render_template("<h1>Hello {{user}}</h1>", context)
+```
+
+#### 128-bit Integer Support
+128-bit integers are automatically detected and can be converted to Python integers without precision loss via `to_python()`.
+
 ---
 
 ## Core API

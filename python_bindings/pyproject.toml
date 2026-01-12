@@ -1,66 +1,43 @@
 [build-system]
-requires = ["setuptools>=68", "pybind11>=3.0.1", "cmake>=3.15", "ninja"]
-build-backend = "setuptools.build_meta"
+requires = ["scikit-build-core>=0.5.0", "nanobind>=2.4.0"]
+build-backend = "scikit_build_core.build"
 
 [project]
 name = "fastjson"
 version = "2.0.0"
-description = "FastestJSONInTheWest v2.0 - Ultra-high-performance JSON library with 4x multi-register SIMD, LINQ queries, and GIL-free parallel operations"
+description = "FastestJSONInTheWest v2.0 - High-performance C++23 JSON library with SIMD, LINQ, and reduced-GIL bindings"
 readme = "README.md"
 requires-python = ">=3.11"
-authors = [{name = "Olumuyiwa Oluwasanmi"}]
-license = {text = "BSD-4-Clause"}
-keywords = ["json", "parser", "simd", "avx2", "performance", "c++23", "linq", "parallel", "gil-free"]
+authors = [
+  { name = "Olumuyiwa Oluwasanmi", email = "olumuyiwa@example.com" },
+]
+license = { text = "BSD-4-Clause" }
 classifiers = [
-    "Development Status :: 4 - Beta",
-    "Intended Audience :: Developers",
-    "License :: OSI Approved :: BSD License",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
-    "Topic :: Software Development :: Libraries :: Python Modules",
-    "Topic :: Text Processing :: Markup",
-    "Operating System :: POSIX :: Linux",
+  "Development Status :: 5 - Production/Stable",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: BSD License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Operating System :: POSIX :: Linux",
 ]
-
+keywords = ["json", "parser", "simd", "avx2", "c++23", "nanobind", "fastjson"]
 dependencies = [
-    "pybind11>=3.0.1",
-    "numpy>=2.0.0",
-]
-
-[project.optional-dependencies]
-dev = [
-    "pytest>=9.0.0",
-    "pytest-cov>=7.0.0",
-    "pytest-benchmark>=4.0.0",
-    "setuptools>=68",
-    "wheel",
-]
-test = [
-    "pytest>=9.0.0",
-    "pytest-cov>=7.0.0",
-    "pytest-benchmark>=4.0.0",
+  "numpy>=2.0.0",
 ]
 
 [project.urls]
 Homepage = "https://github.com/oldboldpilot/fastestjsoninthewest"
-Repository = "https://github.com/oldboldpilot/fastestjsoninthewest.git"
+Repository = "https://github.com/oldboldpilot/fastestjsoninthewest"
+
+[tool.scikit-build]
+cmake.version = "CMake 3.28"
+cmake.build-type = "Release"
+wheel.license-files = ["LICENSE*"]
 
 [tool.pytest.ini_options]
 minversion = "7.0"
+addopts = "-ra -q"
 testpaths = ["tests"]
-python_files = ["test_*.py"]
-addopts = "-v --tb=short"
-markers = [
-    "benchmark: marks tests as benchmark",
-    "slow: marks tests as slow",
-]
-
-[tool.coverage.run]
-source = ["src"]
-branch = true
-
-[tool.coverage.report]
-precision = 2
-show_missing = true
