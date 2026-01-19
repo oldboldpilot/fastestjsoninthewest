@@ -5,6 +5,7 @@
 module;
 
 #include <algorithm>
+#include <cmath>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -15,10 +16,10 @@ module;
 
 export module json_template;
 
-// Import fastjson to access json_value
-import fastjson;
+// Import fastjson_parallel to access json_value
+import fastjson_parallel;
 
-export namespace fastjson {
+export namespace fastjson_parallel {
 namespace mustache {
 
 // ============================================================================
@@ -125,7 +126,7 @@ inline auto lookup(const context_stack& ctx, const std::string& key) -> const js
     // Search from top of stack down
     for (auto it = ctx.rbegin(); it != ctx.rend(); ++it) {
         const json_value* current = *it;
-        if (current->is_object() && current->contains(key)) {
+        if (current->is_object() && current->as_object().contains(key)) {
             return &((*current)[key]);
         }
         // Implicit dot iterator
@@ -161,8 +162,8 @@ inline auto render_tokens(const std::vector<token>& tokens, context_stack& ctx, 
                          } else {
                              output.append(std::to_string(d));
                          }
-                    } else if (val->is_boolean()) {
-                        output.append(val->as_boolean() ? "true" : "false");
+                    } else if (val->is_bool()) {
+                        output.append(val->as_bool() ? "true" : "false");
                     } else if (val->is_int_128()) {
                         // TODO: Implement 128-bit to string in fastjson core or here
                         // For now, fallback or cast
@@ -201,7 +202,7 @@ inline auto render_tokens(const std::vector<token>& tokens, context_stack& ctx, 
                 bool is_list = false;
 
                 if (val) {
-                    if (val->is_boolean()) is_truthy = val->as_boolean();
+                    if (val->is_bool()) is_truthy = val->as_bool();
                     else if (val->is_array()) { is_truthy = !val->empty(); is_list = true; }
                     else if (val->is_object()) is_truthy = true; // Object is truthy?
                     else if (val->is_string()) is_truthy = !val->as_string().empty();
@@ -259,7 +260,7 @@ inline auto render_tokens(const std::vector<token>& tokens, context_stack& ctx, 
 
                 bool is_falsy = true;
                  if (val) {
-                    if (val->is_boolean()) is_falsy = !val->as_boolean();
+                    if (val->is_bool()) is_falsy = !val->as_bool();
                     else if (val->is_array()) is_falsy = val->empty();
                     else if (val->is_string()) is_falsy = val->as_string().empty();
                     else if (val->is_number()) is_falsy = (val->as_number() == 0.0);

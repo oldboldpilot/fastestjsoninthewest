@@ -17,7 +17,7 @@ endif()
 # ============================================================================
 # Dependencies
 # ============================================================================
-find_package(Python3 COMPONENTS Interpreter Development.Module REQUIRED)
+find_package(Python COMPONENTS Interpreter Development.Module REQUIRED)
 find_package(nanobind CONFIG REQUIRED)
 find_package(Threads REQUIRED)
 
@@ -30,38 +30,42 @@ else()
 endif()
 
 # ============================================================================
+# Standard Library Module
+# ============================================================================
+add_library(std_module STATIC)
+target_sources(std_module PUBLIC
+    FILE_SET CXX_MODULES 
+    BASE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/../../std
+    FILES ${CMAKE_CURRENT_SOURCE_DIR}/../../std/std.cppm
+)
+target_compile_features(std_module PUBLIC cxx_std_23)
+target_compile_options(std_module PRIVATE -Wno-error)
+
+# ============================================================================
 # Build fastjson Python Module
 # ============================================================================
 
-# We need to compile the C++ modules we depend on
-# In a real scenario with C++ modules, we might need to add the module sources directly
-# or link against a pre-built library that exports them. 
-# For simplicity in this binding, we'll compile the core modules here as part of the extension
-# or assume they are header-only / module-interface-only for now, but strictly speaking
-# we should link against the 'fastjson' target if it were available via find_package.
-# Here we add sources directly to ensure self-contained build for the wheel.
-
 set(FASTJSON_MODULES_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../modules")
 
-# Define the extension module
+# Define the extension module with binding source and implementation files
 nanobind_add_module(fastjson 
     src/fastjson_bindings.cpp
-    # Include core module sources to ensure they are compiled and available
-    ${FASTJSON_MODULES_DIR}/fastjson.cppm
     ${FASTJSON_MODULES_DIR}/fastjson.cpp
-    ${FASTJSON_MODULES_DIR}/fastjson_parallel.cppm
     ${FASTJSON_MODULES_DIR}/numa_allocator.cpp
-    ${FASTJSON_MODULES_DIR}/json_linq.cppm
-    ${FASTJSON_MODULES_DIR}/json_template.cppm
-    # Add SIMD implementations
     ${FASTJSON_MODULES_DIR}/fastjson_simd_api.cpp
     ${FASTJSON_MODULES_DIR}/fastjson_simd_multiregister.cpp
 )
 
 # Enable C++23 modules for the target
 target_sources(fastjson PUBLIC
-    FILE_SET CXX_MODULES FILES
-    src/fastjson_bindings.cpp  # It's a consumer, but allows scanning
+    FILE_SET CXX_MODULES 
+    BASE_DIRS ${FASTJSON_MODULES_DIR}
+    FILES
+    ${FASTJSON_MODULES_DIR}/fastjson.cppm
+    ${FASTJSON_MODULES_DIR}/fastjson_parallel.cppm
+    ${FASTJSON_MODULES_DIR}/json_linq.cppm
+    ${FASTJSON_MODULES_DIR}/json_template.cppm
+    ${FASTJSON_MODULES_DIR}/fastjson_simd_multiregister.cppm
 )
 
 # Includes
@@ -84,15 +88,14 @@ target_compile_options(fastjson PRIVATE
     -march=native 
     -funroll-loops
     -fvectorize
-    -flto=thin
     -Wall -Wextra
     ${OpenMP_CXX_FLAGS}
 )
 
 # Link Libraries
 target_link_libraries(fastjson PRIVATE 
-    nanobind::nanobind
     Threads::Threads
+    std_module
 )
 
 if(OpenMP_CXX_FOUND)
