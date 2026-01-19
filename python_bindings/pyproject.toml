@@ -33,7 +33,7 @@ Homepage = "https://github.com/oldboldpilot/fastestjsoninthewest"
 Repository = "https://github.com/oldboldpilot/fastestjsoninthewest"
 
 [tool.scikit-build]
-cmake.version = "CMake 3.28"
+cmake.version = ">=3.28"
 cmake.build-type = "Release"
 wheel.license-files = ["LICENSE*"]
 

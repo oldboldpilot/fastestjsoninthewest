@@ -17,17 +17,17 @@
    We use 'import std;' for C++23 compliance handling.
    Nanobind requires traditional headers.
 */
-import std;
 import fastjson;
+import fastjson_parallel;
+import json_linq;
 import json_template;
-// Import linq/parallel explicitly if they are separate modules, though they might be exported by fastjson logic
-// In this case, fastjson exports linq/parallel namespaces, or we import them if they are module partitions.
-// Re-check: json_template is separate.
-// fastjson core exports the fastjson namespace.
 
 namespace nb = nanobind;
 using namespace nb::literals;
-using namespace fastjson;
+using namespace fastjson_parallel;
+
+NB_MAKE_OPAQUE(std::vector<int64_t>);
+NB_MAKE_OPAQUE(std::vector<double>);
 
 // --- Helper Functions ---
 
@@ -35,8 +35,8 @@ using namespace fastjson;
 nb::object to_python(const json_value& v) {
     if (v.is_null()) {
         return nb::none();
-    } else if (v.is_boolean()) {
-        return nb::bool_(v.as_boolean());
+    } else if (v.is_bool()) {
+        return nb::bool_(v.as_bool());
     } else if (v.is_number()) {
         double d = v.as_number();
         // Heuristic: Check if integer-like for cleaner python types
@@ -65,9 +65,11 @@ nb::object to_python(const json_value& v) {
     } else if (v.is_int_128()) {
         // 128-bit integer support
         // Convert to string, then let Python parse it into arbitrary precision int
-        return nb::int_(fastjson::to_string(v).c_str());
+        std::string s = fastjson_parallel::stringify(v);
+        return nb::module_::import_("builtins").attr("int")(s.c_str());
     } else if (v.is_uint_128()) {
-         return nb::int_(fastjson::to_string(v).c_str());
+         std::string s = fastjson_parallel::stringify(v);
+         return nb::module_::import_("builtins").attr("int")(s.c_str());
     } else if (v.is_number_128()) {
         // float128 -> python float (64-bit) 
         // Python doesn't support 128-bit float natively.
@@ -76,7 +78,7 @@ nb::object to_python(const json_value& v) {
     return nb::none();
 }
 
-namespace fastjson::bindings {
+namespace bindings {
 
 template <typename Func>
 auto with_gil_release(Func&& f) {
@@ -102,7 +104,7 @@ void bind_numeric_vector(nb::module_& m, const char* name) {
         });
 }
 
-} // namespace fastjson::bindings
+} // namespace bindings
 
 // --- Module Definition ---
 
@@ -117,16 +119,21 @@ NB_MODULE(fastjson, m) {
             return to_python(self);
         }, "Convert to native Python objects (recursive, handles 128-bit ints)")
         .def("__str__", [](const json_value& self) {
-            return fastjson::stringify(self);
+            return fastjson_parallel::stringify(self);
         })
         .def("__repr__", [](const json_value& self) {
-            return std::format("<JSONValue: {}>", fastjson::stringify(self));
+            return std::format("<JSONValue: {}>", fastjson_parallel::stringify(self));
         })
         // Accessors
         .def("__getitem__", [](const json_value& self, std::string key) {
              if (!self.is_object()) throw std::runtime_error("Not an object");
-             if (!self.contains(key)) throw nb::key_error(key.c_str());
-             return self[key];
+             // json_object is unordered_map, has contains
+             // json_value has contains? No, but operator[] on map throws if not found?
+             // fastjson_parallel::json_value operator[] calls map::at
+             // But we should check contains first to throw KeyError
+             const auto& obj = self.as_object();
+             if (obj.find(key) == obj.end()) throw nb::key_error(key.c_str());
+             return obj.at(key);
         })
         .def("__getitem__", [](const json_value& self, size_t index) {
              if (!self.is_array()) throw std::runtime_error("Not an array");
@@ -138,7 +145,7 @@ NB_MODULE(fastjson, m) {
         })
         // Type checks
         .def_prop_ro("is_null", &json_value::is_null)
-        .def_prop_ro("is_bool", &json_value::is_boolean)
+        .def_prop_ro("is_bool", &json_value::is_bool)
         .def_prop_ro("is_number", &json_value::is_number)
         .def_prop_ro("is_string", &json_value::is_string)
         .def_prop_ro("is_array", &json_value::is_array)
@@ -151,8 +158,9 @@ NB_MODULE(fastjson, m) {
     // --- Main Parser API ---
 
     m.def("parse", [](std::string_view json_str) -> json_value {
-        return fastjson::bindings::with_gil_release([&] {
-            auto result = fastjson::parse(json_str);
+        return bindings::with_gil_release([&] {
+            // Using fastjson_parallel::parse
+            auto result = fastjson_parallel::parse(json_str);
             if (!result) {
                 throw std::runtime_error(result.error().message);
             }
@@ -161,7 +169,7 @@ NB_MODULE(fastjson, m) {
     }, "json_str"_a, "Parse JSON string (SIMD accelerated, 128-bit support)");
 
     m.def("parse_file", [](std::string filename) -> json_value {
-        return fastjson::bindings::with_gil_release([&] {
+        return bindings::with_gil_release([&] {
             std::ifstream f(filename, std::ios::binary | std::ios::ate);
             if (!f) throw std::runtime_error("Cannot open file: " + filename);
             
@@ -170,7 +178,7 @@ NB_MODULE(fastjson, m) {
             f.seekg(0);
             if (!f.read(str.data(), size)) throw std::runtime_error("Read error");
             
-            auto result = fastjson::parse(str);
+            auto result = fastjson_parallel::parse(str);
              if (!result) {
                 throw std::runtime_error(result.error().message);
             }
@@ -181,21 +189,18 @@ NB_MODULE(fastjson, m) {
     // --- Parallel Parser API ---
 
     m.def("parse_parallel", [](std::string_view json_str) -> json_value {
-        return fastjson::bindings::with_gil_release([&] {
-             #ifdef _OPENMP
-                auto result = fastjson_parallel::parse(json_str); 
-             #else
-                auto result = fastjson::parse(json_str);
-             #endif
+        return bindings::with_gil_release([&] {
+             // fastjson_parallel is parallel enabled by default config
+             auto result = fastjson_parallel::parse(json_str);
             if (!result) throw std::runtime_error(result.error().message);
             return *result;
         });
     }, "json_str"_a, "Parse large JSON string using OpenMP");
     
     // --- LINQ API ---
-    // Exposing the Query Wrapper
     
-    using Query = fastjson::linq::query_wrapper<json_value>; 
+    // json_linq is in fastjson::linq namespace (exported by json_linq module)
+    using Query = fastjson::linq::query_result<json_value>; 
 
     nb::class_<Query>(m, "Query")
         .def("where", [](Query& self, std::function<bool(const json_value&)> pred) {
@@ -205,20 +210,29 @@ NB_MODULE(fastjson, m) {
             return self.select([transform](const json_value& v) { return transform(v); });
         })
         .def("to_list", [](Query& self) {
-            std::vector<json_value> vec = self.to_vector();
-            return vec;
+            // to_vector() returns std::vector<json_value>
+            // to_python will handle json_value conversion if we mapped it, 
+            // but we need to return list of JSONValue objects (wrappers)
+            // Nanobind should handle std::vector<json_value> -> list[JSONValue] 
+            // if we didn't make vector opaque?
+            // Actually we only made vector<int64/double> opaque.
+            // So vector<json_value> should be convertible to list.
+            return self.to_vector();
         });
 
     m.def("query", [](const json_value& source) {
-        return fastjson::linq::from(source);
-    }, "Create a LINQ query from a JSONValue");
+        if (!source.is_array()) {
+            throw std::runtime_error("Query source must be an array");
+        }
+        return fastjson::linq::from(source.as_array());
+    }, "Create a LINQ query from a JSONValue (must be array)");
 
     // --- Mustache Templating API ---
     m.def("render_template", [](std::string_view tmpl, const json_value& data) {
-        return fastjson::mustache::render(tmpl, data);
+        return fastjson_parallel::mustache::render(tmpl, data);
     }, "template"_a, "data"_a, "Render a connection-less Mustache template using the JSON data model");
 
     // --- Template Instantiations (Vectors) ---
-    fastjson::bindings::bind_numeric_vector<int64_t>(m, "Int64Vector");
-    fastjson::bindings::bind_numeric_vector<double>(m, "DoubleVector");
+    bindings::bind_numeric_vector<int64_t>(m, "Int64Vector");
+    bindings::bind_numeric_vector<double>(m, "DoubleVector");
 }
