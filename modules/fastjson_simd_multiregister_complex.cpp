@@ -170,7 +170,7 @@ auto find_string_end_4x_avx2(const char* data, size_t size, size_t start_pos) ->
     // Control characters and special characters to detect
     __m256i quote = _mm256_set1_epi8('"');
     __m256i backslash = _mm256_set1_epi8('\\');
-    __m256i control_threshold = _mm256_set1_epi8(0x20);
+    __m256i control_sub = _mm256_set1_epi8(0x1F);  // For unsigned comparison via saturating subtract
     
     // Process 128 bytes (4 x 32-byte registers) per iteration
     while (pos + 128 <= size) {
@@ -179,19 +179,27 @@ auto find_string_end_4x_avx2(const char* data, size_t size, size_t start_pos) ->
         __m256i chunk2 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(data + pos + 64));
         __m256i chunk3 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(data + pos + 96));
         
+        // Unsigned comparison: is_control = (chunk < 0x20) using saturating subtract
+        // _mm256_subs_epu8(chunk, 0x1F) == 0 when chunk <= 0x1F (i.e., chunk < 0x20)
+        __m256i zero = _mm256_setzero_si256();
+        __m256i ctrl0 = _mm256_cmpeq_epi8(_mm256_subs_epu8(chunk0, control_sub), zero);
+        __m256i ctrl1 = _mm256_cmpeq_epi8(_mm256_subs_epu8(chunk1, control_sub), zero);
+        __m256i ctrl2 = _mm256_cmpeq_epi8(_mm256_subs_epu8(chunk2, control_sub), zero);
+        __m256i ctrl3 = _mm256_cmpeq_epi8(_mm256_subs_epu8(chunk3, control_sub), zero);
+        
         // Check all special conditions for each chunk
         __m256i special0 = _mm256_or_si256(
             _mm256_or_si256(_mm256_cmpeq_epi8(chunk0, quote), _mm256_cmpeq_epi8(chunk0, backslash)),
-            _mm256_cmpgt_epi8(control_threshold, chunk0));
+            ctrl0);
         __m256i special1 = _mm256_or_si256(
             _mm256_or_si256(_mm256_cmpeq_epi8(chunk1, quote), _mm256_cmpeq_epi8(chunk1, backslash)),
-            _mm256_cmpgt_epi8(control_threshold, chunk1));
+            ctrl1);
         __m256i special2 = _mm256_or_si256(
             _mm256_or_si256(_mm256_cmpeq_epi8(chunk2, quote), _mm256_cmpeq_epi8(chunk2, backslash)),
-            _mm256_cmpgt_epi8(control_threshold, chunk2));
+            ctrl2);
         __m256i special3 = _mm256_or_si256(
             _mm256_or_si256(_mm256_cmpeq_epi8(chunk3, quote), _mm256_cmpeq_epi8(chunk3, backslash)),
-            _mm256_cmpgt_epi8(control_threshold, chunk3));
+            ctrl3);
         
         // Generate masks
         uint32_t mask0 = _mm256_movemask_epi8(special0);
@@ -211,9 +219,10 @@ auto find_string_end_4x_avx2(const char* data, size_t size, size_t start_pos) ->
     // Single register fallback
     while (pos + 32 <= size) {
         __m256i chunk = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(data + pos));
+        __m256i ctrl = _mm256_cmpeq_epi8(_mm256_subs_epu8(chunk, control_sub), _mm256_setzero_si256());
         __m256i special = _mm256_or_si256(
             _mm256_or_si256(_mm256_cmpeq_epi8(chunk, quote), _mm256_cmpeq_epi8(chunk, backslash)),
-            _mm256_cmpgt_epi8(control_threshold, chunk));
+            ctrl);
         
         uint32_t mask = _mm256_movemask_epi8(special);
         if (mask != 0) {

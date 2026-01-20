@@ -53,8 +53,7 @@ export namespace fastjson_parallel {
 
 export struct parse_config {
     // Parallelism control
-    int num_threads = 8;  // Default to 8 (physical cores)
-                          // -1 = auto (use OMP_NUM_THREADS or hardware max)
+    int num_threads = -1; // -1 = auto (use 30% of hardware max)
                           // 0 = disable parallelism (single-threaded)
                           // >0 = use exactly this many threads
 
@@ -117,7 +116,10 @@ export inline auto get_num_threads() -> int {
     } else if (g_config.num_threads > 0) {
         return g_config.num_threads;
     } else {
-        return omp_get_max_threads();
+        // Use 30% of available threads as per requirement
+        int max_threads = omp_get_max_threads();
+        int target = static_cast<int>(max_threads * 0.3);
+        return std::max(1, target);
     }
 #else
     return 1;
@@ -185,7 +187,11 @@ public:
 
     json_value(double d) : data_(d) {}
 
-    json_value(int i) : data_(static_cast<double>(i)) {}
+    json_value(int i) : data_(static_cast<__int128>(i)) {}
+
+    json_value(int64_t i) : data_(static_cast<__int128>(i)) {}
+
+    json_value(uint64_t i) : data_(static_cast<unsigned __int128>(i)) {}
 
     json_value(__float128 value) : data_(value) {}
 
@@ -574,7 +580,6 @@ __attribute__((target("avx2"))) static auto find_string_end_avx2(std::span<const
                                                                  size_t start_pos) -> size_t {
     const __m256i quote = _mm256_set1_epi8('"');
     const __m256i backslash = _mm256_set1_epi8('\\');
-    const __m256i control = _mm256_set1_epi8(0x20);  // Characters < 0x20 are control chars
 
     size_t pos = start_pos;
 
@@ -583,7 +588,10 @@ __attribute__((target("avx2"))) static auto find_string_end_avx2(std::span<const
 
         __m256i is_quote = _mm256_cmpeq_epi8(chunk, quote);
         __m256i is_backslash = _mm256_cmpeq_epi8(chunk, backslash);
-        __m256i is_control = _mm256_cmpgt_epi8(control, chunk);  // Find chars < 0x20
+        // Unsigned comparison: is_control = (chunk < 0x20) using saturating subtract
+        // _mm256_subs_epu8(chunk, 0x1F) == 0 when chunk <= 0x1F (i.e., chunk < 0x20)
+        __m256i sub_result = _mm256_subs_epu8(chunk, _mm256_set1_epi8(0x1F));
+        __m256i is_control = _mm256_cmpeq_epi8(sub_result, _mm256_setzero_si256());
 
         __m256i special = _mm256_or_si256(_mm256_or_si256(is_quote, is_backslash), is_control);
 
@@ -1297,9 +1305,14 @@ auto parser::parse_boolean() -> json_result<json_value> {
 
 auto parser::parse_number() -> json_result<json_value> {
     size_t start_pos = pos_;
+    bool is_negative = false;
+    bool has_decimal = false;
+    bool has_exponent = false;
 
-    if (peek() == '-')
+    if (peek() == '-') {
+        is_negative = true;
         advance();
+    }
 
     if (peek() == '0') {
         advance();
@@ -1313,6 +1326,7 @@ auto parser::parse_number() -> json_result<json_value> {
     }
 
     if (peek() == '.') {
+        has_decimal = true;
         advance();
         if (!(peek() >= '0' && peek() <= '9')) {
             return std::unexpected(
@@ -1323,6 +1337,7 @@ auto parser::parse_number() -> json_result<json_value> {
     }
 
     if (peek() == 'e' || peek() == 'E') {
+        has_exponent = true;
         advance();
         if (peek() == '+' || peek() == '-')
             advance();
@@ -1335,16 +1350,54 @@ auto parser::parse_number() -> json_result<json_value> {
 
     // Use string_view directly
     std::string_view number_str = input_.substr(start_pos, pos_ - start_pos);
+    size_t length = pos_ - start_pos;
+
+    // For pure integers (no decimal/exponent), parse as 128-bit integer
+    if (!has_decimal && !has_exponent) {
+        // Try parsing as 128-bit integer
+        thread_local std::array<char, 128> int_buffer;
+        size_t int_len = std::min(length, int_buffer.size() - 1);
+        std::memcpy(int_buffer.data(), input_.data() + start_pos, int_len);
+        int_buffer[int_len] = '\0';
+
+        // Parse manually for 128-bit
+        const char* p = int_buffer.data();
+        bool neg = (*p == '-');
+        if (neg) p++;
+
+        unsigned __int128 result = 0;
+        bool overflow = false;
+        while (*p >= '0' && *p <= '9') {
+            unsigned __int128 prev = result;
+            result = result * 10 + (*p - '0');
+            if (result < prev) { overflow = true; break; }
+            p++;
+        }
+
+        if (!overflow) {
+            if (neg) {
+                // Return signed 128-bit
+                return json_value{static_cast<__int128>(-static_cast<__int128>(result))};
+            } else {
+                // For very large positive numbers, use unsigned if it exceeds signed range
+                if (result > static_cast<unsigned __int128>(std::numeric_limits<__int128>::max())) {
+                    return json_value{result};  // unsigned __int128
+                }
+                return json_value{static_cast<__int128>(result)};
+            }
+        }
+        // On overflow (> 128 bits), fall through to double parsing (will lose precision)
+    }
 
     thread_local std::array<char, 64> buffer;
-    size_t length = std::min(pos_ - start_pos, buffer.size() - 1);
-    std::memcpy(buffer.data(), input_.data() + start_pos, length);
-    buffer[length] = '\0';
+    size_t buf_len = std::min(length, buffer.size() - 1);
+    std::memcpy(buffer.data(), input_.data() + start_pos, buf_len);
+    buffer[buf_len] = '\0';
 
     char* end_ptr;
     double value = std::strtod(buffer.data(), &end_ptr);
 
-    if (end_ptr != buffer.data() + length) {
+    if (end_ptr != buffer.data() + buf_len) {
         return std::unexpected(
             make_error(json_error_code::invalid_number, "Failed to parse number"));
     }

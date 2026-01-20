@@ -125,7 +125,8 @@ using result = std::expected<T, parse_error>;
 // Type aliases following JSON specification
 using json_null = std::nullptr_t;
 using json_bool = bool;
-using json_int = std::int64_t;
+using json_int_128 = __int128;
+using json_uint_128 = unsigned __int128;
 using json_float = double;
 using json_string = std::string;
 using json_array = std::vector<json_value>;
@@ -136,6 +137,7 @@ enum class value_type : std::uint8_t {
     null,
     boolean,
     integer,
+    unsigned_integer,
     floating,
     string,
     array,
@@ -143,7 +145,7 @@ enum class value_type : std::uint8_t {
 };
 
 // Variant type for JSON values
-using json_data = std::variant<json_null, json_bool, json_int, json_float, 
+using json_data = std::variant<json_null, json_bool, json_int_128, json_uint_128, json_float, 
                                json_string, json_array, json_object>;
 
 // ============================================================================
@@ -535,8 +537,11 @@ public:
     // C++ Core Guidelines: C.46 - Constructors that don't establish invariants
     explicit json_value(std::nullptr_t) noexcept : data_{nullptr} {}
     explicit json_value(bool val) noexcept : data_{val} {}
-    explicit json_value(std::int64_t val) noexcept : data_{val} {}
-    explicit json_value(int val) noexcept : data_{static_cast<std::int64_t>(val)} {}
+    explicit json_value(json_int_128 val) noexcept : data_{val} {}
+    explicit json_value(json_uint_128 val) noexcept : data_{val} {}
+    explicit json_value(std::int64_t val) noexcept : data_{static_cast<json_int_128>(val)} {}
+    explicit json_value(std::uint64_t val) noexcept : data_{static_cast<json_uint_128>(val)} {}
+    explicit json_value(int val) noexcept : data_{static_cast<json_int_128>(val)} {}
     explicit json_value(double val) noexcept : data_{val} {}
     explicit json_value(std::string val) noexcept : data_{std::move(val)} {}
     explicit json_value(const char* val) : data_{std::string{val}} {}
@@ -549,7 +554,8 @@ public:
             using T = std::decay_t<decltype(val)>;
             if constexpr (std::is_same_v<T, json_null>) return value_type::null;
             else if constexpr (std::is_same_v<T, json_bool>) return value_type::boolean;
-            else if constexpr (std::is_same_v<T, json_int>) return value_type::integer;
+            else if constexpr (std::is_same_v<T, json_int_128>) return value_type::integer;
+            else if constexpr (std::is_same_v<T, json_uint_128>) return value_type::unsigned_integer;
             else if constexpr (std::is_same_v<T, json_float>) return value_type::floating;
             else if constexpr (std::is_same_v<T, json_string>) return value_type::string;
             else if constexpr (std::is_same_v<T, json_array>) return value_type::array;
@@ -562,9 +568,10 @@ public:
     [[nodiscard]] auto is_null() const noexcept -> bool { return type() == value_type::null; }
     [[nodiscard]] auto is_bool() const noexcept -> bool { return type() == value_type::boolean; }
     [[nodiscard]] auto is_int() const noexcept -> bool { return type() == value_type::integer; }
+    [[nodiscard]] auto is_uint() const noexcept -> bool { return type() == value_type::unsigned_integer; }
     [[nodiscard]] auto is_float() const noexcept -> bool { return type() == value_type::floating; }
     [[nodiscard]] auto is_number() const noexcept -> bool { 
-        return is_int() || is_float(); 
+        return is_int() || is_uint() || is_float(); 
     }
     [[nodiscard]] auto is_string() const noexcept -> bool { return type() == value_type::string; }
     [[nodiscard]] auto is_array() const noexcept -> bool { return type() == value_type::array; }
@@ -576,15 +583,24 @@ public:
         return std::nullopt;
     }
     
-    [[nodiscard]] auto as_int() const noexcept -> std::optional<std::int64_t> {
-        if (auto* p = std::get_if<json_int>(&data_)) return *p;
-        if (auto* p = std::get_if<json_float>(&data_)) return static_cast<std::int64_t>(*p);
+    [[nodiscard]] auto as_int() const noexcept -> std::optional<json_int_128> {
+        if (auto* p = std::get_if<json_int_128>(&data_)) return *p;
+        if (auto* p = std::get_if<json_uint_128>(&data_)) return static_cast<json_int_128>(*p);
+        if (auto* p = std::get_if<json_float>(&data_)) return static_cast<json_int_128>(*p);
+        return std::nullopt;
+    }
+
+    [[nodiscard]] auto as_uint() const noexcept -> std::optional<json_uint_128> {
+        if (auto* p = std::get_if<json_uint_128>(&data_)) return *p;
+        if (auto* p = std::get_if<json_int_128>(&data_)) return static_cast<json_uint_128>(*p);
+        if (auto* p = std::get_if<json_float>(&data_)) return static_cast<json_uint_128>(*p);
         return std::nullopt;
     }
     
     [[nodiscard]] auto as_float() const noexcept -> std::optional<double> {
         if (auto* p = std::get_if<json_float>(&data_)) return *p;
-        if (auto* p = std::get_if<json_int>(&data_)) return static_cast<double>(*p);
+        if (auto* p = std::get_if<json_int_128>(&data_)) return static_cast<double>(*p);
+        if (auto* p = std::get_if<json_uint_128>(&data_)) return static_cast<double>(*p);
         return std::nullopt;
     }
     
@@ -936,12 +952,39 @@ private:
             }
             return json_value{value};
         } else {
-            std::int64_t value;
-            auto [ptr, ec] = std::from_chars(num_str.data(), num_str.data() + num_str.size(), value);
-            if (ec != std::errc{}) {
-                return std::unexpected(make_error(error_code::invalid_number,
-                                                 "Failed to parse integer"));
+            // Native 128-bit integer parsing
+            const char* p = num_str.data();
+            bool neg = (*p == '-');
+            if (neg) p++;
+
+            unsigned __int128 result = 0;
+            bool overflow = false;
+            const char* end = num_str.data() + num_str.size();
+            
+            while (p < end && *p >= '0' && *p <= '9') {
+                unsigned __int128 prev = result;
+                result = result * 10 + (*p - '0');
+                if (result < prev) { 
+                    overflow = true; 
+                    break; 
+                }
+                p++;
             }
+
+            if (!overflow) {
+                if (neg) {
+                    return json_value{static_cast<__int128>(-static_cast<__int128>(result))};
+                } else {
+                    if (result > static_cast<unsigned __int128>(std::numeric_limits<__int128>::max())) {
+                        return json_value{result}; // json_uint_128
+                    }
+                    return json_value{static_cast<__int128>(result)};
+                }
+            }
+            
+            // On overflow, fallback to double
+            double value;
+            auto [ptr, ec] = std::from_chars(num_str.data(), num_str.data() + num_str.size(), value);
             return json_value{value};
         }
     }

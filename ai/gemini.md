@@ -1,6 +1,6 @@
-# FastestJSONInTheWest - Claude AI Instructions
+# FastestJSONInTheWest - Gemini AI Instructions
 
-> **SYNC POLICY**: This file MUST be kept in sync with `ai/copilot-instructions.md`, `ai/gemini.md`, and `.github/copilot-instructions.md`. Last sync: January 19, 2026.
+> **SYNC POLICY**: This file MUST be kept in sync with `ai/CLAUDE.md`, `ai/copilot-instructions.md`, and `.github/copilot-instructions.md`. Last sync: January 19, 2026.
 
 ## Project Context
 High-performance C++23 JSON parser with **4x multi-register SIMD** acceleration (128 bytes/iteration), 128-bit precision support, LINQ-style queries, and Mustache templating.
@@ -49,12 +49,12 @@ std::string output = fastjson::mustache::render("Hello {{name}}", json_data);
 - **Manager**: `uv` (scikit-build-core + cmake)
 - **Library**: Nanobind (replaces pybind11)
 - **Configuration**: `pyproject.toml`
-- **GIL**: released for `parse`, `parse_file`, `parse_parallel`.
+- **GIL**: released for `parse`, `parse_file`.
 
 ```bash
 cd python_bindings
 uv sync
-uv pip install -e .
+CXX=/opt/clang-21/bin/clang++ CC=/opt/clang-21/bin/clang uv pip install -e .
 uv run pytest
 ```
 

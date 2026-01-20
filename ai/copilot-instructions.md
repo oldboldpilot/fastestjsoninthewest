@@ -1,15 +1,25 @@
 # FastestJSONInTheWest - GitHub Copilot Instructions
 
-> **SYNC POLICY**: This file MUST be kept in sync with `ai/CLAUDE.md`. When updating either file, copy the changes to both. Last sync: December 15, 2025.
+> **SYNC POLICY**: This file MUST be kept in sync with `ai/CLAUDE.md`, `ai/gemini.md`, and `.github/copilot-instructions.md`. Last sync: January 19, 2026.
 
 ## Project Context
-High-performance C++23 JSON parser with **4x multi-register SIMD** acceleration (128 bytes/iteration), 128-bit precision support, and LINQ-style queries.
+High-performance C++23 JSON parser with **4x multi-register SIMD** acceleration (128 bytes/iteration), 128-bit precision support, LINQ-style queries, and Mustache templating.
 
 ## v2.0 Performance Update
 - Default parser now uses **4x AVX2 multi-register SIMD** (2-6x faster)
 - String-heavy JSON: 4.7-5.9x faster
 - Large arrays: 2.8-4.3x faster
 - Zero API changes - existing code gets faster automatically
+
+## v2.1 Features
+- **Mustache Templating**: Logic-less templates with `fastjson::mustache::render` (C++23 module).
+- **Nanobind Python Bindings**: Next-gen GIL-free bindings using `uv` and `nanobind`.
+
+## v2.2 Features (January 2026)
+- **SIMD Waterfall API**: Python bindings expose full SIMD level selection with automatic waterfall
+- **SIMD Capabilities Detection**: `get_simd_capabilities()` returns detected CPU features
+- **Levels**: AVX-512 → AMX → AVX2 → AVX → SSE4 → SSE2 → SCALAR
+- **Parallelism Control**: `to_python(threads=N, simd_level=...)` for conversion
 
 ## Build System
 - **Compiler**: `/opt/clang-21/bin/clang++` (Clang 21.1.5)

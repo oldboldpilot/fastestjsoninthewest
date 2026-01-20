@@ -29,14 +29,20 @@ else()
     message(WARNING "OpenMP not found, parallel features may be limited")
 endif()
 
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    add_compile_options(-stdlib=libc++)
+    add_link_options(-stdlib=libc++)
+endif()
+
 # ============================================================================
 # Standard Library Module
 # ============================================================================
 add_library(std_module STATIC)
+target_include_directories(std_module PUBLIC /opt/clang-21/share/libc++/v1)
 target_sources(std_module PUBLIC
     FILE_SET CXX_MODULES 
-    BASE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/../../std
-    FILES ${CMAKE_CURRENT_SOURCE_DIR}/../../std/std.cppm
+    BASE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/../external/std
+    FILES ${CMAKE_CURRENT_SOURCE_DIR}/../external/std/std.cppm
 )
 target_compile_features(std_module PUBLIC cxx_std_23)
 target_compile_options(std_module PRIVATE -Wno-error)
