@@ -285,11 +285,39 @@ auto parser::parse_number() -> json_result<json_value> {
         }
         return json_value{value};
     } else {
-        int64_t value;
-        auto [ptr, ec] = std::from_chars(number_str.data(), number_str.data() + number_str.size(), value);
-        if (ec != std::errc{}) {
-            return std::unexpected(make_error(json_error_code::invalid_number, "Failed to parse integer"));
+        // Native 128-bit integer parsing
+        const char* p = number_str.data();
+        bool neg = (*p == '-');
+        if (neg) p++;
+
+        unsigned __int128 result = 0;
+        bool overflow = false;
+        const char* end = number_str.data() + number_str.size();
+        
+        while (p < end && *p >= '0' && *p <= '9') {
+            unsigned __int128 prev = result;
+            result = result * 10 + (*p - '0');
+            if (result < prev) { 
+                overflow = true; 
+                break; 
+            }
+            p++;
         }
+
+        if (!overflow) {
+            if (neg) {
+                return json_value{static_cast<__int128>(-static_cast<__int128>(result))};
+            } else {
+                if (result > static_cast<unsigned __int128>(std::numeric_limits<__int128>::max())) {
+                    return json_value{result}; // unsigned __int128
+                }
+                return json_value{static_cast<__int128>(result)};
+            }
+        }
+        
+        // On overflow, fallback to double
+        double value;
+        auto [ptr, ec] = std::from_chars(number_str.data(), number_str.data() + number_str.size(), value);
         return json_value{value};
     }
 }

@@ -62,8 +62,7 @@ export enum class text_encoding {
 
 export struct parse_config {
     // Parallelism control
-    int num_threads = 8;  // Default to 8 (physical cores)
-                          // -1 = auto (use OMP_NUM_THREADS or hardware max)
+    int num_threads = -1; // -1 = auto (use 30% of hardware max)
                           // 0 = disable parallelism (single-threaded)
                           // >0 = use exactly this many threads
 
@@ -134,7 +133,10 @@ inline auto get_num_threads() -> int {
     } else if (g_config.num_threads > 0) {
         return g_config.num_threads;
     } else {
-        return omp_get_max_threads();
+        // Use 30% of available threads as per requirement
+        int max_threads = omp_get_max_threads();
+        int target = static_cast<int>(max_threads * 0.3);
+        return std::max(1, target);
     }
 #else
     return 1;
@@ -407,11 +409,24 @@ export using json_null = std::nullptr_t;
 // Forward declaration
 export class json_value;
 
-// Container types - optimized for parallel processing
-export using json_array = std::vector<json_value>;                     // Dynamic array with O(1) access
-export using json_object = std::unordered_map<std::string, json_value>; // Hash map with O(1) lookup
+// Container types - optimized for parallel processing with Copy-On-Write (COW)
+export using json_array = std::vector<json_value>;
+export using json_object = std::unordered_map<std::string, json_value>;
+
+// Pointer types for COW implementation
+using json_array_ptr = std::shared_ptr<json_array>;
+using json_object_ptr = std::shared_ptr<json_object>;
 
 export class json_value {
+    // Helper for Copy-On-Write (COW)
+    template <typename T>
+    auto ensure_unique(std::shared_ptr<T>& ptr) -> T& {
+        if (ptr.use_count() > 1) {
+            ptr = std::make_shared<T>(*ptr);
+        }
+        return *ptr;
+    }
+
 public:
     json_value() : data_(nullptr) {}
 
@@ -421,7 +436,11 @@ public:
 
     json_value(double d) : data_(d) {}
 
-    json_value(int i) : data_(static_cast<double>(i)) {}
+    json_value(int i) : data_(static_cast<__int128>(i)) {}
+
+    json_value(int64_t i) : data_(static_cast<__int128>(i)) {}
+
+    json_value(uint64_t i) : data_(static_cast<unsigned __int128>(i)) {}
 
     json_value(__float128 value) : data_(value) {}
 
@@ -429,34 +448,20 @@ public:
 
     json_value(unsigned __int128 value) : data_(value) {}
 
-
-
-
     json_value(const std::string& s) : data_(s) {}
 
     json_value(std::string&& s) : data_(std::move(s)) {}
 
-    json_value(const json_array& a) : data_(a) {}
+    json_value(const json_array& a) : data_(std::make_shared<json_array>(a)) {}
 
-    json_value(json_array&& a) : data_(std::move(a)) {}
+    json_value(json_array&& a) : data_(std::make_shared<json_array>(std::move(a))) {}
 
-    json_value(const json_object& o) : data_(o) {}
+    json_value(const json_object& o) : data_(std::make_shared<json_object>(o)) {}
 
-    json_value(json_object&& o) : data_(std::move(o)) {}
+    json_value(json_object&& o) : data_(std::make_shared<json_object>(std::move(o))) {}
 
-    // Destructor must be explicitly defined to handle recursive cleanup
-    ~json_value() {
-#if defined(DEBUG_DESTRUCTOR) && !defined(FASTJSON_NO_LOGGER)
-        static std::atomic<size_t> destroy_count{0};
-        size_t count = ++destroy_count;
-
-        // Logger debug output (disabled when FASTJSON_NO_LOGGER is defined)
-        (void)count;  // Suppress unused warning
-#endif
-        // The variant destructor will call the destructor of the active alternative.
-        // For json_array (std::vector<json_value>) and json_object (std::unordered_map<std::string,
-        // json_value>), their destructors will recursively destroy all contained json_values.
-    }
+    // Destructor
+    ~json_value() = default;
 
     json_value(const json_value&) = default;
     json_value(json_value&&) noexcept = default;
@@ -471,9 +476,9 @@ public:
 
     auto is_string() const -> bool { return std::holds_alternative<json_string>(data_); }
 
-    auto is_array() const -> bool { return std::holds_alternative<json_array>(data_); }
+    auto is_array() const -> bool { return std::holds_alternative<json_array_ptr>(data_); }
 
-    auto is_object() const -> bool { return std::holds_alternative<json_object>(data_); }
+    auto is_object() const -> bool { return std::holds_alternative<json_object_ptr>(data_); }
 
     auto is_number_128() const -> bool { return std::holds_alternative<json_number_128>(data_); }
 
@@ -488,9 +493,19 @@ public:
 
     auto as_string() const -> const std::string& { return std::get<json_string>(data_); }
 
-    auto as_array() const -> const json_array& { return std::get<json_array>(data_); }
+    auto as_array() const -> const json_array& { return *std::get<json_array_ptr>(data_); }
 
-    auto as_object() const -> const json_object& { return std::get<json_object>(data_); }
+    auto as_object() const -> const json_object& { return *std::get<json_object_ptr>(data_); }
+
+    auto as_array() -> json_array& {
+        if (!is_array()) data_ = std::make_shared<json_array>();
+        return ensure_unique(std::get<json_array_ptr>(data_));
+    }
+
+    auto as_object() -> json_object& {
+        if (!is_object()) data_ = std::make_shared<json_object>();
+        return ensure_unique(std::get<json_object_ptr>(data_));
+    }
 
     auto as_number_128() const -> json_number_128 {
         if (!is_number_128()) return static_cast<__float128>(std::numeric_limits<double>::quiet_NaN());
@@ -509,70 +524,99 @@ public:
 
     // Conversion helpers
     auto as_int64() const -> int64_t {
-        if (is_number()) return static_cast<int64_t>(std::get<double>(data_));
-        if (is_int_128()) return static_cast<int64_t>(std::get<__int128>(data_));
-        if (is_uint_128()) return static_cast<int64_t>(std::get<unsigned __int128>(data_));
-        if (is_number_128()) return static_cast<int64_t>(std::get<__float128>(data_));
+        if (is_number()) return static_cast<int64_t>(std::get<json_number>(data_));
+        if (is_int_128()) return static_cast<int64_t>(std::get<json_int_128>(data_));
+        if (is_uint_128()) return static_cast<int64_t>(std::get<json_uint_128>(data_));
+        if (is_number_128()) return static_cast<int64_t>(std::get<json_number_128>(data_));
         return 0;
     }
 
     auto as_float64() const -> double {
-        if (is_number()) return std::get<double>(data_);
-        if (is_int_128()) return static_cast<double>(std::get<__int128>(data_));
-        if (is_uint_128()) return static_cast<double>(std::get<unsigned __int128>(data_));
-        if (is_number_128()) return static_cast<double>(std::get<__float128>(data_));
+        if (is_number()) return std::get<json_number>(data_);
+        if (is_int_128()) return static_cast<double>(std::get<json_int_128>(data_));
+        if (is_uint_128()) return static_cast<double>(std::get<json_uint_128>(data_));
+        if (is_number_128()) return static_cast<double>(std::get<json_number_128>(data_));
         return std::numeric_limits<double>::quiet_NaN();
     }
 
     auto as_int128() const -> __int128 {
-        if (is_int_128()) return std::get<__int128>(data_);
-        if (is_uint_128()) return static_cast<__int128>(std::get<unsigned __int128>(data_));
-        if (is_number()) return static_cast<__int128>(std::get<double>(data_));
-        if (is_number_128()) return static_cast<__int128>(std::get<__float128>(data_));
+        if (is_int_128()) return std::get<json_int_128>(data_);
+        if (is_uint_128()) return static_cast<__int128>(std::get<json_uint_128>(data_));
+        if (is_number()) return static_cast<__int128>(std::get<json_number>(data_));
+        if (is_number_128()) return static_cast<__int128>(std::get<json_number_128>(data_));
         return 0;
     }
 
     auto as_float128() const -> __float128 {
-        if (is_number_128()) return std::get<__float128>(data_);
-        if (is_number()) return static_cast<__float128>(std::get<double>(data_));
-        if (is_int_128()) return static_cast<__float128>(std::get<__int128>(data_));
-        if (is_uint_128()) return static_cast<__float128>(std::get<unsigned __int128>(data_));
+        if (is_number_128()) return std::get<json_number_128>(data_);
+        if (is_number()) return static_cast<__float128>(std::get<json_number>(data_));
+        if (is_int_128()) return static_cast<__float128>(std::get<json_int_128>(data_));
+        if (is_uint_128()) return static_cast<__float128>(std::get<json_uint_128>(data_));
         return static_cast<__float128>(std::numeric_limits<double>::quiet_NaN());
     }
 
     // Array/Object size operations
     auto size() const noexcept -> size_t {
-        if (is_array()) return std::get<json_array>(data_).size();
-        if (is_object()) return std::get<json_object>(data_).size();
+        if (is_array()) return std::get<json_array_ptr>(data_)->size();
+        if (is_object()) return std::get<json_object_ptr>(data_)->size();
         return 0;
     }
 
     auto empty() const noexcept -> bool {
-        if (is_array()) return std::get<json_array>(data_).empty();
-        if (is_object()) return std::get<json_object>(data_).empty();
+        if (is_array()) return std::get<json_array_ptr>(data_)->empty();
+        if (is_object()) return std::get<json_object_ptr>(data_)->empty();
         return true;
     }
 
     // Array subscript operator
     auto operator[](size_t index) const -> const json_value& {
-        return std::get<json_array>(data_)[index];
+        return (*std::get<json_array_ptr>(data_))[index];
     }
 
     auto operator[](size_t index) -> json_value& {
-        return std::get<json_array>(data_)[index];
+        return as_array()[index];
     }
 
     // Object subscript operator
     auto operator[](const std::string& key) const -> const json_value& {
-        return std::get<json_object>(data_).at(key);
+        return std::get<json_object_ptr>(data_)->at(key);
     }
 
     auto operator[](const std::string& key) -> json_value& {
-        return std::get<json_object>(data_)[key];
+        return as_object()[key];
+    }
+
+    // Serialization methods
+    auto serialize_to_buffer(std::string& buffer, int indent) const -> void;
+    auto serialize_pretty_to_buffer(std::string& buffer, int indent_size, int current_indent) const -> void;
+    auto serialize_string_to_buffer(std::string& buffer, const std::string& str) const -> void;
+    auto serialize_array_to_buffer(std::string& buffer, const json_array& arr, int indent) const -> void;
+    auto serialize_object_to_buffer(std::string& buffer, const json_object& obj, int indent) const -> void;
+    auto serialize_pretty_array(std::string& buffer, const json_array& arr, int indent_size, int current_indent) const -> void;
+    auto serialize_pretty_object(std::string& buffer, const json_object& obj, int indent_size, int current_indent) const -> void;
+
+    auto clear() -> json_value& {
+        std::visit(
+            [this](auto& v) {
+                using T = std::decay_t<decltype(v)>;
+                if constexpr (std::is_same_v<T, json_array_ptr> || std::is_same_v<T, json_object_ptr>) {
+                    if (v.use_count() > 1) {
+                        v = std::make_shared<typename T::element_type>();
+                    } else {
+                        v->clear();
+                    }
+                } else if constexpr (std::is_same_v<T, std::string>) {
+                    v.clear();
+                } else {
+                    data_ = nullptr;
+                }
+            },
+            data_);
+        return *this;
     }
 
 private:
-    std::variant<json_null, json_boolean, json_number, json_number_128, json_int_128, json_uint_128, json_string, json_array, json_object> data_;
+    std::variant<json_null, json_boolean, json_number, json_number_128, json_int_128, json_uint_128, json_string, json_array_ptr, json_object_ptr> data_;
 };
 
 // ============================================================================
@@ -1076,7 +1120,10 @@ __attribute__((target("avx2"))) static auto find_string_end_avx2(std::span<const
                                                                  size_t start_pos) -> size_t {
     const __m256i quote = _mm256_set1_epi8('"');
     const __m256i backslash = _mm256_set1_epi8('\\');
-    const __m256i control = _mm256_set1_epi8(0x20);  // Characters < 0x20 are control chars
+    // For unsigned comparison (chars < 0x20), we use saturating subtract:
+    // If c < 0x20, then (c - 0x20) saturates to 0. Otherwise it's non-zero.
+    // This correctly handles UTF-8 high bytes (0x80-0xFF) as non-control chars.
+    const __m256i control_threshold = _mm256_set1_epi8(0x20);
 
     size_t pos = start_pos;
 
@@ -1085,7 +1132,10 @@ __attribute__((target("avx2"))) static auto find_string_end_avx2(std::span<const
 
         __m256i is_quote = _mm256_cmpeq_epi8(chunk, quote);
         __m256i is_backslash = _mm256_cmpeq_epi8(chunk, backslash);
-        __m256i is_control = _mm256_cmpgt_epi8(control, chunk);  // Find chars < 0x20
+        // Unsigned comparison: is_control = (chunk < 0x20) using saturating subtract
+        // _mm256_subs_epu8(chunk, 0x1F) == 0 when chunk <= 0x1F (i.e., chunk < 0x20)
+        __m256i sub_result = _mm256_subs_epu8(chunk, _mm256_set1_epi8(0x1F));
+        __m256i is_control = _mm256_cmpeq_epi8(sub_result, _mm256_setzero_si256());
 
         __m256i special = _mm256_or_si256(_mm256_or_si256(is_quote, is_backslash), is_control);
 
@@ -1799,9 +1849,14 @@ auto parser::parse_boolean() -> json_result<json_value> {
 
 auto parser::parse_number() -> json_result<json_value> {
     size_t start_pos = pos_;
+    bool is_negative = false;
+    bool has_decimal = false;
+    bool has_exponent = false;
 
-    if (peek() == '-')
+    if (peek() == '-') {
+        is_negative = true;
         advance();
+    }
 
     if (peek() == '0') {
         advance();
@@ -1815,6 +1870,7 @@ auto parser::parse_number() -> json_result<json_value> {
     }
 
     if (peek() == '.') {
+        has_decimal = true;
         advance();
         if (!(peek() >= '0' && peek() <= '9')) {
             return std::unexpected(
@@ -1825,6 +1881,7 @@ auto parser::parse_number() -> json_result<json_value> {
     }
 
     if (peek() == 'e' || peek() == 'E') {
+        has_exponent = true;
         advance();
         if (peek() == '+' || peek() == '-')
             advance();
@@ -1837,16 +1894,58 @@ auto parser::parse_number() -> json_result<json_value> {
 
     // Use string_view directly
     std::string_view number_str = input_.substr(start_pos, pos_ - start_pos);
+    size_t length = pos_ - start_pos;
+    size_t digit_count = length - (is_negative ? 1 : 0);
+
+    // For pure integers (no decimal/exponent) that may exceed int64 range,
+    // try to parse as 128-bit integer if digit count suggests overflow
+    // int64 max is ~19 digits (9223372036854775807)
+    // __int128 max is ~39 digits
+    if (!has_decimal && !has_exponent && digit_count >= 19) {
+        // Try parsing as 128-bit integer
+        thread_local std::array<char, 128> int_buffer;
+        size_t int_len = std::min(length, int_buffer.size() - 1);
+        std::memcpy(int_buffer.data(), input_.data() + start_pos, int_len);
+        int_buffer[int_len] = '\0';
+
+        // Parse manually for 128-bit
+        const char* p = int_buffer.data();
+        bool neg = (*p == '-');
+        if (neg) p++;
+
+        unsigned __int128 result = 0;
+        bool overflow = false;
+        while (*p >= '0' && *p <= '9') {
+            unsigned __int128 prev = result;
+            result = result * 10 + (*p - '0');
+            if (result < prev) { overflow = true; break; }
+            p++;
+        }
+
+        if (!overflow) {
+            if (neg) {
+                // Return signed 128-bit
+                return json_value{static_cast<__int128>(-static_cast<__int128>(result))};
+            } else {
+                // For very large positive numbers, use unsigned if it exceeds signed range
+                if (result > static_cast<unsigned __int128>(std::numeric_limits<__int128>::max())) {
+                    return json_value{result};  // unsigned __int128
+                }
+                return json_value{static_cast<__int128>(result)};
+            }
+        }
+        // On overflow (> 128 bits), fall through to double parsing (will lose precision)
+    }
 
     thread_local std::array<char, 64> buffer;
-    size_t length = std::min(pos_ - start_pos, buffer.size() - 1);
-    std::memcpy(buffer.data(), input_.data() + start_pos, length);
-    buffer[length] = '\0';
+    size_t buf_len = std::min(length, buffer.size() - 1);
+    std::memcpy(buffer.data(), input_.data() + start_pos, buf_len);
+    buffer[buf_len] = '\0';
 
     char* end_ptr;
     double value = std::strtod(buffer.data(), &end_ptr);
 
-    if (end_ptr != buffer.data() + length) {
+    if (end_ptr != buffer.data() + buf_len) {
         return std::unexpected(
             make_error(json_error_code::invalid_number, "Failed to parse number"));
     }
@@ -3017,13 +3116,203 @@ auto null() -> json_value {
     return json_value{};
 }
 
-// Serialization stubs (to be implemented)
+// Serialization implementations
+auto json_value::serialize_to_buffer(std::string& buffer, int indent) const -> void {
+    std::visit(
+        [this, &buffer, indent](const auto& v) {
+            using T = std::decay_t<decltype(v)>;
+            if constexpr (std::is_same_v<T, json_null>) buffer += "null";
+            else if constexpr (std::is_same_v<T, json_boolean>) buffer += v ? "true" : "false";
+            else if constexpr (std::is_same_v<T, json_number>) {
+                char tmp[32];
+                auto [ptr, ec] = std::to_chars(tmp, tmp + sizeof(tmp), v);
+                if (ec == std::errc{}) buffer.append(tmp, ptr - tmp);
+                else buffer += std::to_string(v);
+            } else if constexpr (std::is_same_v<T, json_number_128>) {
+                long double ld = static_cast<long double>(v);
+                char tmp[128];
+                auto [ptr, ec] = std::to_chars(tmp, tmp + sizeof(tmp), ld);
+                if (ec == std::errc{}) buffer.append(tmp, ptr - tmp);
+            } else if constexpr (std::is_same_v<T, json_int_128> || std::is_same_v<T, json_uint_128>) {
+                if (v == 0) { buffer += "0"; return; }
+                char tmp[64];
+                char* p = tmp + 64;
+                bool neg = false;
+                unsigned __int128 uv;
+                if constexpr (std::is_same_v<T, json_int_128>) {
+                    if (v < 0) { neg = true; uv = (unsigned __int128)-v; }
+                    else uv = (unsigned __int128)v;
+                } else uv = v;
+                while (uv > 0) { *--p = '0' + (uv % 10); uv /= 10; }
+                if (neg) *--p = '-';
+                buffer.append(p, (tmp + 64) - p);
+            } else if constexpr (std::is_same_v<T, json_string>) {
+                serialize_string_to_buffer(buffer, v);
+            } else if constexpr (std::is_same_v<T, json_array_ptr>) {
+                serialize_array_to_buffer(buffer, *v, indent);
+            } else if constexpr (std::is_same_v<T, json_object_ptr>) {
+                serialize_object_to_buffer(buffer, *v, indent);
+            }
+        }, data_);
+}
+
+auto json_value::serialize_string_to_buffer(std::string& buffer, const std::string& str) const -> void {
+    buffer += '"';
+    const char* data = str.data();
+    const size_t size = str.size();
+    const char* ptr = data;
+    const char* end = data + size;
+
+    while (ptr < end) {
+        const char* escape_pos = ptr;
+
+#if defined(HAVE_AVX2) || defined(HAVE_AVX512BW) || defined(HAVE_AMX_TILE)
+        // Check for SIMD capabilities from g_simd_caps
+        if (g_config.enable_simd) {
+#ifdef HAVE_AVX512BW
+            if (g_simd_caps.avx512bw) {
+                while (escape_pos + 64 <= end) {
+                    __m512i chunk = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(escape_pos));
+                    __mmask64 m1 = _mm512_cmpeq_epi8_mask(chunk, _mm512_set1_epi8('"'));
+                    __mmask64 m2 = _mm512_cmpeq_epi8_mask(chunk, _mm512_set1_epi8('\\'));
+                    __mmask64 m3 = _mm512_cmp_epi8_mask(chunk, _mm512_set1_epi8(32), _MM_CMPINT_LT);
+                    __mmask64 mask = m1 | m2 | m3;
+                    if (mask != 0) { escape_pos += __builtin_ctzll(mask); goto handle_escape; }
+                    escape_pos += 64;
+                }
+            }
+#endif
+#ifdef HAVE_AVX2
+            if (g_simd_caps.avx2) {
+                const __m256i v_quote = _mm256_set1_epi8('"');
+                const __m256i v_backslash = _mm256_set1_epi8('\\');
+                const __m256i v_space = _mm256_set1_epi8(31);
+                while (escape_pos + 32 <= end) {
+                    __m256i chunk = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(escape_pos));
+                    __m256i m1 = _mm256_cmpeq_epi8(chunk, v_quote);
+                    __m256i m2 = _mm256_cmpeq_epi8(chunk, v_backslash);
+                    __m256i m3 = _mm256_cmpgt_epi8(v_space, chunk);
+                    int mask = _mm256_movemask_epi8(_mm256_or_si256(_mm256_or_si256(m1, m2), m3));
+                    if (mask != 0) { escape_pos += __builtin_ctz(mask); goto handle_escape; }
+                    escape_pos += 32;
+                }
+            }
+#endif
+        }
+#endif
+
+        while (escape_pos < end && *escape_pos != '"' && *escape_pos != '\\' && static_cast<unsigned char>(*escape_pos) >= 32) {
+            ++escape_pos;
+        }
+
+    handle_escape:
+        if (escape_pos > ptr) {
+            buffer.append(ptr, escape_pos - ptr);
+            ptr = escape_pos;
+        }
+
+        if (ptr < end) {
+            char c = *ptr++;
+            switch (c) {
+                case '"':  buffer += "\\\""; break;
+                case '\\': buffer += "\\\\"; break;
+                case '\b': buffer += "\\b"; break;
+                case '\f': buffer += "\\f"; break;
+                case '\n': buffer += "\\n"; break;
+                case '\r': buffer += "\\r"; break;
+                case '\t': buffer += "\\t"; break;
+                default: {
+                    if (static_cast<unsigned char>(c) < 32) {
+                        char h[7];
+                        snprintf(h, sizeof(h), "\\u%04x", static_cast<unsigned char>(c));
+                        buffer += h;
+                    } else buffer += c;
+                } break;
+            }
+        }
+    }
+    buffer += '"';
+}
+
+auto json_value::serialize_array_to_buffer(std::string& buffer, const json_array& arr, int indent) const -> void {
+    buffer += '[';
+    for (size_t i = 0; i < arr.size(); ++i) {
+        if (i > 0) buffer += ',';
+        arr[i].serialize_to_buffer(buffer, indent);
+    }
+    buffer += ']';
+}
+
+auto json_value::serialize_object_to_buffer(std::string& buffer, const json_object& obj, int indent) const -> void {
+    buffer += '{';
+    bool first = true;
+    for (const auto& [key, val] : obj) {
+        if (!first) buffer += ',';
+        first = false;
+        serialize_string_to_buffer(buffer, key);
+        buffer += ':';
+        val.serialize_to_buffer(buffer, indent);
+    }
+    buffer += '}';
+}
+
+auto json_value::serialize_pretty_to_buffer(std::string& buffer, int indent_size, int current_indent) const -> void {
+    std::visit(
+        [&](const auto& v) {
+            using T = std::decay_t<decltype(v)>;
+            if constexpr (std::is_same_v<T, json_array_ptr>) serialize_pretty_array(buffer, *v, indent_size, current_indent);
+            else if constexpr (std::is_same_v<T, json_object_ptr>) serialize_pretty_object(buffer, *v, indent_size, current_indent);
+            else serialize_to_buffer(buffer, current_indent);
+        }, data_);
+}
+
+auto json_value::serialize_pretty_array(std::string& buffer, const json_array& arr, int indent_size, int current_indent) const -> void {
+    if (arr.empty()) { buffer += "[]"; return; }
+    buffer += "[\n";
+    current_indent += indent_size;
+    for (size_t i = 0; i < arr.size(); ++i) {
+        buffer.append(current_indent, ' ');
+        arr[i].serialize_pretty_to_buffer(buffer, indent_size, current_indent);
+        if (i < arr.size() - 1) buffer += ',';
+        buffer += '\n';
+    }
+    current_indent -= indent_size;
+    buffer.append(current_indent, ' ');
+    buffer += ']';
+}
+
+auto json_value::serialize_pretty_object(std::string& buffer, const json_object& obj, int indent_size, int current_indent) const -> void {
+    if (obj.empty()) { buffer += "{}"; return; }
+    buffer += "{\n";
+    current_indent += indent_size;
+    bool first = true;
+    for (const auto& [key, val] : obj) {
+        if (!first) buffer += ",\n";
+        first = false;
+        buffer.append(current_indent, ' ');
+        serialize_string_to_buffer(buffer, key);
+        buffer += ": ";
+        val.serialize_pretty_to_buffer(buffer, indent_size, current_indent);
+    }
+    buffer += '\n';
+    current_indent -= indent_size;
+    buffer.append(current_indent, ' ');
+    buffer += '}';
+}
+
+// Serialization stubs replaced with real implementations
 auto stringify(const json_value& v) -> std::string {
-    return "{}";
+    std::string buffer;
+    buffer.reserve(1024);
+    v.serialize_to_buffer(buffer, 0);
+    return buffer;
 }
 
 auto prettify(const json_value& v, int indent) -> std::string {
-    return "{}";
+    std::string buffer;
+    buffer.reserve(2048);
+    v.serialize_pretty_to_buffer(buffer, indent, 0);
+    return buffer;
 }
 
 

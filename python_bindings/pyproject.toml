@@ -41,3 +41,9 @@ wheel.license-files = ["LICENSE*"]
 minversion = "7.0"
 addopts = "-ra -q"
 testpaths = ["tests"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "pytest-benchmark>=5.2.3",
+]

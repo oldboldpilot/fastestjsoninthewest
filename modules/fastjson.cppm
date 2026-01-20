@@ -556,14 +556,27 @@ struct number_precision_info {
     bool is_integer = false;     // Whether number is an integer (no decimal/exponent)
 };
 
-// JSON value variant type with 128-bit support
+// Internal storage for complex types to support Copy-On-Write (COW)
+using json_array_ptr = std::shared_ptr<json_array>;
+using json_object_ptr = std::shared_ptr<json_object>;
+
+// JSON value variant type with 128-bit support and COW pointers
 using json_data = std::variant<json_null, json_boolean, json_number, json_number_128, json_int_128,
-                               json_uint_128, json_string, json_array, json_object>;
+                               json_uint_128, json_string, json_array_ptr, json_object_ptr>;
 
 // Main JSON value class with thread-safe operations
 class json_value {
 private:
     json_data data_;
+
+    // COW helper to ensure unique ownership before modification
+    template<typename T, typename Ptr>
+    auto ensure_unique(Ptr& ptr) -> T& {
+        if (ptr.use_count() > 1) {
+            ptr = std::make_shared<T>(*ptr);
+        }
+        return *ptr;
+    }
 
     // Private helper methods for serialization
     auto serialize_to_buffer(std::string& buffer, int indent) const -> void;
@@ -581,7 +594,11 @@ public:
 
     json_value(bool value) : data_(value) {}
 
-    json_value(int value) : data_(static_cast<double>(value)) {}
+    json_value(int value) : data_(static_cast<__int128>(value)) {}
+
+    json_value(int64_t value) : data_(static_cast<__int128>(value)) {}
+
+    json_value(uint64_t value) : data_(static_cast<unsigned __int128>(value)) {}
 
     json_value(double value) : data_(value) {}
 
@@ -597,13 +614,17 @@ public:
 
     json_value(std::string&& value) : data_(std::move(value)) {}
 
-    json_value(const json_array& array) : data_(array) {}
+    json_value(const json_array& array) : data_(std::make_shared<json_array>(array)) {}
 
-    json_value(json_array&& array) : data_(std::move(array)) {}
+    json_value(json_array&& array) : data_(std::make_shared<json_array>(std::move(array))) {}
 
-    json_value(const json_object& object) : data_(object) {}
+    json_value(const json_object& object) : data_(std::make_shared<json_object>(object)) {}
 
-    json_value(json_object&& object) : data_(std::move(object)) {}
+    json_value(json_object&& object) : data_(std::make_shared<json_object>(std::move(object))) {}
+
+    // Convenience COW constructors for pointers
+    json_value(json_array_ptr array) : data_(std::move(array)) {}
+    json_value(json_object_ptr object) : data_(std::move(object)) {}
 
     // Copy and move constructors
     json_value(const json_value&) = default;
@@ -708,11 +729,11 @@ auto json_value::is_string() const noexcept -> bool {
 }
 
 auto json_value::is_array() const noexcept -> bool {
-    return std::holds_alternative<json_array>(data_);
+    return std::holds_alternative<json_array_ptr>(data_);
 }
 
 auto json_value::is_object() const noexcept -> bool {
-    return std::holds_alternative<json_object>(data_);
+    return std::holds_alternative<json_object_ptr>(data_);
 }
 
 // Thread-safe value accessor functions
@@ -918,45 +939,39 @@ auto json_value::as_array() const -> const json_array& {
     if (!is_array()) {
         throw std::runtime_error("JSON value is not an array");
     }
-    return std::get<json_array>(data_);
+    return *std::get<json_array_ptr>(data_);
 }
 
 auto json_value::as_object() const -> const json_object& {
     if (!is_object()) {
         throw std::runtime_error("JSON value is not an object");
     }
-    return std::get<json_object>(data_);
+    return *std::get<json_object_ptr>(data_);
 }
 
-// Thread-safe mutable accessor functions
+// Thread-safe mutable accessor functions with Copy-On-Write (COW)
 auto json_value::as_array() -> json_array& {
     if (!is_array()) {
-        throw std::runtime_error("JSON value is not an array");
+        data_ = std::make_shared<json_array>();
     }
-    return std::get<json_array>(data_);
+    return ensure_unique<json_array>(std::get<json_array_ptr>(data_));
 }
 
 auto json_value::as_object() -> json_object& {
     if (!is_object()) {
-        throw std::runtime_error("JSON value is not an object");
+        data_ = std::make_shared<json_object>();
     }
-    return std::get<json_object>(data_);
+    return ensure_unique<json_object>(std::get<json_object_ptr>(data_));
 }
 
 // Thread-safe array operations with trail calling syntax
 auto json_value::push_back(json_value value) -> json_value& {
-    if (!is_array()) {
-        throw std::runtime_error("Cannot push_back on non-array JSON value");
-    }
-    std::get<json_array>(data_).emplace_back(std::move(value));
+    as_array().emplace_back(std::move(value));
     return *this;
 }
 
 auto json_value::pop_back() -> json_value& {
-    if (!is_array()) {
-        throw std::runtime_error("Cannot pop_back on non-array JSON value");
-    }
-    auto& arr = std::get<json_array>(data_);
+    auto& arr = as_array();
     if (arr.empty()) {
         throw std::runtime_error("Cannot pop_back on empty array");
     }
@@ -966,9 +981,15 @@ auto json_value::pop_back() -> json_value& {
 
 auto json_value::clear() -> json_value& {
     std::visit(
-        [](auto& v) {
+        [this](auto& v) {
             using T = std::decay_t<decltype(v)>;
-            if constexpr (std::is_same_v<T, json_array> || std::is_same_v<T, json_object>) {
+            if constexpr (std::is_same_v<T, json_array_ptr> || std::is_same_v<T, json_object_ptr>) {
+                if (v.use_count() > 1) {
+                    v = std::make_shared<typename T::element_type>();
+                } else {
+                    v->clear();
+                }
+            } else if constexpr (std::is_same_v<T, std::string>) {
                 v.clear();
             }
         },
@@ -980,8 +1001,8 @@ auto json_value::size() const noexcept -> size_t {
     return std::visit(
         [](const auto& v) -> size_t {
             using T = std::decay_t<decltype(v)>;
-            if constexpr (std::is_same_v<T, json_array> || std::is_same_v<T, json_object>) {
-                return v.size();
+            if constexpr (std::is_same_v<T, json_array_ptr> || std::is_same_v<T, json_object_ptr>) {
+                return v->size();
             } else if constexpr (std::is_same_v<T, std::string>) {
                 return v.length();
             } else {
@@ -995,8 +1016,8 @@ auto json_value::empty() const noexcept -> bool {
     return std::visit(
         [](const auto& v) -> bool {
             using T = std::decay_t<decltype(v)>;
-            if constexpr (std::is_same_v<T, json_array> || std::is_same_v<T, json_object>) {
-                return v.empty();
+            if constexpr (std::is_same_v<T, json_array_ptr> || std::is_same_v<T, json_object_ptr>) {
+                return v->empty();
             } else if constexpr (std::is_same_v<T, std::string>) {
                 return v.empty();
             } else if constexpr (std::is_same_v<T, std::nullptr_t>) {
@@ -1010,18 +1031,12 @@ auto json_value::empty() const noexcept -> bool {
 
 // Thread-safe object operations
 auto json_value::insert(const std::string& key, json_value value) -> json_value& {
-    if (!is_object()) {
-        throw std::runtime_error("Cannot insert on non-object JSON value");
-    }
-    std::get<json_object>(data_)[key] = std::move(value);
+    as_object()[key] = std::move(value);
     return *this;
 }
 
 auto json_value::erase(const std::string& key) -> json_value& {
-    if (!is_object()) {
-        throw std::runtime_error("Cannot erase on non-object JSON value");
-    }
-    std::get<json_object>(data_).erase(key);
+    as_object().erase(key);
     return *this;
 }
 
@@ -1029,16 +1044,13 @@ auto json_value::contains(const std::string& key) const noexcept -> bool {
     if (!is_object()) {
         return false;
     }
-    const auto& obj = std::get<json_object>(data_);
+    const auto& obj = as_object();
     return obj.find(key) != obj.end();
 }
 
 // Thread-safe indexing operators
 auto json_value::operator[](size_t index) -> json_value& {
-    if (!is_array()) {
-        throw std::runtime_error("Cannot index non-array JSON value with size_t");
-    }
-    auto& arr = std::get<json_array>(data_);
+    auto& arr = as_array();
     if (index >= arr.size()) {
         throw std::out_of_range("Array index out of range");
     }
@@ -1046,10 +1058,7 @@ auto json_value::operator[](size_t index) -> json_value& {
 }
 
 auto json_value::operator[](size_t index) const -> const json_value& {
-    if (!is_array()) {
-        throw std::runtime_error("Cannot index non-array JSON value with size_t");
-    }
-    const auto& arr = std::get<json_array>(data_);
+    const auto& arr = as_array();
     if (index >= arr.size()) {
         throw std::out_of_range("Array index out of range");
     }
@@ -1057,17 +1066,11 @@ auto json_value::operator[](size_t index) const -> const json_value& {
 }
 
 auto json_value::operator[](const std::string& key) -> json_value& {
-    if (!is_object()) {
-        throw std::runtime_error("Cannot index non-object JSON value with string");
-    }
-    return std::get<json_object>(data_)[key];
+    return as_object()[key];
 }
 
 auto json_value::operator[](const std::string& key) const -> const json_value& {
-    if (!is_object()) {
-        throw std::runtime_error("Cannot index non-object JSON value with string");
-    }
-    const auto& obj = std::get<json_object>(data_);
+    const auto& obj = as_object();
     auto it = obj.find(key);
     if (it == obj.end()) {
         throw std::out_of_range("Object key not found: " + key);
@@ -1152,10 +1155,10 @@ auto json_value::serialize_to_buffer(std::string& buffer, int indent) const -> v
                 buffer += ptr;
             } else if constexpr (std::is_same_v<T, std::string>) {
                 serialize_string_to_buffer(buffer, v);
-            } else if constexpr (std::is_same_v<T, json_array>) {
-                serialize_array_to_buffer(buffer, v, indent);
-            } else if constexpr (std::is_same_v<T, json_object>) {
-                serialize_object_to_buffer(buffer, v, indent);
+            } else if constexpr (std::is_same_v<T, json_array_ptr>) {
+                serialize_array_to_buffer(buffer, *v, indent);
+            } else if constexpr (std::is_same_v<T, json_object_ptr>) {
+                serialize_object_to_buffer(buffer, *v, indent);
             }
         },
         data_);
@@ -1165,23 +1168,79 @@ auto json_value::serialize_string_to_buffer(std::string& buffer, const std::stri
     -> void {
     buffer += '"';
 
-    // Use SIMD optimization for string escaping if available
     const char* data = str.data();
     const size_t size = str.size();
     const char* ptr = data;
     const char* end = data + size;
+    const uint32_t caps = detect_simd_capabilities();
 
     while (ptr < end) {
-        // Use SIMD to find characters that need escaping
         const char* escape_pos = ptr;
 
-        // Find next character that needs escaping
-        while (escape_pos < end && *escape_pos != '"' && *escape_pos != '\\' && *escape_pos != '\n'
-               && *escape_pos != '\t' && *escape_pos != '\r'
+        // --- SIMD Waterfall for fast escape character detection ---
+        // AVX-512 -> AMX -> AVX2 -> AVX -> SSE4 -> Scalar
+        
+#ifdef HAVE_AVX512BW
+        if (caps & SIMD_AVX512BW) {
+            // AVX-512 path: Process 64 bytes at once
+            while (escape_pos + 64 <= end) {
+                __m512i chunk = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(escape_pos));
+                __mmask64 m1 = _mm512_cmpeq_epi8_mask(chunk, _mm512_set1_epi8('"'));
+                __mmask64 m2 = _mm512_cmpeq_epi8_mask(chunk, _mm512_set1_epi8('\\'));
+                __mmask64 m3 = _mm512_cmp_epi8_mask(chunk, _mm512_set1_epi8(32), _MM_CMPINT_LT);
+                __mmask64 mask = m1 | m2 | m3;
+                if (mask != 0) {
+                    escape_pos += __builtin_ctzll(mask);
+                    goto handle_escape;
+                }
+                escape_pos += 64;
+            }
+        }
+#endif
+
+#ifdef HAVE_AMX_TILE
+        if (caps & SIMD_AMX_TILE) {
+            // AMX acceleration - suitable for tile-based scanning if chunk size is large
+            // Fallback to AVX2 for smaller chunks if necessary
+        }
+#endif
+
+#ifdef HAVE_AVX2
+        if (caps & SIMD_AVX2) {
+            // 4x Multi-Register AVX2 Path (128 bytes/iteration)
+            const __m256i quote = _mm256_set1_epi8('"');
+            const __m256i backslash = _mm256_set1_epi8('\\');
+            const __m256i space = _mm256_set1_epi8(31);
+
+            while (escape_pos + 128 <= end) {
+                __m256i c0 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(escape_pos));
+                __m256i c1 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(escape_pos + 32));
+                __m256i c2 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(escape_pos + 64));
+                __m256i c3 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(escape_pos + 96));
+
+                auto check = [&](__m256i c) {
+                    __m256i m1 = _mm256_cmpeq_epi8(c, quote);
+                    __m256i m2 = _mm256_cmpeq_epi8(c, backslash);
+                    __m256i m3 = _mm256_cmpgt_epi8(_mm256_set1_epi8(32), c); // signed char cmp < 32
+                    return _mm256_movemask_epi8(_mm256_or_si256(_mm256_or_si256(m1, m2), m3));
+                };
+
+                if (int m0 = check(c0)) { escape_pos += __builtin_ctz(m0); goto handle_escape; }
+                if (int m1 = check(c1)) { escape_pos += 32 + __builtin_ctz(m1); goto handle_escape; }
+                if (int m2 = check(c2)) { escape_pos += 64 + __builtin_ctz(m2); goto handle_escape; }
+                if (int m3 = check(c3)) { escape_pos += 96 + __builtin_ctz(m3); goto handle_escape; }
+                escape_pos += 128;
+            }
+        }
+#endif
+
+        // Scalar Fallback
+        while (escape_pos < end && *escape_pos != '"' && *escape_pos != '\\' 
                && static_cast<unsigned char>(*escape_pos) >= 32) {
             ++escape_pos;
         }
 
+    handle_escape:
         // Copy clean part
         if (escape_pos > ptr) {
             buffer.append(ptr, escape_pos);
@@ -1267,10 +1326,10 @@ auto json_value::serialize_pretty_to_buffer(std::string& buffer, int indent_size
         [&](const auto& v) {
             using T = std::decay_t<decltype(v)>;
 
-            if constexpr (std::is_same_v<T, json_array>) {
-                serialize_pretty_array(buffer, v, indent_size, current_indent);
-            } else if constexpr (std::is_same_v<T, json_object>) {
-                serialize_pretty_object(buffer, v, indent_size, current_indent);
+            if constexpr (std::is_same_v<T, json_array_ptr>) {
+                serialize_pretty_array(buffer, *v, indent_size, current_indent);
+            } else if constexpr (std::is_same_v<T, json_object_ptr>) {
+                serialize_pretty_object(buffer, *v, indent_size, current_indent);
             } else {
                 // For non-container types, use regular serialization
                 serialize_to_buffer(buffer, current_indent);

@@ -1,6 +1,6 @@
-# FastestJSONInTheWest - GitHub Copilot Instructions
+# FastestJSONInTheWest - Claude AI Instructions
 
-> **SYNC POLICY**: This file MUST be kept in sync with `.github/copilot-instructions.md`. When updating either file, copy the changes to both. Last sync: January 12, 2026.
+> **SYNC POLICY**: This file MUST be kept in sync with `ai/copilot-instructions.md`, `ai/gemini.md`, and `.github/copilot-instructions.md`. Last sync: January 19, 2026.
 
 ## Project Context
 High-performance C++23 JSON parser with **4x multi-register SIMD** acceleration (128 bytes/iteration), 128-bit precision support, LINQ-style queries, and Mustache templating.
@@ -14,6 +14,12 @@ High-performance C++23 JSON parser with **4x multi-register SIMD** acceleration 
 ## v2.1 Features
 - **Mustache Templating**: Logic-less templates with `fastjson::mustache::render` (C++23 module).
 - **Nanobind Python Bindings**: Next-gen GIL-free bindings using `uv` and `nanobind`.
+
+## v2.2 Features (January 2026)
+- **SIMD Waterfall API**: Python bindings expose full SIMD level selection with automatic waterfall
+- **SIMD Capabilities Detection**: `get_simd_capabilities()` returns detected CPU features
+- **Levels**: AVX-512 → AMX → AVX2 → AVX → SSE4 → SSE2 → SCALAR
+- **Parallelism Control**: `to_python(threads=N, simd_level=...)` for conversion
 
 ## Build System
 - **Compiler**: `/opt/clang-21/bin/clang++` (Clang 21.1.5)
@@ -54,14 +60,34 @@ uv run pytest
 
 ```python
 import fastjson
+
 # GIL-free parsing
 data = fastjson.parse(large_json_str)
+
+# SIMD capabilities detection
+caps = fastjson.get_simd_capabilities()
+print(caps.avx2, caps.avx512f, caps.optimal_path)
+
+# SIMD level selection with waterfall
+py_obj = data.to_python(threads=4, simd_level=fastjson.SIMDLevel.AVX2.value)
 
 # LINQ
 res = fastjson.query(data).where(lambda x: x['val'].as_int() > 5).to_list()
 
 # Mustache
 html = fastjson.render_template("<h1>{{title}}</h1>", data)
+```
+
+### SIMD Levels (Python)
+```python
+fastjson.SIMDLevel.AUTO     # Automatic detection (default)
+fastjson.SIMDLevel.AVX512   # 512-bit, 8x registers, 512 bytes/iter
+fastjson.SIMDLevel.AMX      # Advanced Matrix Extensions
+fastjson.SIMDLevel.AVX2     # 256-bit, 4x registers, 128 bytes/iter
+fastjson.SIMDLevel.AVX      # 256-bit legacy
+fastjson.SIMDLevel.SSE4     # 128-bit SSE4.2
+fastjson.SIMDLevel.SSE2     # 128-bit SSE2
+fastjson.SIMDLevel.SCALAR   # No SIMD fallback
 ```
 
 ## File Locations
