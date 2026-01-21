@@ -10,8 +10,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_CXX_SCAN_FOR_MODULES ON)
 
 # Find Clang 21 if not already set (reusing project conventions)
-if(NOT CMAKE_CXX_COMPILER AND EXISTS "/opt/clang-21/bin/clang++")
-    set(CMAKE_CXX_COMPILER "/opt/clang-21/bin/clang++")
+if(NOT CMAKE_CXX_COMPILER AND EXISTS "/usr/local/bin/clang++")
+    set(CMAKE_CXX_COMPILER "/usr/local/bin/clang++")
 endif()
 
 # ============================================================================
@@ -38,7 +38,7 @@ endif()
 # Standard Library Module
 # ============================================================================
 add_library(std_module STATIC)
-target_include_directories(std_module PUBLIC /opt/clang-21/share/libc++/v1)
+target_include_directories(std_module PUBLIC /usr/local/share/libc++/v1)
 target_sources(std_module PUBLIC
     FILE_SET CXX_MODULES 
     BASE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/../external/std
