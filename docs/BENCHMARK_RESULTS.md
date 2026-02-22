@@ -1,5 +1,61 @@
 # Comparative Benchmark Results: FastestJSONInTheWest vs simdjson
 
+## v3.0 Benchmark Results (February 22, 2026)
+
+**Test Environment:** Linux x86_64 (32 cores, 2995 MHz) | Clang 21 | C++23 | Google Benchmark
+**Comparison:** FastJSON v3.0 vs simdjson (real library, libc++)
+
+### Parse Latency
+
+| Payload | Size | FastJSON | simdjson | Ratio |
+|---------|------|----------|----------|-------|
+| Small | 162B | 1,495 ns (92 MB/s) | 33 ns (4.1 GB/s) | simdjson 46x |
+| Medium | 12KB | 113 us (112 MB/s) | 1.1 us (11.1 GB/s) | simdjson 102x |
+| Large | 1MB | 23.2 ms (83 MB/s) | 201 us (9.4 GB/s) | simdjson 116x |
+
+### Arena Parse (FastJSON only)
+
+| Payload | Standard | Arena | Speedup |
+|---------|----------|-------|---------|
+| Large (1MB) | 23.2 ms | 22.1 ms | 1.05x |
+
+### Where FastJSON Wins
+
+| Benchmark | FastJSON | simdjson | Winner |
+|-----------|----------|----------|--------|
+| **Field Access** (pre-parsed) | **52 ns** | 66 ns | **FastJSON 1.26x** |
+| **Array Iteration** (10K records) | **198 us** | 444 us | **FastJSON 2.24x** |
+
+### Ondemand vs Full Parse
+
+| Benchmark | Time | Throughput |
+|-----------|------|-----------|
+| Single Field (Ondemand, 1MB) | **2.97 ms** | 651 MB/s |
+| Single Field (Full Parse, 1MB) | 23.2 ms | 83 MB/s |
+| **Ondemand speedup** | **7.8x** | |
+
+### Serialization (FastJSON only — simdjson is read-only)
+
+| Payload | Time | Throughput |
+|---------|------|-----------|
+| Small (162B) | 440 ns | 312 MB/s |
+| Medium (12KB) | 22 us | 571 MB/s |
+| Large (1MB) | 6.7 ms | 290 MB/s |
+
+### Analysis
+
+**Parse throughput**: simdjson's two-stage SIMD pipeline (structural indexing + lazy parsing) dominates raw parse speed. FastJSON's recursive descent parser processes ~80-112 MB/s vs simdjson's 4-11 GB/s.
+
+**Post-parse access**: FastJSON's eager DOM with `shared_ptr` COW semantics provides **1.3x faster field access** and **2.2x faster array iteration** compared to simdjson's on-demand API, which must re-navigate the tape on each access.
+
+**Ondemand mode**: FastJSON's new `parse_ondemand()` closes the gap for selective access patterns. Accessing a single field from a 1MB payload is **7.8x faster** than constructing the full DOM.
+
+**Serialization**: FastJSON provides full read-write capability (312-571 MB/s serialization throughput) while simdjson is read-only.
+
+---
+
+## Legacy Benchmark Results (November 2025)
+
 **Date:** November 17, 2025  
 **Test Environment:** Linux x86_64 | Clang 21.1.5 | C++23  
 **Dataset Sizes:** 100, 1,000, 10,000 records
@@ -226,6 +282,6 @@ While FastestJSONInTheWest excels in most areas, simdjson retains advantages in:
 
 ---
 
-**Generated:** November 17, 2025  
-**Benchmark Tool:** FastestJSONInTheWest Comparative Suite  
-**Status:** ✅ Ready for Production Evaluation
+**Generated:** November 17, 2025 (legacy) | February 22, 2026 (v3.0)
+**Benchmark Tool:** Google Benchmark + FastestJSONInTheWest Comparative Suite
+**Status:** v3.0 benchmarks validated with 85/85 regression tests passing

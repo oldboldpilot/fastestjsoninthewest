@@ -4,25 +4,33 @@
 
 A production-ready JSON library combining cutting-edge SIMD optimizations, parallel processing, NUMA awareness, and modern C++23 features including a comprehensive LINQ-style query interface and functional programming operations.
 
-## ⚡ Performance Highlights (v2.0 - Multi-Register SIMD)
+## ⚡ Performance Highlights (v3.0 - SIMD GMF + Arena + Ondemand)
 
-The parser now uses **4x AVX2 multi-register SIMD** processing 128 bytes per iteration, delivering significant speedups with zero API changes:
+The v3.0 release delivers a 4-part performance refactor: SIMD moved to Global Module Fragment (fixes Clang 21 segfault), zero-copy string_view, arena allocation, and lazy ondemand parsing.
 
-| Workload | Speedup | Notes |
-|----------|---------|-------|
-| String-heavy JSON | **4.7-5.9x faster** | SIMD string boundary detection |
-| Large arrays | **2.8-4.3x faster** | Vectorized number parsing |
-| Deep nesting | **1.7x faster** | Optimized whitespace skipping |
-| Nested objects | **1.5x faster** | Improved structural parsing |
+| Benchmark | FastJSON | simdjson | Winner |
+|-----------|----------|----------|--------|
+| Field access (pre-parsed) | **52 ns** | 66 ns | FastJSON 1.3x faster |
+| Array iteration (10K records) | **198 us** | 444 us | FastJSON 2.2x faster |
+| Single-field ondemand (1MB) | **3.0 ms** | — | 7.8x vs full parse |
+| Parse throughput (small) | 92 MB/s | 4.1 GB/s | simdjson faster |
+| Serialization (medium) | 571 MB/s | — | FastJSON exclusive |
 
-**Drop-in performance upgrade** - existing code gets faster without any changes.
+**Ondemand mode** skips full DOM construction — access only what you need, 7.8x faster for selective queries.
 
 ## 🚀 Key Features
 
 ### Performance
-- **Multi-Register SIMD**: 4x AVX2 registers (128 bytes/iteration) for 2-6x speedup
-  - Default parser now uses multi-register SIMD automatically
-  - Legacy single-register parser available via `fastjson::legacy` namespace
+- **Multi-Register SIMD**: 8x AVX2 ymm registers (256 bytes/iteration), 4x AVX-512 zmm, 4x SSE4.2/SSE2 xmm
+  - SIMD implementations in Global Module Fragment (GMF) — fixes Clang 21 module purview segfault
+  - Runtime CPUID dispatch: AVX-512 → AVX2 → SSE4.2 → SSE2 → scalar
+- **Ondemand Parsing**: Lazy two-stage parsing with structural SIMD tape
+  - `parse_ondemand()` builds structural index, defers value materialization
+  - 7.8x faster than full DOM for selective field access on large payloads
+- **Arena Allocation**: `parse_arena()` uses `std::pmr::monotonic_buffer_resource`
+  - Single arena allocation for all parsed nodes, reduced heap pressure
+- **Zero-Copy Strings**: `string_view` for unescaped JSON strings (no heap allocation)
+  - COW semantics via `json_string_data` — only allocates on mutation
 - **SIMD Acceleration**: Multi-platform support
   - x86/x64: SSE2 → SSE3 → SSSE3 → SSE4.1 → SSE4.2 → AVX → AVX2 → AVX-512
   - ARM: NEON (128-bit) with optimized JSON parsing kernels
@@ -48,8 +56,10 @@ The parser now uses **4x AVX2 multi-register SIMD** processing 128 bytes per ite
 ### Modern C++23
 - **Modules**: Full C++23 module support
 - **Thread-Safe**: All operations safe for concurrent use
-- **Zero-Copy**: Efficient memory handling
-- **Type-Safe**: Strong type system with `std::variant`
+- **Zero-Copy**: `string_view` into input buffer for unescaped strings
+- **Type-Safe**: Strong type system with `std::variant` and `std::expected` error handling
+- **Arena Allocation**: `json_document` with `pmr::monotonic_buffer_resource`
+- **Ondemand Mode**: Lazy parsing with structural tape navigation
 - **128-bit Precision**: Adaptive precision parsing with `__float128` and `__int128`
   - Fast path: 64-bit doubles for common numbers
   - Auto-upgrade: 128-bit types for high-precision requirements
@@ -64,11 +74,13 @@ The parser now uses **4x AVX2 multi-register SIMD** processing 128 bytes per ite
   - Optimized number parsing
   - Automatic runtime detection
 
-### Python Bindings (v2.0)
-- **pybind11**: Modern Python bindings with GIL release
-- **LINQ-style API**: `query()` and `parallel_query()` with fluent interface
-- **GIL-Free**: Parse operations release the GIL for true parallelism
-- **Full API**: 20+ query operations (filter, map, where, select, take, skip, etc.)
+### Python Bindings (v3.0)
+- **Nanobind**: Next-gen Python bindings (replaced pybind11)
+  - `loads()` / `dumps()` — drop-in replacement for stdlib `json`
+  - `load()` / `dump()` — file I/O
+  - `prettify()` — parse + pretty-print
+  - `simd_info()` — runtime SIMD capability detection
+- **85 regression tests** passing (nanobind test suite)
 
 ## 📊 Performance Targets
 

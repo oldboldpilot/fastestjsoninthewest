@@ -1,5 +1,56 @@
 # SIMD Implementation - FastestJSONInTheWest
 
+## v3.0 SIMD Architecture (February 2026)
+
+### Global Module Fragment (GMF)
+
+All SIMD implementations (`__m256i`, `__m512i`, `__m128i` intrinsics) now reside in `namespace fastjson::detail` inside the **Global Module Fragment** (before `export module fastjson;`). This is required because Clang 21's `TemplateInstantiator` segfaults when serializing SIMD intrinsic types into the Binary Module Interface (BMI).
+
+```
+module;  // Global Module Fragment starts here
+
+// All SIMD code goes here in namespace fastjson::detail
+namespace fastjson::detail { ... }
+
+export module fastjson;  // Module purview starts here
+
+// Thin wrappers delegate to detail:: functions
+inline auto skip_whitespace_simd(...) { return detail::skip_whitespace_simd_impl(...); }
+```
+
+### Multi-Register SIMD (v3.0)
+
+| Function | Registers | Bytes/Iteration |
+|----------|-----------|-----------------|
+| `skip_whitespace_avx512()` | 4x ZMM (512-bit) | 256 bytes |
+| `skip_whitespace_avx2()` | 8x YMM (256-bit) | 256 bytes |
+| `skip_whitespace_sse42()` | 4x XMM (128-bit) | 64 bytes |
+| `skip_whitespace_sse2()` | 4x XMM (128-bit) | 64 bytes |
+| `find_string_end_simd` (AVX2) | 8x YMM | 256 bytes |
+
+### Structural SIMD Tape (`fastjson_simd_index.h`)
+
+The ondemand parser uses a two-stage approach:
+1. **Stage 1**: SIMD structural indexing builds a tape of structural characters
+2. **Stage 2**: Lazy navigation through the tape without parsing values
+
+The tape indexes: `{ } [ ] , : "` plus primitive value starts (`t`, `f`, `n`, `0-9`, `-`).
+
+**AVX2 scanner fixes (v3.0):**
+- Fixed mid-chunk string-state tracking: `in_string` now toggles on each `"` within the SIMD mask loop
+- Fixed post-closing-quote skip: scalar fallback continues processing structural chars after closing quote
+
+### Runtime CPUID Dispatch
+
+```cpp
+auto detect_simd_capabilities() noexcept -> uint32_t;
+
+// Constants: SIMD_SSE2, SIMD_SSE42, SIMD_AVX2, SIMD_AVX512F, SIMD_AVX512BW, etc.
+// Waterfall: AVX-512 → AVX2 → SSE4.2 → SSE2 → scalar
+```
+
+---
+
 ## Overview
 
 This document describes the SIMD (Single Instruction Multiple Data) acceleration implemented in the parallel JSON parser to achieve higher throughput and better performance.

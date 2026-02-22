@@ -1,7 +1,7 @@
 # FastestJSONInTheWest API Reference
 
-**Version:** 1.0.0  
-**Last Updated:** November 26, 2025  
+**Version:** 3.0.0
+**Last Updated:** February 22, 2026
 **License:** MIT
 
 ---
@@ -16,6 +16,9 @@
 6. [Parallel Operations](#parallel-operations)
 7. [Error Handling](#error-handling)
 8. [Performance Tips](#performance-tips)
+9. [Arena Parsing](#arena-parsing)
+10. [Ondemand Parsing](#ondemand-parsing)
+11. [Zero-Copy Strings](#zero-copy-strings)
 
 ---
 
@@ -87,6 +90,41 @@ html = fastjson.render_template("<h1>Hello {{user}}</h1>", context)
 
 #### 128-bit Integer Support
 128-bit integers are automatically detected and can be converted to Python integers without precision loss via `to_python()`.
+
+---
+
+## Nanobind Python Bindings (v3.0)
+
+**Version:** 3.0.0 (Nanobind — replaces pybind11)
+
+### `fastjson_py` Module
+
+```python
+import fastjson_py as json
+
+# Parse string
+data = json.loads('{"key": "value", "num": 42}')
+
+# Serialize
+text = json.dumps(data)                    # Compact
+text = json.dumps(data, indent=2)          # Pretty-printed
+
+# File I/O
+data = json.load("input.json")
+json.dump(data, "output.json", indent=2)
+
+# Pretty-print
+pretty = json.prettify('{"a":1}', indent=4)
+
+# SIMD capabilities
+info = json.simd_info()
+# "FastJSON C++23 module (SIMD GMF: AVX2 + SSE4.2 + SSE2)"
+```
+
+### 85 Regression Tests
+```bash
+pytest tests/test_fastjson_nanobind.py -v  # All 85 tests pass
+```
 
 ---
 
@@ -813,6 +851,149 @@ for (size_t i = 0; i < total; i += batch_size) {
     process(batch);
 }
 ```
+
+---
+
+## Arena Parsing
+
+### `fastjson::parse_arena()`
+
+Arena-allocated parsing that uses a single `pmr::monotonic_buffer_resource` for all nodes.
+
+```cpp
+import fastjson;
+
+// Arena parse — single allocation for all nodes
+auto doc = fastjson::parse_arena(std::string(json_input));
+if (doc) {
+    const auto& root = doc->root();
+    // Access fields as normal
+    double price = root["price"].as_number();
+
+    // Document owns the input + arena — lifetime managed automatically
+}
+```
+
+#### `json_document` Class
+
+```cpp
+class json_document {
+public:
+    explicit json_document(std::string input, size_t arena_hint = 0);
+
+    [[nodiscard]] auto root() const noexcept -> const json_value&;
+    [[nodiscard]] auto root() noexcept -> json_value&;
+    [[nodiscard]] auto input() const noexcept -> std::string_view;
+    [[nodiscard]] auto arena() noexcept -> std::pmr::memory_resource*;
+};
+```
+
+**When to use**: Parse-once-read-many workloads. Reduces heap fragmentation.
+
+---
+
+## Ondemand Parsing
+
+### `fastjson::parse_ondemand()`
+
+Lazy two-stage parsing: SIMD structural indexing + deferred value materialization.
+
+```cpp
+import fastjson;
+
+// Ondemand parse — no DOM construction
+auto doc = fastjson::parse_ondemand(std::string(json_input));
+if (doc) {
+    auto root = doc->root();
+
+    // Navigate lazily
+    auto obj = root.get_object().value();
+    double price = obj["price"].value().get_double().value();
+
+    // Materialize full DOM if needed
+    auto full_dom = doc->materialize();
+}
+```
+
+#### `ondemand_document` Class
+
+```cpp
+class ondemand_document {
+public:
+    static auto parse(std::string input) -> json_result<ondemand_document>;
+
+    [[nodiscard]] auto root() -> ondemand_value;
+    [[nodiscard]] auto materialize() -> json_result<json_value>;
+    [[nodiscard]] auto input() const noexcept -> std::string_view;
+    [[nodiscard]] auto tape_size() const noexcept -> size_t;
+};
+```
+
+#### `ondemand_value` Class
+
+```cpp
+class ondemand_value {
+public:
+    [[nodiscard]] auto type() const noexcept -> json_type;
+    [[nodiscard]] auto get_string() const -> json_result<std::string_view>;
+    [[nodiscard]] auto get_double() const -> json_result<double>;
+    [[nodiscard]] auto get_int64() const -> json_result<int64_t>;
+    [[nodiscard]] auto get_bool() const -> json_result<bool>;
+    [[nodiscard]] auto is_null() const noexcept -> bool;
+    [[nodiscard]] auto get_object() const -> json_result<ondemand_object>;
+    [[nodiscard]] auto get_array() const -> json_result<ondemand_array>;
+};
+```
+
+#### `ondemand_object` Class
+
+```cpp
+class ondemand_object {
+public:
+    [[nodiscard]] auto find_field(std::string_view key) const -> json_result<ondemand_value>;
+    [[nodiscard]] auto operator[](std::string_view key) const -> json_result<ondemand_value>;
+};
+```
+
+#### `ondemand_array` Class
+
+```cpp
+class ondemand_array {
+public:
+    [[nodiscard]] auto count_elements() const -> size_t;
+    [[nodiscard]] auto at(size_t index) const -> json_result<ondemand_value>;
+};
+```
+
+**When to use**: Selective field access on large payloads (7.8x faster than full DOM parse).
+
+---
+
+## Zero-Copy Strings
+
+### `json_string_data` Class
+
+COW string type that avoids heap allocation for unescaped JSON strings.
+
+```cpp
+class json_string_data {
+public:
+    json_string_data() noexcept;
+    json_string_data(std::string_view sv) noexcept;
+    json_string_data(std::string&& s) noexcept;
+
+    [[nodiscard]] auto view() const noexcept -> std::string_view;
+    [[nodiscard]] auto to_string() const -> std::string;
+    auto ensure_owned() -> std::string&;     // COW: copies on first mutation
+    [[nodiscard]] auto is_view() const noexcept -> bool;
+
+    operator std::string_view() const noexcept;
+};
+```
+
+- **Unescaped strings**: `string_view` into input buffer (zero allocation)
+- **Escaped strings**: Owned `std::string` (materialized during parse)
+- **Lifetime**: Input buffer must outlive the `json_value` when using `string_view` mode
 
 ---
 
