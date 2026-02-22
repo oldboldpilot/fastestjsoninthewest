@@ -4,6 +4,8 @@
 
 FastestJSONInTheWest implements a multi-layered architecture designed for maximum performance while maintaining thread safety and memory efficiency. The system includes full Unicode support (UTF-8/16/32), NUMA-aware memory allocation, and a comprehensive LINQ-style query interface with functional programming primitives.
 
+**v3.0 Architecture Updates (February 2026):** SIMD implementations moved to Global Module Fragment (GMF) to fix Clang 21 segfault. Added three parsing modes (eager DOM, arena-allocated, ondemand/lazy), zero-copy string_view with COW semantics, and structural SIMD tape for ondemand navigation.
+
 ## Core Architecture Layers
 
 ### 1. Module Interface Layer (fastjson.cppm)
@@ -53,9 +55,9 @@ using json_data = std::variant<
     std::nullptr_t,                                    // null
     bool,                                              // boolean
     double,                                            // number (64-bit)
-    std::string,                                       // string
-    std::vector<json_value>,                          // array
-    std::unordered_map<std::string, json_value>,      // object
+    json_string_data,                                  // string (string_view or owned string)
+    std::shared_ptr<std::vector<json_value>>,          // array (COW)
+    std::shared_ptr<json_object_map>,                  // object (COW)
     __float128,                                        // high-precision float (128-bit)
     __int128,                                          // large signed integer (128-bit)
     unsigned __int128                                  // large unsigned integer (128-bit)
@@ -108,6 +110,55 @@ All numeric accessors use a safe, exception-free design:
 - **Hash Map Objects**: Fast key-value lookups
 - **String Interning**: Optional string deduplication
 - **Move Semantics**: Efficient value transfers
+
+### Parsing Modes (v3.0)
+
+#### 1. Eager DOM Parse (`parse()`)
+- Full DOM construction into `json_value` tree
+- Best for: repeated access, mutation, serialization
+- Memory: heap-allocated nodes via `shared_ptr` (COW)
+
+#### 2. Arena Parse (`parse_arena()`)
+- Returns `json_document` owning input + `pmr::monotonic_buffer_resource` + root
+- All nodes allocated from a single arena (input_size * 2 heuristic)
+- Best for: parse-once-read-many, reduced GC/heap pressure
+- Memory: single arena, freed when `json_document` is destroyed
+
+#### 3. Ondemand Parse (`parse_ondemand()`)
+- Two-stage: SIMD structural indexing (tape of `{ } [ ] , : " t f n 0-9`) + lazy materialization
+- Returns `ondemand_document` with structural tape
+- Access via `ondemand_value`, `ondemand_object`, `ondemand_array`
+- Best for: selective field access on large payloads (7.8x faster than full DOM)
+- Memory: only the structural tape + input string (no DOM nodes created)
+
+### Zero-Copy Strings (v3.0)
+
+```cpp
+class json_string_data {
+    std::variant<std::string_view, std::string> data_;
+public:
+    auto view() const noexcept -> std::string_view;    // Always works
+    auto to_string() const -> std::string;              // Materializes if needed
+    auto ensure_owned() -> std::string&;                // COW mutation
+    auto is_view() const noexcept -> bool;              // Check if zero-copy
+};
+```
+
+- Unescaped strings: `string_view` into input buffer (zero allocation)
+- Escaped strings: owned `std::string` (materialized during parse)
+- COW: `ensure_owned()` copies on first mutation
+
+### SIMD Global Module Fragment (v3.0)
+
+SIMD implementations (`__m256i`, `__m512i` intrinsics) live in `namespace fastjson::detail` inside the Global Module Fragment (before `export module fastjson;`). This avoids Clang 21's `TemplateInstantiator` segfault when serializing SIMD types into the BMI.
+
+Thin inline wrappers in the module purview delegate to `detail::` functions:
+```cpp
+// In module purview
+inline auto skip_whitespace_simd(const char* data, size_t size) -> const char* {
+    return detail::skip_whitespace_simd_impl(data, size);
+}
+```
 
 ## Thread Safety Architecture
 
@@ -173,7 +224,8 @@ enum class json_error_code {
     invalid_string,
     invalid_escape,
     stack_overflow,
-    out_of_memory
+    out_of_memory,
+    empty_input
 };
 ```
 
