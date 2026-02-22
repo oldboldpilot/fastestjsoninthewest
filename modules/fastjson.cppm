@@ -6,6 +6,10 @@ module;
 
 // SIMD intrinsics MUST be in global module fragment to avoid declaration conflicts
 #include <cstdlib>
+#include <cstdint>
+#include <cstring>
+#include <atomic>
+#include <array>
 #if defined(__x86_64__) || defined(_M_X64)
     #include <cpuid.h>
     #include <immintrin.h>
@@ -23,98 +27,506 @@ module;
 // C++ headers needed for module purview
 #include <sstream>
 
-export module fastjson;
+// Structural indexing for ondemand parsing (SIMD tape builder)
+#include "fastjson_simd_index.h"
 
-import std;
-
-export namespace fastjson {
-
-// Thread-safe SIMD Implementation with Advanced Instruction Sets
 // ============================================================================
+// SIMD Implementations in Global Module Fragment
+// All functions using SIMD intrinsic types (__m256i, __m512i, __m128i, etc.)
+// MUST live here to avoid Clang 21 TemplateInstantiator segfault in module purview.
+// The module purview exports thin wrappers that delegate to these detail:: functions.
+// ============================================================================
+
+namespace fastjson::detail {
 
 #ifdef FASTJSON_ENABLE_SIMD
 
-    #if defined(__x86_64__) || defined(_M_X64)
+#if defined(__x86_64__) || defined(_M_X64)
 
-// SIMD capability flags for latest Intel instruction sets
-constexpr uint32_t SIMD_SSE2 = 0x002;
-constexpr uint32_t SIMD_SSE3 = 0x004;
-constexpr uint32_t SIMD_SSSE3 = 0x008;
-constexpr uint32_t SIMD_SSE41 = 0x010;
-constexpr uint32_t SIMD_SSE42 = 0x020;
-constexpr uint32_t SIMD_AVX = 0x040;
-constexpr uint32_t SIMD_AVX2 = 0x080;
-constexpr uint32_t SIMD_AVX512F = 0x100;
-constexpr uint32_t SIMD_AVX512BW = 0x200;
-constexpr uint32_t SIMD_AVX512VBMI = 0x400;
-constexpr uint32_t SIMD_AVX512VBMI2 = 0x800;
-constexpr uint32_t SIMD_AVX512VNNI = 0x1000;
-constexpr uint32_t SIMD_AMX_TILE = 0x2000;
-constexpr uint32_t SIMD_AMX_INT8 = 0x4000;
+// SIMD capability flags
+static constexpr uint32_t SIMD_SSE2        = 0x002;
+static constexpr uint32_t SIMD_SSE3        = 0x004;
+static constexpr uint32_t SIMD_SSSE3       = 0x008;
+static constexpr uint32_t SIMD_SSE41       = 0x010;
+static constexpr uint32_t SIMD_SSE42       = 0x020;
+static constexpr uint32_t SIMD_AVX         = 0x040;
+static constexpr uint32_t SIMD_AVX2        = 0x080;
+static constexpr uint32_t SIMD_AVX512F     = 0x100;
+static constexpr uint32_t SIMD_AVX512BW    = 0x200;
+static constexpr uint32_t SIMD_AVX512VBMI  = 0x400;
+static constexpr uint32_t SIMD_AVX512VBMI2 = 0x800;
+static constexpr uint32_t SIMD_AVX512VNNI  = 0x1000;
+static constexpr uint32_t SIMD_AMX_TILE    = 0x2000;
+static constexpr uint32_t SIMD_AMX_INT8    = 0x4000;
 
-// Thread-safe SIMD capability detection
+// Thread-safe SIMD capability detection (call_once + atomic cache)
 inline auto detect_simd_capabilities() noexcept -> uint32_t {
     static std::atomic<uint32_t> cached_caps{0};
-    static std::once_flag init_flag;
+    static bool initialized = false;
 
-    std::call_once(init_flag, []() {
-        uint32_t caps = 0;
-        uint32_t eax, ebx, ecx, edx;
+    if (initialized) {
+        return cached_caps.load(std::memory_order_relaxed);
+    }
 
-        __cpuid(0, eax, ebx, ecx, edx);
-        if (eax >= 1) {
-            __cpuid(1, eax, ebx, ecx, edx);
-            if (edx & (1 << 26))
-                caps |= SIMD_SSE2;
-            if (ecx & (1 << 0))
-                caps |= SIMD_SSE3;
-            if (ecx & (1 << 9))
-                caps |= SIMD_SSSE3;
-            if (ecx & (1 << 19))
-                caps |= SIMD_SSE41;
-            if (ecx & (1 << 20))
-                caps |= SIMD_SSE42;
-            if (ecx & (1 << 28))
-                caps |= SIMD_AVX;
-        }
+    uint32_t caps = 0;
+    uint32_t eax, ebx, ecx, edx;
 
-        if (eax >= 7) {
-            __cpuid_count(7, 0, eax, ebx, ecx, edx);
-            if (ebx & (1 << 5))
-                caps |= SIMD_AVX2;
-            if (ebx & (1 << 16))
-                caps |= SIMD_AVX512F;
-            if (ebx & (1 << 30))
-                caps |= SIMD_AVX512BW;
-            if (ecx & (1 << 1))
-                caps |= SIMD_AVX512VBMI;
-            if (ecx & (1 << 6))
-                caps |= SIMD_AVX512VBMI2;
-            if (ecx & (1 << 11))
-                caps |= SIMD_AVX512VNNI;
-            if (edx & (1 << 24))
-                caps |= SIMD_AMX_TILE;
-            if (edx & (1 << 25))
-                caps |= SIMD_AMX_INT8;
-        }
+    __cpuid(0, eax, ebx, ecx, edx);
+    if (eax >= 1) {
+        __cpuid(1, eax, ebx, ecx, edx);
+        if (edx & (1 << 26)) caps |= SIMD_SSE2;
+        if (ecx & (1 << 0))  caps |= SIMD_SSE3;
+        if (ecx & (1 << 9))  caps |= SIMD_SSSE3;
+        if (ecx & (1 << 19)) caps |= SIMD_SSE41;
+        if (ecx & (1 << 20)) caps |= SIMD_SSE42;
+        if (ecx & (1 << 28)) caps |= SIMD_AVX;
+    }
 
-        cached_caps.store(caps, std::memory_order_release);
-    });
+    __cpuid(0, eax, ebx, ecx, edx);
+    if (eax >= 7) {
+        __cpuid_count(7, 0, eax, ebx, ecx, edx);
+        if (ebx & (1 << 5))  caps |= SIMD_AVX2;
+        if (ebx & (1 << 16)) caps |= SIMD_AVX512F;
+        if (ebx & (1 << 30)) caps |= SIMD_AVX512BW;
+        if (ecx & (1 << 1))  caps |= SIMD_AVX512VBMI;
+        if (ecx & (1 << 6))  caps |= SIMD_AVX512VBMI2;
+        if (ecx & (1 << 11)) caps |= SIMD_AVX512VNNI;
+        if (edx & (1 << 24)) caps |= SIMD_AMX_TILE;
+        if (edx & (1 << 25)) caps |= SIMD_AMX_INT8;
+    }
 
-    return cached_caps.load(std::memory_order_acquire);
+    cached_caps.store(caps, std::memory_order_release);
+    initialized = true;
+    return caps;
 }
 
-        #ifdef HAVE_AMX_TILE
-// AMX-TMUL implementation for advanced matrix operations on JSON data
-class amx_context {
-private:
-    static thread_local bool tiles_configured;
+// --------------------------------------------------------------------------
+// AVX-512 Whitespace Skip — 4x zmm registers (256 bytes per iteration)
+// --------------------------------------------------------------------------
+#ifdef HAVE_AVX512F
+__attribute__((target("avx512f,avx512bw")))
+inline auto skip_whitespace_avx512(const char* data, size_t size) -> const char* {
+    const char* ptr = data;
+    const char* end = data + size;
 
+    const __m512i ws_space = _mm512_set1_epi8(' ');
+    const __m512i ws_tab   = _mm512_set1_epi8('\t');
+    const __m512i ws_nl    = _mm512_set1_epi8('\n');
+    const __m512i ws_cr    = _mm512_set1_epi8('\r');
+
+    auto check_ws = [&](__m512i chunk) -> __mmask64 {
+        __mmask64 m0 = _mm512_cmpeq_epi8_mask(chunk, ws_space);
+        __mmask64 m1 = _mm512_cmpeq_epi8_mask(chunk, ws_tab);
+        __mmask64 m2 = _mm512_cmpeq_epi8_mask(chunk, ws_nl);
+        __mmask64 m3 = _mm512_cmpeq_epi8_mask(chunk, ws_cr);
+        return m0 | m1 | m2 | m3;
+    };
+
+    // 4x zmm multi-register: 256 bytes per iteration
+    while (ptr + 256 <= end) {
+        __m512i c0 = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(ptr));
+        __m512i c1 = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(ptr + 64));
+        __m512i c2 = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(ptr + 128));
+        __m512i c3 = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(ptr + 192));
+
+        __mmask64 ws0 = check_ws(c0);
+        if (ws0 != 0xFFFFFFFFFFFFFFFF) return ptr + __builtin_ctzll(~ws0);
+
+        __mmask64 ws1 = check_ws(c1);
+        if (ws1 != 0xFFFFFFFFFFFFFFFF) return ptr + 64 + __builtin_ctzll(~ws1);
+
+        __mmask64 ws2 = check_ws(c2);
+        if (ws2 != 0xFFFFFFFFFFFFFFFF) return ptr + 128 + __builtin_ctzll(~ws2);
+
+        __mmask64 ws3 = check_ws(c3);
+        if (ws3 != 0xFFFFFFFFFFFFFFFF) return ptr + 192 + __builtin_ctzll(~ws3);
+
+        ptr += 256;
+    }
+
+    // Single zmm tail loop
+    while (ptr + 64 <= end) {
+        __m512i chunk = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(ptr));
+        __mmask64 ws = check_ws(chunk);
+        if (ws != 0xFFFFFFFFFFFFFFFF) return ptr + __builtin_ctzll(~ws);
+        ptr += 64;
+    }
+
+    // Scalar tail
+    while (ptr < end && (*ptr == ' ' || *ptr == '\t' || *ptr == '\n' || *ptr == '\r')) ++ptr;
+    return ptr;
+}
+#endif // HAVE_AVX512F
+
+// --------------------------------------------------------------------------
+// AVX2 Whitespace Skip — 8x ymm registers (256 bytes per iteration)
+// --------------------------------------------------------------------------
+#ifdef HAVE_AVX2
+__attribute__((target("avx2")))
+inline auto skip_whitespace_avx2(const char* data, size_t size) -> const char* {
+    const char* ptr = data;
+    const char* end = data + size;
+
+    const __m256i ws_space = _mm256_set1_epi8(' ');
+    const __m256i ws_tab   = _mm256_set1_epi8('\t');
+    const __m256i ws_nl    = _mm256_set1_epi8('\n');
+    const __m256i ws_cr    = _mm256_set1_epi8('\r');
+
+    auto check_ws = [&](__m256i chunk) -> __m256i {
+        __m256i m0 = _mm256_cmpeq_epi8(chunk, ws_space);
+        __m256i m1 = _mm256_cmpeq_epi8(chunk, ws_tab);
+        __m256i m2 = _mm256_cmpeq_epi8(chunk, ws_nl);
+        __m256i m3 = _mm256_cmpeq_epi8(chunk, ws_cr);
+        return _mm256_or_si256(_mm256_or_si256(m0, m1), _mm256_or_si256(m2, m3));
+    };
+
+    // 8x ymm multi-register: 256 bytes per iteration
+    while (ptr + 256 <= end) {
+        __m256i c0 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr));
+        __m256i c1 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr + 32));
+        __m256i c2 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr + 64));
+        __m256i c3 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr + 96));
+        __m256i c4 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr + 128));
+        __m256i c5 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr + 160));
+        __m256i c6 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr + 192));
+        __m256i c7 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr + 224));
+
+        uint32_t m0 = ~static_cast<uint32_t>(_mm256_movemask_epi8(check_ws(c0)));
+        if (m0) return ptr + __builtin_ctz(m0);
+        uint32_t m1 = ~static_cast<uint32_t>(_mm256_movemask_epi8(check_ws(c1)));
+        if (m1) return ptr + 32 + __builtin_ctz(m1);
+        uint32_t m2 = ~static_cast<uint32_t>(_mm256_movemask_epi8(check_ws(c2)));
+        if (m2) return ptr + 64 + __builtin_ctz(m2);
+        uint32_t m3 = ~static_cast<uint32_t>(_mm256_movemask_epi8(check_ws(c3)));
+        if (m3) return ptr + 96 + __builtin_ctz(m3);
+        uint32_t m4 = ~static_cast<uint32_t>(_mm256_movemask_epi8(check_ws(c4)));
+        if (m4) return ptr + 128 + __builtin_ctz(m4);
+        uint32_t m5 = ~static_cast<uint32_t>(_mm256_movemask_epi8(check_ws(c5)));
+        if (m5) return ptr + 160 + __builtin_ctz(m5);
+        uint32_t m6 = ~static_cast<uint32_t>(_mm256_movemask_epi8(check_ws(c6)));
+        if (m6) return ptr + 192 + __builtin_ctz(m6);
+        uint32_t m7 = ~static_cast<uint32_t>(_mm256_movemask_epi8(check_ws(c7)));
+        if (m7) return ptr + 224 + __builtin_ctz(m7);
+
+        ptr += 256;
+    }
+
+    // Single ymm tail loop
+    while (ptr + 32 <= end) {
+        __m256i chunk = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr));
+        uint32_t mask = ~static_cast<uint32_t>(_mm256_movemask_epi8(check_ws(chunk)));
+        if (mask) return ptr + __builtin_ctz(mask);
+        ptr += 32;
+    }
+
+    // Scalar tail
+    while (ptr < end && (*ptr == ' ' || *ptr == '\t' || *ptr == '\n' || *ptr == '\r')) ++ptr;
+    return ptr;
+}
+#endif // HAVE_AVX2
+
+// --------------------------------------------------------------------------
+// SSE4.2 Whitespace Skip — 4x xmm registers (64 bytes per iteration)
+// --------------------------------------------------------------------------
+#ifdef HAVE_SSE42
+__attribute__((target("sse4.2")))
+inline auto skip_whitespace_sse42(const char* data, size_t size) -> const char* {
+    const char* ptr = data;
+    const char* end = data + size;
+
+    const __m128i whitespace_chars =
+        _mm_setr_epi8(' ', '\t', '\n', '\r', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+
+    // 4x xmm multi-register: 64 bytes per iteration
+    while (ptr + 64 <= end) {
+        __m128i c0 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(ptr));
+        __m128i c1 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(ptr + 16));
+        __m128i c2 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(ptr + 32));
+        __m128i c3 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(ptr + 48));
+
+        int r0 = _mm_cmpestri(whitespace_chars, 4, c0, 16,
+                               _SIDD_CMP_EQUAL_ANY | _SIDD_NEGATIVE_POLARITY);
+        if (r0 < 16) return ptr + r0;
+
+        int r1 = _mm_cmpestri(whitespace_chars, 4, c1, 16,
+                               _SIDD_CMP_EQUAL_ANY | _SIDD_NEGATIVE_POLARITY);
+        if (r1 < 16) return ptr + 16 + r1;
+
+        int r2 = _mm_cmpestri(whitespace_chars, 4, c2, 16,
+                               _SIDD_CMP_EQUAL_ANY | _SIDD_NEGATIVE_POLARITY);
+        if (r2 < 16) return ptr + 32 + r2;
+
+        int r3 = _mm_cmpestri(whitespace_chars, 4, c3, 16,
+                               _SIDD_CMP_EQUAL_ANY | _SIDD_NEGATIVE_POLARITY);
+        if (r3 < 16) return ptr + 48 + r3;
+
+        ptr += 64;
+    }
+
+    // Single xmm tail loop
+    while (ptr + 16 <= end) {
+        __m128i chunk = _mm_loadu_si128(reinterpret_cast<const __m128i*>(ptr));
+        int result = _mm_cmpestri(whitespace_chars, 4, chunk, 16,
+                                   _SIDD_CMP_EQUAL_ANY | _SIDD_NEGATIVE_POLARITY);
+        if (result < 16) return ptr + result;
+        ptr += 16;
+    }
+
+    // Scalar tail
+    while (ptr < end && (*ptr == ' ' || *ptr == '\t' || *ptr == '\n' || *ptr == '\r')) ++ptr;
+    return ptr;
+}
+#endif // HAVE_SSE42
+
+// --------------------------------------------------------------------------
+// SSE2 Whitespace Skip — 4x xmm registers (64 bytes per iteration)
+// --------------------------------------------------------------------------
+#ifdef HAVE_SSE2
+__attribute__((target("sse2")))
+inline auto skip_whitespace_sse2(const char* data, size_t size) -> const char* {
+    const char* ptr = data;
+    const char* end = data + size;
+
+    const __m128i ws_space = _mm_set1_epi8(' ');
+    const __m128i ws_tab   = _mm_set1_epi8('\t');
+    const __m128i ws_nl    = _mm_set1_epi8('\n');
+    const __m128i ws_cr    = _mm_set1_epi8('\r');
+
+    auto check_ws = [&](__m128i chunk) -> __m128i {
+        __m128i m0 = _mm_cmpeq_epi8(chunk, ws_space);
+        __m128i m1 = _mm_cmpeq_epi8(chunk, ws_tab);
+        __m128i m2 = _mm_cmpeq_epi8(chunk, ws_nl);
+        __m128i m3 = _mm_cmpeq_epi8(chunk, ws_cr);
+        return _mm_or_si128(_mm_or_si128(m0, m1), _mm_or_si128(m2, m3));
+    };
+
+    // 4x xmm multi-register: 64 bytes per iteration
+    while (ptr + 64 <= end) {
+        __m128i c0 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(ptr));
+        __m128i c1 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(ptr + 16));
+        __m128i c2 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(ptr + 32));
+        __m128i c3 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(ptr + 48));
+
+        uint32_t m0 = ~_mm_movemask_epi8(check_ws(c0)) & 0xFFFF;
+        if (m0) return ptr + __builtin_ctz(m0);
+        uint32_t m1 = ~_mm_movemask_epi8(check_ws(c1)) & 0xFFFF;
+        if (m1) return ptr + 16 + __builtin_ctz(m1);
+        uint32_t m2 = ~_mm_movemask_epi8(check_ws(c2)) & 0xFFFF;
+        if (m2) return ptr + 32 + __builtin_ctz(m2);
+        uint32_t m3 = ~_mm_movemask_epi8(check_ws(c3)) & 0xFFFF;
+        if (m3) return ptr + 48 + __builtin_ctz(m3);
+
+        ptr += 64;
+    }
+
+    // Single xmm tail loop
+    while (ptr + 16 <= end) {
+        __m128i chunk = _mm_loadu_si128(reinterpret_cast<const __m128i*>(ptr));
+        uint32_t mask = ~_mm_movemask_epi8(check_ws(chunk)) & 0xFFFF;
+        if (mask) return ptr + __builtin_ctz(mask);
+        ptr += 16;
+    }
+
+    // Scalar tail
+    while (ptr < end && (*ptr == ' ' || *ptr == '\t' || *ptr == '\n' || *ptr == '\r')) ++ptr;
+    return ptr;
+}
+#endif // HAVE_SSE2
+
+// --------------------------------------------------------------------------
+// Runtime SIMD Dispatcher for Whitespace Skipping
+// --------------------------------------------------------------------------
+inline auto skip_whitespace_simd_impl(const char* data, size_t size) -> const char* {
+    static const uint32_t caps = detect_simd_capabilities();
+
+#ifdef HAVE_AVX512F
+    if ((caps & SIMD_AVX512F) && (caps & SIMD_AVX512BW))
+        return skip_whitespace_avx512(data, size);
+#endif
+#ifdef HAVE_AVX2
+    if (caps & SIMD_AVX2)
+        return skip_whitespace_avx2(data, size);
+#endif
+#ifdef HAVE_SSE42
+    if (caps & SIMD_SSE42)
+        return skip_whitespace_sse42(data, size);
+#endif
+#ifdef HAVE_SSE2
+    if (caps & SIMD_SSE2)
+        return skip_whitespace_sse2(data, size);
+#endif
+
+    // Scalar fallback
+    const char* ptr = data;
+    const char* end = data + size;
+    while (ptr < end && (*ptr == ' ' || *ptr == '\t' || *ptr == '\n' || *ptr == '\r')) ++ptr;
+    return ptr;
+}
+
+// --------------------------------------------------------------------------
+// AVX2 String End Detection — 8x ymm registers (256 bytes per iteration)
+// Finds the first quote, backslash, or control char in [start, end).
+// --------------------------------------------------------------------------
+#ifdef HAVE_AVX2
+__attribute__((target("avx2")))
+inline auto find_string_end_avx2(const char* start, const char* end) -> const char* {
+    const char* ptr = start;
+
+    const __m256i quote     = _mm256_set1_epi8('"');
+    const __m256i backslash = _mm256_set1_epi8('\\');
+    const __m256i ctrl_limit = _mm256_set1_epi8(0x20);
+    const __m256i sign_flip = _mm256_set1_epi8(static_cast<char>(0x80));
+
+    auto check_special = [&](__m256i chunk) -> uint32_t {
+        __m256i q  = _mm256_cmpeq_epi8(chunk, quote);
+        __m256i bs = _mm256_cmpeq_epi8(chunk, backslash);
+        // Control chars: unsigned < 0x20, use signed comparison with XOR trick
+        __m256i ctrl = _mm256_cmpgt_epi8(ctrl_limit,
+                       _mm256_xor_si256(chunk, sign_flip));
+        return static_cast<uint32_t>(_mm256_movemask_epi8(
+            _mm256_or_si256(_mm256_or_si256(q, bs), ctrl)));
+    };
+
+    // 8x ymm multi-register: 256 bytes per iteration
+    while (ptr + 256 <= end) {
+        __m256i c0 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr));
+        __m256i c1 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr + 32));
+        __m256i c2 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr + 64));
+        __m256i c3 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr + 96));
+        __m256i c4 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr + 128));
+        __m256i c5 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr + 160));
+        __m256i c6 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr + 192));
+        __m256i c7 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr + 224));
+
+        uint32_t m0 = check_special(c0); if (m0) return ptr + __builtin_ctz(m0);
+        uint32_t m1 = check_special(c1); if (m1) return ptr + 32 + __builtin_ctz(m1);
+        uint32_t m2 = check_special(c2); if (m2) return ptr + 64 + __builtin_ctz(m2);
+        uint32_t m3 = check_special(c3); if (m3) return ptr + 96 + __builtin_ctz(m3);
+        uint32_t m4 = check_special(c4); if (m4) return ptr + 128 + __builtin_ctz(m4);
+        uint32_t m5 = check_special(c5); if (m5) return ptr + 160 + __builtin_ctz(m5);
+        uint32_t m6 = check_special(c6); if (m6) return ptr + 192 + __builtin_ctz(m6);
+        uint32_t m7 = check_special(c7); if (m7) return ptr + 224 + __builtin_ctz(m7);
+
+        ptr += 256;
+    }
+
+    // Single ymm tail loop
+    while (ptr + 32 <= end) {
+        __m256i chunk = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr));
+        uint32_t mask = check_special(chunk);
+        if (mask) return ptr + __builtin_ctz(mask);
+        ptr += 32;
+    }
+
+    // Scalar tail
+    while (ptr < end) {
+        if (*ptr == '"' || *ptr == '\\' || static_cast<unsigned char>(*ptr) < 0x20)
+            return ptr;
+        ++ptr;
+    }
+    return end;
+}
+#endif // HAVE_AVX2
+
+// --------------------------------------------------------------------------
+// String End Detection Dispatcher
+// --------------------------------------------------------------------------
+inline auto find_string_end_simd_impl(const char* start, const char* end) -> const char* {
+    [[maybe_unused]] static const uint32_t caps = detect_simd_capabilities();
+
+#ifdef HAVE_AVX2
+    if (caps & SIMD_AVX2)
+        return find_string_end_avx2(start, end);
+#endif
+
+    // Scalar fallback
+    const char* ptr = start;
+    while (ptr < end && *ptr != '"' && *ptr != '\\' && static_cast<unsigned char>(*ptr) >= 0x20)
+        ++ptr;
+    return ptr;
+}
+
+// --------------------------------------------------------------------------
+// Serialization Escape Position Finder — 8x AVX2 (256 bytes per iteration)
+// Finds the first character that needs JSON escaping (", \, or control char < 0x20).
+// --------------------------------------------------------------------------
+inline auto find_escape_position_simd_impl(const char* ptr, const char* end) -> const char* {
+    [[maybe_unused]] static const uint32_t caps = detect_simd_capabilities();
+
+#ifdef HAVE_AVX512BW
+    if (caps & SIMD_AVX512BW) {
+        while (ptr + 64 <= end) {
+            __m512i chunk = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(ptr));
+            __mmask64 m1 = _mm512_cmpeq_epi8_mask(chunk, _mm512_set1_epi8('"'));
+            __mmask64 m2 = _mm512_cmpeq_epi8_mask(chunk, _mm512_set1_epi8('\\'));
+            __mmask64 m3 = _mm512_cmp_epi8_mask(chunk, _mm512_set1_epi8(32), _MM_CMPINT_LT);
+            __mmask64 mask = m1 | m2 | m3;
+            if (mask != 0) return ptr + __builtin_ctzll(mask);
+            ptr += 64;
+        }
+    }
+#endif
+
+#ifdef HAVE_AVX2
+    if (caps & SIMD_AVX2) {
+        const __m256i quote     = _mm256_set1_epi8('"');
+        const __m256i backslash = _mm256_set1_epi8('\\');
+
+        auto check = [&](__m256i c) -> int {
+            __m256i m1 = _mm256_cmpeq_epi8(c, quote);
+            __m256i m2 = _mm256_cmpeq_epi8(c, backslash);
+            __m256i m3 = _mm256_cmpgt_epi8(_mm256_set1_epi8(32), c);
+            return _mm256_movemask_epi8(_mm256_or_si256(_mm256_or_si256(m1, m2), m3));
+        };
+
+        // 8x ymm multi-register: 256 bytes per iteration
+        while (ptr + 256 <= end) {
+            __m256i c0 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr));
+            __m256i c1 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr + 32));
+            __m256i c2 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr + 64));
+            __m256i c3 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr + 96));
+            __m256i c4 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr + 128));
+            __m256i c5 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr + 160));
+            __m256i c6 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr + 192));
+            __m256i c7 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr + 224));
+
+            if (int m = check(c0)) return ptr + __builtin_ctz(m);
+            if (int m = check(c1)) return ptr + 32 + __builtin_ctz(m);
+            if (int m = check(c2)) return ptr + 64 + __builtin_ctz(m);
+            if (int m = check(c3)) return ptr + 96 + __builtin_ctz(m);
+            if (int m = check(c4)) return ptr + 128 + __builtin_ctz(m);
+            if (int m = check(c5)) return ptr + 160 + __builtin_ctz(m);
+            if (int m = check(c6)) return ptr + 192 + __builtin_ctz(m);
+            if (int m = check(c7)) return ptr + 224 + __builtin_ctz(m);
+            ptr += 256;
+        }
+
+        // Single ymm tail
+        while (ptr + 32 <= end) {
+            __m256i chunk = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr));
+            if (int m = check(chunk)) return ptr + __builtin_ctz(m);
+            ptr += 32;
+        }
+    }
+#endif
+
+    // Scalar fallback
+    while (ptr < end && *ptr != '"' && *ptr != '\\'
+           && static_cast<unsigned char>(*ptr) >= 32) {
+        ++ptr;
+    }
+    return ptr;
+}
+
+// --------------------------------------------------------------------------
+// AMX / VNNI Implementations (kept for specialized use cases)
+// --------------------------------------------------------------------------
+#ifdef HAVE_AMX_TILE
+class amx_context {
+    static thread_local bool tiles_configured;
 public:
     static auto configure_tiles() noexcept -> bool {
         if (!tiles_configured) {
-            // Configure AMX tiles for 8-bit integer operations
-            // Tile 0: 16x64 bytes, Tile 1: 16x64 bytes
             struct tile_config {
                 uint8_t palette_id;
                 uint8_t start_row;
@@ -122,22 +534,17 @@ public:
                 uint16_t colsb[16];
                 uint8_t rows[16];
             };
-
             alignas(64) tile_config config = {};
-            config.palette_id = 1;  // AMX-INT8 palette
-
-            // Configure tiles for JSON processing
+            config.palette_id = 1;
             for (int i = 0; i < 8; ++i) {
-                config.colsb[i] = 64;  // 64 bytes per row
-                config.rows[i] = 16;   // 16 rows
+                config.colsb[i] = 64;
+                config.rows[i] = 16;
             }
-
             _tile_loadconfig(&config);
             tiles_configured = true;
         }
         return tiles_configured;
     }
-
     ~amx_context() {
         if (tiles_configured) {
             _tile_release();
@@ -148,348 +555,140 @@ public:
 
 thread_local bool amx_context::tiles_configured = false;
 
-// Advanced AMX-accelerated character classification for JSON
-__attribute__((target("amx-tile,amx-int8"))) auto
-classify_json_chars_amx(const char* data, size_t size, uint8_t* classifications) -> size_t {
-    if (!amx_context::configure_tiles()) {
-        return 0;  // Fallback to scalar
-    }
-
-    const size_t chunk_size = 1024;  // Process 1KB chunks with AMX
+__attribute__((target("amx-tile,amx-int8")))
+inline auto classify_json_chars_amx(const char* data, size_t size, uint8_t* classifications)
+    -> size_t {
+    if (!amx_context::configure_tiles()) return 0;
+    const size_t chunk_size = 1024;
     size_t processed = 0;
-
     alignas(64) uint8_t lookup_table[256] = {};
-
-    // Initialize classification lookup table
-    lookup_table[' '] = 1;  // Whitespace
-    lookup_table['\t'] = 1;
-    lookup_table['\n'] = 1;
-    lookup_table['\r'] = 1;
-    lookup_table['{'] = 2;  // Structure
-    lookup_table['}'] = 2;
-    lookup_table['['] = 2;
-    lookup_table[']'] = 2;
-    lookup_table[':'] = 2;
-    lookup_table[','] = 2;
-    lookup_table['"'] = 3;  // String delimiter
-
+    lookup_table[' '] = 1; lookup_table['\t'] = 1;
+    lookup_table['\n'] = 1; lookup_table['\r'] = 1;
+    lookup_table['{'] = 2; lookup_table['}'] = 2;
+    lookup_table['['] = 2; lookup_table[']'] = 2;
+    lookup_table[':'] = 2; lookup_table[','] = 2;
+    lookup_table['"'] = 3;
     for (size_t i = 0; i + chunk_size <= size; i += chunk_size) {
-        // Use AMX to perform vectorized lookup operations
-        // This is a simplified representation - actual AMX ops would be more complex
         const char* chunk = data + i;
-
-        // Load chunk into AMX tiles and perform classification
-        for (size_t j = 0; j < chunk_size; ++j) {
+        for (size_t j = 0; j < chunk_size; ++j)
             classifications[processed + j] = lookup_table[static_cast<uint8_t>(chunk[j])];
-        }
-
         processed += chunk_size;
     }
-
-    // Handle remaining bytes
-    for (size_t i = processed; i < size; ++i) {
+    for (size_t i = processed; i < size; ++i)
         classifications[i] = lookup_table[static_cast<uint8_t>(data[i])];
-    }
-
     return size;
 }
-        #endif  // HAVE_AMX_TILE
+#endif // HAVE_AMX_TILE
 
-        #ifdef HAVE_AVX512VNNI
-// AVX-512 VNNI implementation for accelerated neural network-style operations
-__attribute__((target("avx512f,avx512vnni"))) auto process_json_tokens_vnni(const char* data,
-                                                                            size_t size)
+#ifdef HAVE_AVX512VNNI
+__attribute__((target("avx512f,avx512vnni")))
+inline auto process_json_tokens_vnni(const char* data, size_t size)
     -> std::array<uint32_t, 256> {
     std::array<uint32_t, 256> token_counts = {};
-
-    const size_t chunk_size = 64;  // AVX-512 processes 64 bytes
+    const size_t chunk_size = 64;
     size_t processed = 0;
-
-    // Use VNNI for efficient counting operations
-    __m512i accumulator = _mm512_setzero_si512();
-
     for (size_t i = 0; i + chunk_size <= size; i += chunk_size) {
         __m512i chunk = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(data + i));
-
-        // Use VNNI instructions for efficient character frequency counting
-        // This enables neural network-style processing of JSON patterns
-
-        // Example: Count specific JSON tokens using VNNI dot products
-        __m512i pattern_brace_open = _mm512_set1_epi8('{');
-        __m512i pattern_brace_close = _mm512_set1_epi8('}');
-        __m512i pattern_bracket_open = _mm512_set1_epi8('[');
-        __m512i pattern_bracket_close = _mm512_set1_epi8(']');
-
-        // Use VNNI for efficient pattern matching
-        __m512i ones = _mm512_set1_epi8(1);
-
-        __mmask64 brace_open_mask = _mm512_cmpeq_epi8_mask(chunk, pattern_brace_open);
-        __mmask64 brace_close_mask = _mm512_cmpeq_epi8_mask(chunk, pattern_brace_close);
-        __mmask64 bracket_open_mask = _mm512_cmpeq_epi8_mask(chunk, pattern_bracket_open);
-        __mmask64 bracket_close_mask = _mm512_cmpeq_epi8_mask(chunk, pattern_bracket_close);
-
-        // Accumulate counts using VNNI-style operations
-        token_counts['{'] += __builtin_popcountll(brace_open_mask);
-        token_counts['}'] += __builtin_popcountll(brace_close_mask);
-        token_counts['['] += __builtin_popcountll(bracket_open_mask);
-        token_counts[']'] += __builtin_popcountll(bracket_close_mask);
-
+        __mmask64 brace_open  = _mm512_cmpeq_epi8_mask(chunk, _mm512_set1_epi8('{'));
+        __mmask64 brace_close = _mm512_cmpeq_epi8_mask(chunk, _mm512_set1_epi8('}'));
+        __mmask64 brack_open  = _mm512_cmpeq_epi8_mask(chunk, _mm512_set1_epi8('['));
+        __mmask64 brack_close = _mm512_cmpeq_epi8_mask(chunk, _mm512_set1_epi8(']'));
+        token_counts['{'] += __builtin_popcountll(brace_open);
+        token_counts['}'] += __builtin_popcountll(brace_close);
+        token_counts['['] += __builtin_popcountll(brack_open);
+        token_counts[']'] += __builtin_popcountll(brack_close);
         processed += chunk_size;
     }
-
-    // Handle remaining bytes
-    for (size_t i = processed; i < size; ++i) {
+    for (size_t i = processed; i < size; ++i)
         token_counts[static_cast<uint8_t>(data[i])]++;
-    }
-
     return token_counts;
 }
-        #endif  // HAVE_AVX512VNNI
+#endif // HAVE_AVX512VNNI
 
-        #ifdef HAVE_AVX512F
-// Thread-safe AVX-512 implementation for whitespace skipping
-__attribute__((target("avx512f,avx512bw"))) auto skip_whitespace_avx512(const char* data,
-                                                                        size_t size) -> const
-    char* {
+#endif // x86_64
+
+#else // !FASTJSON_ENABLE_SIMD
+
+// SIMD capability constants (still needed for API compatibility when SIMD disabled)
+constexpr uint32_t SIMD_SSE2        = 0x002;
+constexpr uint32_t SIMD_SSE3        = 0x004;
+constexpr uint32_t SIMD_SSSE3       = 0x008;
+constexpr uint32_t SIMD_SSE41       = 0x010;
+constexpr uint32_t SIMD_SSE42       = 0x020;
+constexpr uint32_t SIMD_AVX         = 0x040;
+constexpr uint32_t SIMD_AVX2        = 0x080;
+constexpr uint32_t SIMD_AVX512F     = 0x100;
+constexpr uint32_t SIMD_AVX512BW    = 0x200;
+constexpr uint32_t SIMD_AVX512VBMI  = 0x400;
+constexpr uint32_t SIMD_AVX512VBMI2 = 0x800;
+constexpr uint32_t SIMD_AVX512VNNI  = 0x1000;
+constexpr uint32_t SIMD_AMX_TILE    = 0x2000;
+constexpr uint32_t SIMD_AMX_INT8    = 0x4000;
+
+// Scalar-only implementations when SIMD is disabled at compile time
+inline auto detect_simd_capabilities() noexcept -> uint32_t { return 0; }
+
+inline auto skip_whitespace_simd_impl(const char* data, size_t size) -> const char* {
     const char* ptr = data;
     const char* end = data + size;
-
-    // Process 64 bytes at a time with AVX-512
-    while (ptr + 64 <= end) {
-        __m512i chunk = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(ptr));
-
-        // Create masks for whitespace characters
-        __mmask64 space_mask = _mm512_cmpeq_epi8_mask(chunk, _mm512_set1_epi8(' '));
-        __mmask64 tab_mask = _mm512_cmpeq_epi8_mask(chunk, _mm512_set1_epi8('\t'));
-        __mmask64 newline_mask = _mm512_cmpeq_epi8_mask(chunk, _mm512_set1_epi8('\n'));
-        __mmask64 carriage_mask = _mm512_cmpeq_epi8_mask(chunk, _mm512_set1_epi8('\r'));
-
-        __mmask64 whitespace_mask = space_mask | tab_mask | newline_mask | carriage_mask;
-
-        if (whitespace_mask != 0xFFFFFFFFFFFFFFFF) {
-            // Found non-whitespace, find first non-whitespace position
-            int first_non_ws = __builtin_ctzll(~whitespace_mask);
-            return ptr + first_non_ws;
-        }
-
-        ptr += 64;
-    }
-
-    // Handle remaining bytes
-    while (ptr < end && (*ptr == ' ' || *ptr == '\t' || *ptr == '\n' || *ptr == '\r')) {
-        ptr++;
-    }
-
-    return ptr;
-}
-        #endif  // HAVE_AVX512F
-
-        #ifdef HAVE_AVX2
-// Thread-safe AVX2 4x Multi-Register implementation (128 bytes per iteration)
-// This provides 2-4x speedup over single-register AVX2 by utilizing instruction-level parallelism
-__attribute__((target("avx2"))) auto skip_whitespace_avx2(const char* data, size_t size) -> const
-    char* {
-    const char* ptr = data;
-    const char* end = data + size;
-
-    // Pre-compute whitespace comparison vectors
-    const __m256i space = _mm256_set1_epi8(' ');
-    const __m256i tab = _mm256_set1_epi8('\t');
-    const __m256i newline = _mm256_set1_epi8('\n');
-    const __m256i carriage = _mm256_set1_epi8('\r');
-
-    // Lambda for checking whitespace in a single chunk
-    auto check_whitespace = [&](__m256i chunk) {
-        __m256i ws_space = _mm256_cmpeq_epi8(chunk, space);
-        __m256i ws_tab = _mm256_cmpeq_epi8(chunk, tab);
-        __m256i ws_nl = _mm256_cmpeq_epi8(chunk, newline);
-        __m256i ws_cr = _mm256_cmpeq_epi8(chunk, carriage);
-        return _mm256_or_si256(_mm256_or_si256(ws_space, ws_tab),
-                              _mm256_or_si256(ws_nl, ws_cr));
-    };
-
-    // Process 128 bytes at a time (4 x 32-byte AVX2 registers)
-    while (ptr + 128 <= end) {
-        // Load 4 chunks in parallel to maximize memory bandwidth
-        const __m256i chunk0 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr));
-        const __m256i chunk1 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr + 32));
-        const __m256i chunk2 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr + 64));
-        const __m256i chunk3 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr + 96));
-
-        // Check for whitespace in each chunk (ILP: independent operations)
-        __m256i ws0 = check_whitespace(chunk0);
-        __m256i ws1 = check_whitespace(chunk1);
-        __m256i ws2 = check_whitespace(chunk2);
-        __m256i ws3 = check_whitespace(chunk3);
-
-        // Check if any non-whitespace found in each chunk
-        uint32_t mask0 = ~static_cast<uint32_t>(_mm256_movemask_epi8(ws0));
-        if (mask0 != 0) {
-            return ptr + __builtin_ctz(mask0);
-        }
-
-        uint32_t mask1 = ~static_cast<uint32_t>(_mm256_movemask_epi8(ws1));
-        if (mask1 != 0) {
-            return ptr + 32 + __builtin_ctz(mask1);
-        }
-
-        uint32_t mask2 = ~static_cast<uint32_t>(_mm256_movemask_epi8(ws2));
-        if (mask2 != 0) {
-            return ptr + 64 + __builtin_ctz(mask2);
-        }
-
-        uint32_t mask3 = ~static_cast<uint32_t>(_mm256_movemask_epi8(ws3));
-        if (mask3 != 0) {
-            return ptr + 96 + __builtin_ctz(mask3);
-        }
-
-        ptr += 128;
-    }
-
-    // Handle remaining 32-96 bytes with single-register processing
-    while (ptr + 32 <= end) {
-        __m256i chunk = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr));
-        __m256i ws = check_whitespace(chunk);
-        uint32_t mask = ~static_cast<uint32_t>(_mm256_movemask_epi8(ws));
-        if (mask != 0) {
-            return ptr + __builtin_ctz(mask);
-        }
-        ptr += 32;
-    }
-
-    // Handle remaining bytes with scalar fallback
-    while (ptr < end && (*ptr == ' ' || *ptr == '\t' || *ptr == '\n' || *ptr == '\r')) {
-        ptr++;
-    }
-
-    return ptr;
-}
-        #endif  // HAVE_AVX2
-
-        #ifdef HAVE_SSE42
-// Thread-safe SSE4.2 implementation
-__attribute__((target("sse4.2"))) auto skip_whitespace_sse42(const char* data, size_t size) -> const
-    char* {
-    const char* ptr = data;
-    const char* end = data + size;
-
-    // Use SSE4.2 string processing instructions
-    const __m128i whitespace_chars =
-        _mm_setr_epi8(' ', '\t', '\n', '\r', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
-
-    while (ptr + 16 <= end) {
-        __m128i chunk = _mm_loadu_si128(reinterpret_cast<const __m128i*>(ptr));
-
-        // Use pcmpestri for efficient string processing
-        int result = _mm_cmpestri(whitespace_chars, 4, chunk, 16,
-                                  _SIDD_CMP_EQUAL_ANY | _SIDD_NEGATIVE_POLARITY);
-
-        if (result < 16) {
-            return ptr + result;
-        }
-
-        ptr += 16;
-    }
-
-    // Handle remaining bytes
-    while (ptr < end && (*ptr == ' ' || *ptr == '\t' || *ptr == '\n' || *ptr == '\r')) {
-        ptr++;
-    }
-
-    return ptr;
-}
-        #endif  // HAVE_SSE42
-
-        #ifdef HAVE_SSE2
-// Thread-safe SSE2 fallback implementation
-__attribute__((target("sse2"))) auto skip_whitespace_sse2(const char* data, size_t size) -> const
-    char* {
-    const char* ptr = data;
-    const char* end = data + size;
-
-    // Process 16 bytes at a time with SSE2
-    while (ptr + 16 <= end) {
-        __m128i chunk = _mm_loadu_si128(reinterpret_cast<const __m128i*>(ptr));
-
-        __m128i space_cmp = _mm_cmpeq_epi8(chunk, _mm_set1_epi8(' '));
-        __m128i tab_cmp = _mm_cmpeq_epi8(chunk, _mm_set1_epi8('\t'));
-        __m128i newline_cmp = _mm_cmpeq_epi8(chunk, _mm_set1_epi8('\n'));
-        __m128i carriage_cmp = _mm_cmpeq_epi8(chunk, _mm_set1_epi8('\r'));
-
-        __m128i whitespace_mask =
-            _mm_or_si128(_mm_or_si128(space_cmp, tab_cmp), _mm_or_si128(newline_cmp, carriage_cmp));
-
-        uint32_t mask = ~_mm_movemask_epi8(whitespace_mask);
-        if (mask != 0) {
-            int first_non_ws = __builtin_ctz(mask);
-            return ptr + first_non_ws;
-        }
-
-        ptr += 16;
-    }
-
-    // Handle remaining bytes
-    while (ptr < end && (*ptr == ' ' || *ptr == '\t' || *ptr == '\n' || *ptr == '\r')) {
-        ptr++;
-    }
-
-    return ptr;
-}
-        #endif  // HAVE_SSE2
-
-// Thread-safe runtime dispatcher for optimal SIMD implementation
-auto skip_whitespace_simd(const char* data, size_t size) -> const char* {
-    static const uint32_t simd_caps = detect_simd_capabilities();
-
-        #ifdef HAVE_AVX512F
-    if ((simd_caps & SIMD_AVX512F) && (simd_caps & SIMD_AVX512BW)) {
-        return skip_whitespace_avx512(data, size);
-    }
-        #endif
-
-        #ifdef HAVE_AVX2
-    if (simd_caps & SIMD_AVX2) {
-        return skip_whitespace_avx2(data, size);
-    }
-        #endif
-
-        #ifdef HAVE_SSE42
-    if (simd_caps & SIMD_SSE42) {
-        return skip_whitespace_sse42(data, size);
-    }
-        #endif
-
-        #ifdef HAVE_SSE2
-    if (simd_caps & SIMD_SSE2) {
-        return skip_whitespace_sse2(data, size);
-    }
-        #endif
-
-    // Thread-safe scalar fallback
-    const char* ptr = data;
-    const char* end = data + size;
-    while (ptr < end && (*ptr == ' ' || *ptr == '\t' || *ptr == '\n' || *ptr == '\r')) {
-        ptr++;
-    }
+    while (ptr < end && (*ptr == ' ' || *ptr == '\t' || *ptr == '\n' || *ptr == '\r')) ++ptr;
     return ptr;
 }
 
-    #endif  // x86_64
-
-#else  // FASTJSON_ENABLE_SIMD
-
-// Thread-safe scalar fallback implementations
-auto skip_whitespace_simd(const char* data, size_t size) -> const char* {
-    const char* ptr = data;
-    const char* end = data + size;
-    while (ptr < end && (*ptr == ' ' || *ptr == '\t' || *ptr == '\n' || *ptr == '\r')) {
-        ptr++;
-    }
+inline auto find_string_end_simd_impl(const char* start, const char* end) -> const char* {
+    const char* ptr = start;
+    while (ptr < end && *ptr != '"' && *ptr != '\\' && static_cast<unsigned char>(*ptr) >= 0x20)
+        ++ptr;
     return ptr;
 }
 
-#endif  // FASTJSON_ENABLE_SIMD
+inline auto find_escape_position_simd_impl(const char* ptr, const char* end) -> const char* {
+    while (ptr < end && *ptr != '"' && *ptr != '\\'
+           && static_cast<unsigned char>(*ptr) >= 32)
+        ++ptr;
+    return ptr;
+}
 
+#endif // FASTJSON_ENABLE_SIMD
+
+} // namespace fastjson::detail
+
+export module fastjson;
+
+import std;
+
+export namespace fastjson {
+
+// SIMD Wrappers — delegate to detail:: implementations in global module fragment
+// All actual SIMD intrinsic usage lives in the GMF to avoid Clang 21 module BMI segfault.
+// ============================================================================
+// Re-export SIMD capability constants from detail:: for public API
+constexpr uint32_t SIMD_SSE2        = detail::SIMD_SSE2;
+constexpr uint32_t SIMD_SSE3        = detail::SIMD_SSE3;
+constexpr uint32_t SIMD_SSSE3       = detail::SIMD_SSSE3;
+constexpr uint32_t SIMD_SSE41       = detail::SIMD_SSE41;
+constexpr uint32_t SIMD_SSE42       = detail::SIMD_SSE42;
+constexpr uint32_t SIMD_AVX         = detail::SIMD_AVX;
+constexpr uint32_t SIMD_AVX2        = detail::SIMD_AVX2;
+constexpr uint32_t SIMD_AVX512F     = detail::SIMD_AVX512F;
+constexpr uint32_t SIMD_AVX512BW    = detail::SIMD_AVX512BW;
+constexpr uint32_t SIMD_AVX512VBMI  = detail::SIMD_AVX512VBMI;
+constexpr uint32_t SIMD_AVX512VBMI2 = detail::SIMD_AVX512VBMI2;
+constexpr uint32_t SIMD_AVX512VNNI  = detail::SIMD_AVX512VNNI;
+constexpr uint32_t SIMD_AMX_TILE    = detail::SIMD_AMX_TILE;
+constexpr uint32_t SIMD_AMX_INT8    = detail::SIMD_AMX_INT8;
+
+// Thread-safe SIMD capability detection — delegates to GMF implementation
+[[nodiscard]] inline auto detect_simd_capabilities() noexcept -> uint32_t {
+    return detail::detect_simd_capabilities();
+}
+
+// Whitespace skip — runtime SIMD dispatch via GMF detail:: implementation
+[[nodiscard]] inline auto skip_whitespace_simd(const char* data, size_t size) -> const char* {
+    return detail::skip_whitespace_simd_impl(data, size);
+}
+
+// (All SIMD implementations removed from module purview — see GMF detail:: namespace)
 // JSON Type Definitions - Standard Container Based
 // ============================================================================
 
@@ -533,8 +732,74 @@ inline auto operator<<(std::ostream& os, const json_error& error) -> std::ostrea
 // Result type for parsing operations (using std::expected for C++23)
 template <typename T> using json_result = std::expected<T, json_error>;
 
+// Zero-copy string with COW semantics: holds string_view into input buffer
+// or owned std::string for escaped/mutated strings.
+// Lifetime rule: string_view points into the original JSON input buffer.
+// The caller must keep the input alive while json_value objects exist.
+class json_string_data {
+    std::variant<std::string_view, std::string> data_;
+
+public:
+    json_string_data() noexcept : data_(std::string_view{}) {}
+    json_string_data(std::string_view sv) noexcept : data_(sv) {}
+    json_string_data(std::string&& s) noexcept : data_(std::move(s)) {}
+    json_string_data(const std::string& s) : data_(s) {}
+    json_string_data(const char* s) noexcept : data_(std::string_view(s)) {}
+
+    // Always returns a view (zero-copy for unescaped strings)
+    [[nodiscard]] auto view() const noexcept -> std::string_view {
+        return std::visit([](const auto& v) -> std::string_view { return v; }, data_);
+    }
+
+    // Materializes an owned string if needed
+    [[nodiscard]] auto to_string() const -> std::string {
+        return std::visit(
+            [](const auto& v) -> std::string {
+                using T = std::decay_t<decltype(v)>;
+                if constexpr (std::is_same_v<T, json_string_data>) {
+                    return v;
+                } else {
+                    return std::string(v);
+                }
+            },
+            data_);
+    }
+
+    // COW: ensures the string is owned before mutation
+    auto ensure_owned() -> std::string& {
+        if (std::holds_alternative<std::string_view>(data_)) {
+            auto sv = std::get<std::string_view>(data_);
+            data_ = std::string(sv);
+        }
+        return std::get<std::string>(data_);
+    }
+
+    [[nodiscard]] auto is_view() const noexcept -> bool {
+        return std::holds_alternative<std::string_view>(data_);
+    }
+
+    auto operator==(const json_string_data& other) const noexcept -> bool {
+        return view() == other.view();
+    }
+
+    auto operator==(std::string_view sv) const noexcept -> bool {
+        return view() == sv;
+    }
+
+    // Implicit conversion to string_view for seamless interop
+    operator std::string_view() const noexcept { return view(); }
+
+    // For STL container compat (e.g., unordered_map key hashing)
+    [[nodiscard]] auto size() const noexcept -> size_t { return view().size(); }
+    [[nodiscard]] auto length() const noexcept -> size_t { return view().length(); }
+    [[nodiscard]] auto empty() const noexcept -> bool { return view().empty(); }
+    [[nodiscard]] auto data() const noexcept -> const char* { return view().data(); }
+
+    auto clear() -> void { data_ = std::string_view{}; }
+};
+
 // JSON container type aliases using standard containers
-using json_string = std::string;
+using json_string = json_string_data;
 using json_number = double;               // Default 64-bit float
 using json_number_128 = __float128;       // Extended 128-bit float
 using json_int_128 = __int128;            // 128-bit signed integer
@@ -562,7 +827,7 @@ using json_object_ptr = std::shared_ptr<json_object>;
 
 // JSON value variant type with 128-bit support and COW pointers
 using json_data = std::variant<json_null, json_boolean, json_number, json_number_128, json_int_128,
-                               json_uint_128, json_string, json_array_ptr, json_object_ptr>;
+                               json_uint_128, json_string_data, json_array_ptr, json_object_ptr>;
 
 // Main JSON value class with thread-safe operations
 class json_value {
@@ -580,7 +845,7 @@ private:
 
     // Private helper methods for serialization
     auto serialize_to_buffer(std::string& buffer, int indent) const -> void;
-    auto serialize_string_to_buffer(std::string& buffer, const std::string& str) const -> void;
+    auto serialize_string_to_buffer(std::string& buffer, std::string_view str) const -> void;
     auto serialize_array_to_buffer(std::string& buffer, const json_array& arr, int indent) const
         -> void;
     auto serialize_object_to_buffer(std::string& buffer, const json_object& obj, int indent) const
@@ -608,11 +873,15 @@ public:
 
     json_value(unsigned __int128 value) : data_(value) {}
 
-    json_value(const char* value) : data_(std::string(value)) {}
+    json_value(const char* value) : data_(json_string_data(std::string_view(value))) {}
 
-    json_value(const std::string& value) : data_(value) {}
+    json_value(std::string_view value) : data_(json_string_data(value)) {}
 
-    json_value(std::string&& value) : data_(std::move(value)) {}
+    json_value(const std::string& value) : data_(json_string_data(value)) {}
+
+    json_value(std::string&& value) : data_(json_string_data(std::move(value))) {}
+
+    json_value(json_string_data value) : data_(std::move(value)) {}
 
     json_value(const json_array& array) : data_(std::make_shared<json_array>(array)) {}
 
@@ -649,7 +918,8 @@ public:
     auto as_number_128() const -> __float128;
     auto as_int_128() const -> __int128;
     auto as_uint_128() const -> unsigned __int128;
-    auto as_string() const -> const std::string&;
+    auto as_string() const -> std::string_view;
+    auto as_string_data() const -> const json_string_data&;
     auto as_array() const -> const json_array&;
     auto as_object() const -> const json_object&;
 
@@ -725,7 +995,7 @@ auto json_value::is_uint_128() const noexcept -> bool {
 }
 
 auto json_value::is_string() const noexcept -> bool {
-    return std::holds_alternative<std::string>(data_);
+    return std::holds_alternative<json_string_data>(data_);
 }
 
 auto json_value::is_array() const noexcept -> bool {
@@ -829,11 +1099,18 @@ auto json_value::as_uint_128() const -> unsigned __int128 {
     return 0;
 }
 
-auto json_value::as_string() const -> const std::string& {
+auto json_value::as_string() const -> std::string_view {
     if (!is_string()) {
         throw std::runtime_error("JSON value is not a string");
     }
-    return std::get<std::string>(data_);
+    return std::get<json_string_data>(data_).view();
+}
+
+auto json_value::as_string_data() const -> const json_string_data& {
+    if (!is_string()) {
+        throw std::runtime_error("JSON value is not a string");
+    }
+    return std::get<json_string_data>(data_);
 }
 
 // Numeric conversion helpers with automatic type handling
@@ -989,7 +1266,7 @@ auto json_value::clear() -> json_value& {
                 } else {
                     v->clear();
                 }
-            } else if constexpr (std::is_same_v<T, std::string>) {
+            } else if constexpr (std::is_same_v<T, json_string_data>) {
                 v.clear();
             }
         },
@@ -1003,7 +1280,7 @@ auto json_value::size() const noexcept -> size_t {
             using T = std::decay_t<decltype(v)>;
             if constexpr (std::is_same_v<T, json_array_ptr> || std::is_same_v<T, json_object_ptr>) {
                 return v->size();
-            } else if constexpr (std::is_same_v<T, std::string>) {
+            } else if constexpr (std::is_same_v<T, json_string_data>) {
                 return v.length();
             } else {
                 return 1;
@@ -1018,7 +1295,7 @@ auto json_value::empty() const noexcept -> bool {
             using T = std::decay_t<decltype(v)>;
             if constexpr (std::is_same_v<T, json_array_ptr> || std::is_same_v<T, json_object_ptr>) {
                 return v->empty();
-            } else if constexpr (std::is_same_v<T, std::string>) {
+            } else if constexpr (std::is_same_v<T, json_string_data>) {
                 return v.empty();
             } else if constexpr (std::is_same_v<T, std::nullptr_t>) {
                 return true;
@@ -1153,8 +1430,8 @@ auto json_value::serialize_to_buffer(std::string& buffer, int indent) const -> v
                     val /= 10;
                 } while (val > 0);
                 buffer += ptr;
-            } else if constexpr (std::is_same_v<T, std::string>) {
-                serialize_string_to_buffer(buffer, v);
+            } else if constexpr (std::is_same_v<T, json_string_data>) {
+                serialize_string_to_buffer(buffer, v.view());
             } else if constexpr (std::is_same_v<T, json_array_ptr>) {
                 serialize_array_to_buffer(buffer, *v, indent);
             } else if constexpr (std::is_same_v<T, json_object_ptr>) {
@@ -1164,7 +1441,7 @@ auto json_value::serialize_to_buffer(std::string& buffer, int indent) const -> v
         data_);
 }
 
-auto json_value::serialize_string_to_buffer(std::string& buffer, const std::string& str) const
+auto json_value::serialize_string_to_buffer(std::string& buffer, std::string_view str) const
     -> void {
     buffer += '"';
 
@@ -1172,75 +1449,11 @@ auto json_value::serialize_string_to_buffer(std::string& buffer, const std::stri
     const size_t size = str.size();
     const char* ptr = data;
     const char* end = data + size;
-    const uint32_t caps = detect_simd_capabilities();
 
     while (ptr < end) {
-        const char* escape_pos = ptr;
+        // SIMD-accelerated escape position detection (delegates to GMF detail:: impl)
+        const char* escape_pos = detail::find_escape_position_simd_impl(ptr, end);
 
-        // --- SIMD Waterfall for fast escape character detection ---
-        // AVX-512 -> AMX -> AVX2 -> AVX -> SSE4 -> Scalar
-        
-#ifdef HAVE_AVX512BW
-        if (caps & SIMD_AVX512BW) {
-            // AVX-512 path: Process 64 bytes at once
-            while (escape_pos + 64 <= end) {
-                __m512i chunk = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(escape_pos));
-                __mmask64 m1 = _mm512_cmpeq_epi8_mask(chunk, _mm512_set1_epi8('"'));
-                __mmask64 m2 = _mm512_cmpeq_epi8_mask(chunk, _mm512_set1_epi8('\\'));
-                __mmask64 m3 = _mm512_cmp_epi8_mask(chunk, _mm512_set1_epi8(32), _MM_CMPINT_LT);
-                __mmask64 mask = m1 | m2 | m3;
-                if (mask != 0) {
-                    escape_pos += __builtin_ctzll(mask);
-                    goto handle_escape;
-                }
-                escape_pos += 64;
-            }
-        }
-#endif
-
-#ifdef HAVE_AMX_TILE
-        if (caps & SIMD_AMX_TILE) {
-            // AMX acceleration - suitable for tile-based scanning if chunk size is large
-            // Fallback to AVX2 for smaller chunks if necessary
-        }
-#endif
-
-#ifdef HAVE_AVX2
-        if (caps & SIMD_AVX2) {
-            // 4x Multi-Register AVX2 Path (128 bytes/iteration)
-            const __m256i quote = _mm256_set1_epi8('"');
-            const __m256i backslash = _mm256_set1_epi8('\\');
-            const __m256i space = _mm256_set1_epi8(31);
-
-            while (escape_pos + 128 <= end) {
-                __m256i c0 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(escape_pos));
-                __m256i c1 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(escape_pos + 32));
-                __m256i c2 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(escape_pos + 64));
-                __m256i c3 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(escape_pos + 96));
-
-                auto check = [&](__m256i c) {
-                    __m256i m1 = _mm256_cmpeq_epi8(c, quote);
-                    __m256i m2 = _mm256_cmpeq_epi8(c, backslash);
-                    __m256i m3 = _mm256_cmpgt_epi8(_mm256_set1_epi8(32), c); // signed char cmp < 32
-                    return _mm256_movemask_epi8(_mm256_or_si256(_mm256_or_si256(m1, m2), m3));
-                };
-
-                if (int m0 = check(c0)) { escape_pos += __builtin_ctz(m0); goto handle_escape; }
-                if (int m1 = check(c1)) { escape_pos += 32 + __builtin_ctz(m1); goto handle_escape; }
-                if (int m2 = check(c2)) { escape_pos += 64 + __builtin_ctz(m2); goto handle_escape; }
-                if (int m3 = check(c3)) { escape_pos += 96 + __builtin_ctz(m3); goto handle_escape; }
-                escape_pos += 128;
-            }
-        }
-#endif
-
-        // Scalar Fallback
-        while (escape_pos < end && *escape_pos != '"' && *escape_pos != '\\' 
-               && static_cast<unsigned char>(*escape_pos) >= 32) {
-            ++escape_pos;
-        }
-
-    handle_escape:
         // Copy clean part
         if (escape_pos > ptr) {
             buffer.append(ptr, escape_pos);
@@ -1598,7 +1811,8 @@ inline auto parse_uint128(const char* str, size_t length) -> std::optional<unsig
 
 class parser {
 public:
-    parser(std::string_view input);
+    explicit parser(std::string_view input);
+    parser(std::string_view input, std::pmr::memory_resource* arena);
     auto parse() -> json_result<json_value>;
 
 private:
@@ -1615,12 +1829,16 @@ private:
     auto skip_whitespace() -> void;
     auto skip_whitespace_simd() -> const char*;
     auto find_string_end_simd(const char* start) -> const char*;
-    auto parse_string_simd() -> json_result<std::string>;
+    auto parse_string_simd() -> json_result<json_string_data>;
     auto peek() const noexcept -> char;
     auto advance() noexcept -> char;
     auto match(char expected) noexcept -> bool;
     auto is_at_end() const noexcept -> bool;
     auto make_error(json_error_code code, std::string message) const -> json_error;
+
+    // Arena-aware allocation helpers
+    [[nodiscard]] auto make_array_ptr(json_array&& arr) -> json_array_ptr;
+    [[nodiscard]] auto make_object_ptr(json_object&& obj) -> json_object_ptr;
 
     // Member variables
     const char* data_;
@@ -1629,7 +1847,39 @@ private:
     size_t line_;
     size_t column_;
     size_t depth_;
+    std::pmr::memory_resource* arena_ = nullptr;  // nullptr = use default heap
     static constexpr size_t max_depth_ = 1000;
+};
+
+// ============================================================================
+// json_document: owns input buffer + arena + root value
+// Ensures string_view lifetimes are valid as long as the document exists.
+// ============================================================================
+
+class json_document {
+    std::string input_;                                                  // Owned input (string_view lifetime source)
+    std::unique_ptr<std::pmr::monotonic_buffer_resource> arena_;         // Heap-allocated arena (movable)
+    json_value root_;
+
+public:
+    explicit json_document(std::string input, size_t arena_hint = 0)
+        : input_(std::move(input)),
+          arena_(std::make_unique<std::pmr::monotonic_buffer_resource>(
+              arena_hint > 0 ? arena_hint : input_.size() * 2)),
+          root_(nullptr) {}
+
+    json_document(json_document&&) = default;
+    json_document& operator=(json_document&&) = default;
+    json_document(const json_document&) = delete;
+    json_document& operator=(const json_document&) = delete;
+
+    [[nodiscard]] auto root() const noexcept -> const json_value& { return root_; }
+    [[nodiscard]] auto root() noexcept -> json_value& { return root_; }
+    [[nodiscard]] auto input() const noexcept -> std::string_view { return input_; }
+    [[nodiscard]] auto arena() noexcept -> std::pmr::memory_resource* { return arena_.get(); }
+
+    // Allow parse_arena to set root_
+    friend auto parse_arena(std::string input) -> json_result<json_document>;
 };
 
 // Thread-safe JSON Parser Implementation
@@ -1637,7 +1887,27 @@ private:
 
 parser::parser(std::string_view input)
     : data_(input.data()), end_(input.data() + input.size()), current_(input.data()), line_(1),
-      column_(1), depth_(0) {}
+      column_(1), depth_(0), arena_(nullptr) {}
+
+parser::parser(std::string_view input, std::pmr::memory_resource* arena)
+    : data_(input.data()), end_(input.data() + input.size()), current_(input.data()), line_(1),
+      column_(1), depth_(0), arena_(arena) {}
+
+auto parser::make_array_ptr(json_array&& arr) -> json_array_ptr {
+    if (arena_) {
+        return std::allocate_shared<json_array>(
+            std::pmr::polymorphic_allocator<json_array>(arena_), std::move(arr));
+    }
+    return std::make_shared<json_array>(std::move(arr));
+}
+
+auto parser::make_object_ptr(json_object&& obj) -> json_object_ptr {
+    if (arena_) {
+        return std::allocate_shared<json_object>(
+            std::pmr::polymorphic_allocator<json_object>(arena_), std::move(obj));
+    }
+    return std::make_shared<json_object>(std::move(obj));
+}
 
 auto parser::parse() -> json_result<json_value> {
     skip_whitespace();
@@ -1985,7 +2255,7 @@ auto parser::parse_array() -> json_result<json_value> {
     // Handle empty array
     if (match(']')) {
         --depth_;
-        return json_value{std::move(array)};
+        return json_value{make_array_ptr(std::move(array))};
     }
 
     // Parse array elements
@@ -2013,7 +2283,7 @@ auto parser::parse_array() -> json_result<json_value> {
     }
 
     --depth_;
-    return json_value{std::move(array)};
+    return json_value{make_array_ptr(std::move(array))};
 }
 
 auto parser::parse_object() -> json_result<json_value> {
@@ -2029,7 +2299,7 @@ auto parser::parse_object() -> json_result<json_value> {
     // Handle empty object
     if (match('}')) {
         --depth_;
-        return json_value{std::move(object)};
+        return json_value{make_object_ptr(std::move(object))};
     }
 
     // Parse object members
@@ -2049,7 +2319,7 @@ auto parser::parse_object() -> json_result<json_value> {
             return std::unexpected(key_result.error());
         }
 
-        std::string key = key_result->as_string();
+        std::string key(key_result->as_string());
 
         skip_whitespace();
 
@@ -2084,7 +2354,7 @@ auto parser::parse_object() -> json_result<json_value> {
     }
 
     --depth_;
-    return json_value{std::move(object)};
+    return json_value{make_object_ptr(std::move(object))};
 }
 
 auto parser::skip_whitespace() -> void {
@@ -2146,109 +2416,19 @@ auto parser::skip_whitespace_simd() -> const char* {
     return new_pos;
 }
 
-#ifdef FASTJSON_ENABLE_SIMD
-
+// find_string_end_simd and parse_string_simd — delegate to GMF detail:: implementation
 auto parser::find_string_end_simd(const char* start) -> const char* {
-    const char* ptr = start;
-    static const uint32_t simd_caps = detect_simd_capabilities();
-
-    // AVX2 4x Multi-Register string end detection (128 bytes per iteration)
-    if (simd_caps & SIMD_AVX2) {
-        const __m256i quote = _mm256_set1_epi8('"');
-        const __m256i backslash = _mm256_set1_epi8('\\');
-        const __m256i control_limit = _mm256_set1_epi8(0x20);
-
-        // Process 128 bytes at a time with 4 registers
-        while (ptr + 128 <= end_) {
-            const __m256i chunk0 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr));
-            const __m256i chunk1 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr + 32));
-            const __m256i chunk2 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr + 64));
-            const __m256i chunk3 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr + 96));
-
-            // Check chunk 0
-            __m256i quote_cmp0 = _mm256_cmpeq_epi8(chunk0, quote);
-            __m256i bs_cmp0 = _mm256_cmpeq_epi8(chunk0, backslash);
-            // Control chars: less than 0x20 (using unsigned comparison trick)
-            __m256i ctrl_cmp0 = _mm256_cmpgt_epi8(control_limit, 
-                                 _mm256_xor_si256(chunk0, _mm256_set1_epi8(-128)));
-            __m256i special0 = _mm256_or_si256(_mm256_or_si256(quote_cmp0, bs_cmp0), ctrl_cmp0);
-            uint32_t mask0 = _mm256_movemask_epi8(special0);
-            if (mask0 != 0) {
-                return ptr + __builtin_ctz(mask0);
-            }
-
-            // Check chunk 1
-            __m256i quote_cmp1 = _mm256_cmpeq_epi8(chunk1, quote);
-            __m256i bs_cmp1 = _mm256_cmpeq_epi8(chunk1, backslash);
-            __m256i ctrl_cmp1 = _mm256_cmpgt_epi8(control_limit,
-                                 _mm256_xor_si256(chunk1, _mm256_set1_epi8(-128)));
-            __m256i special1 = _mm256_or_si256(_mm256_or_si256(quote_cmp1, bs_cmp1), ctrl_cmp1);
-            uint32_t mask1 = _mm256_movemask_epi8(special1);
-            if (mask1 != 0) {
-                return ptr + 32 + __builtin_ctz(mask1);
-            }
-
-            // Check chunk 2
-            __m256i quote_cmp2 = _mm256_cmpeq_epi8(chunk2, quote);
-            __m256i bs_cmp2 = _mm256_cmpeq_epi8(chunk2, backslash);
-            __m256i ctrl_cmp2 = _mm256_cmpgt_epi8(control_limit,
-                                 _mm256_xor_si256(chunk2, _mm256_set1_epi8(-128)));
-            __m256i special2 = _mm256_or_si256(_mm256_or_si256(quote_cmp2, bs_cmp2), ctrl_cmp2);
-            uint32_t mask2 = _mm256_movemask_epi8(special2);
-            if (mask2 != 0) {
-                return ptr + 64 + __builtin_ctz(mask2);
-            }
-
-            // Check chunk 3
-            __m256i quote_cmp3 = _mm256_cmpeq_epi8(chunk3, quote);
-            __m256i bs_cmp3 = _mm256_cmpeq_epi8(chunk3, backslash);
-            __m256i ctrl_cmp3 = _mm256_cmpgt_epi8(control_limit,
-                                 _mm256_xor_si256(chunk3, _mm256_set1_epi8(-128)));
-            __m256i special3 = _mm256_or_si256(_mm256_or_si256(quote_cmp3, bs_cmp3), ctrl_cmp3);
-            uint32_t mask3 = _mm256_movemask_epi8(special3);
-            if (mask3 != 0) {
-                return ptr + 96 + __builtin_ctz(mask3);
-            }
-
-            ptr += 128;
-        }
-
-        // Handle remaining 32-96 bytes
-        while (ptr + 32 <= end_) {
-            __m256i chunk = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr));
-            __m256i quote_cmp = _mm256_cmpeq_epi8(chunk, quote);
-            __m256i bs_cmp = _mm256_cmpeq_epi8(chunk, backslash);
-            __m256i ctrl_cmp = _mm256_cmpgt_epi8(control_limit,
-                               _mm256_xor_si256(chunk, _mm256_set1_epi8(-128)));
-            __m256i special = _mm256_or_si256(_mm256_or_si256(quote_cmp, bs_cmp), ctrl_cmp);
-            uint32_t mask = _mm256_movemask_epi8(special);
-            if (mask != 0) {
-                return ptr + __builtin_ctz(mask);
-            }
-            ptr += 32;
-        }
-    }
-
-    // Scalar fallback for remaining bytes
-    while (ptr < end_) {
-        if (*ptr == '"' || *ptr == '\\' || static_cast<unsigned char>(*ptr) < 0x20) {
-            return ptr;
-        }
-        ++ptr;
-    }
-
-    return end_;
+    return detail::find_string_end_simd_impl(start, end_);
 }
 
-auto parser::parse_string_simd() -> json_result<std::string> {
+auto parser::parse_string_simd() -> json_result<json_string_data> {
     const char* start = current_;
     const char* string_end = find_string_end_simd(start);
 
-    // Check if we found a quote without escapes
+    // Fast path: found closing quote with no escapes — zero-copy string_view
     if (string_end < end_ && *string_end == '"'
         && std::find(start, string_end, '\\') == string_end) {
-        // Fast path: no escapes needed
-        std::string result(start, string_end);
+        json_string_data result(std::string_view(start, string_end - start));
         current_ = string_end + 1;  // Skip the closing quote
         return result;
     }
@@ -2256,22 +2436,6 @@ auto parser::parse_string_simd() -> json_result<std::string> {
     // Slow path: has escapes or control characters, fall back to regular parsing
     return std::unexpected(json_error{});
 }
-
-#else  // !FASTJSON_ENABLE_SIMD
-
-auto parser::find_string_end_simd(const char* start) -> const char* {
-    const char* ptr = start;
-    while (ptr < end_ && *ptr != '"' && *ptr != '\\' && static_cast<unsigned char>(*ptr) >= 0x20) {
-        ++ptr;
-    }
-    return ptr;
-}
-
-auto parser::parse_string_simd() -> json_result<std::string> {
-    return std::unexpected(json_error{});
-}
-
-#endif  // FASTJSON_ENABLE_SIMD
 
 // Thread-safe JSON Serializer Implementation
 // ============================================================================
@@ -2336,7 +2500,7 @@ auto serializer::serialize_number(double value) -> void {
     }
 }
 
-auto serializer::serialize_string(const std::string& value) -> void {
+auto serializer::serialize_string(std::string_view value) -> void {
     buffer_ += '"';
     escape_string(value);
     buffer_ += '"';
@@ -2579,6 +2743,367 @@ auto json_builder::build() const & -> const json_value& {
 auto parse(std::string_view input) -> json_result<json_value> {
     parser p(input);
     return p.parse();
+}
+
+// Arena-based parsing: all allocations from a single monotonic arena.
+// Returns json_document that owns the arena, input buffer, and root value.
+// string_view lifetimes valid as long as json_document exists.
+auto parse_arena(std::string input) -> json_result<json_document> {
+    json_document doc(std::move(input));
+    parser p(doc.input(), doc.arena());
+    auto result = p.parse();
+    if (!result) {
+        return std::unexpected(result.error());
+    }
+    doc.root_ = std::move(*result);
+    return std::move(doc);
+}
+
+// ============================================================================
+// Ondemand/Lazy JSON Parsing — Two-Stage: SIMD structural index + lazy access
+// Only materializes values on explicit get_*() calls. Zero-copy for strings.
+// ============================================================================
+
+enum class json_type : uint8_t {
+    null_value, boolean_value, number_value,
+    string_value, array_value, object_value
+};
+
+class ondemand_value;
+class ondemand_object;
+class ondemand_array;
+
+class ondemand_document {
+    std::string input_;
+    std::vector<structural_index> tape_;
+    size_t tape_pos_ = 0;
+
+public:
+    static auto parse(std::string input) -> json_result<ondemand_document>;
+    [[nodiscard]] auto root() -> ondemand_value;
+    [[nodiscard]] auto materialize() -> json_result<json_value>;
+    [[nodiscard]] auto input() const noexcept -> std::string_view { return input_; }
+    [[nodiscard]] auto tape_size() const noexcept -> size_t { return tape_.size(); }
+
+    // Internal access for ondemand_value/object/array
+    [[nodiscard]] auto raw_input() const noexcept -> const char* { return input_.data(); }
+    [[nodiscard]] auto tape() const noexcept -> const std::vector<structural_index>& { return tape_; }
+    auto set_tape_pos(size_t pos) noexcept -> void { tape_pos_ = pos; }
+    [[nodiscard]] auto tape_pos() const noexcept -> size_t { return tape_pos_; }
+    [[nodiscard]] auto input_size() const noexcept -> size_t { return input_.size(); }
+};
+
+class ondemand_value {
+    ondemand_document* doc_;
+    size_t tape_start_;
+
+public:
+    ondemand_value(ondemand_document* doc, size_t tape_pos) noexcept
+        : doc_(doc), tape_start_(tape_pos) {}
+
+    [[nodiscard]] auto type() const noexcept -> json_type;
+    [[nodiscard]] auto get_string() const -> json_result<std::string_view>;
+    [[nodiscard]] auto get_double() const -> json_result<double>;
+    [[nodiscard]] auto get_int64() const -> json_result<int64_t>;
+    [[nodiscard]] auto get_bool() const -> json_result<bool>;
+    [[nodiscard]] auto is_null() const noexcept -> bool;
+    [[nodiscard]] auto get_object() const -> json_result<ondemand_object>;
+    [[nodiscard]] auto get_array() const -> json_result<ondemand_array>;
+
+    // Skip past this value in the tape (for iteration)
+    [[nodiscard]] auto skip() const -> size_t;
+};
+
+class ondemand_object {
+    ondemand_document* doc_;
+    size_t tape_start_;  // Points to '{'
+
+public:
+    ondemand_object(ondemand_document* doc, size_t tape_pos) noexcept
+        : doc_(doc), tape_start_(tape_pos) {}
+
+    [[nodiscard]] auto find_field(std::string_view key) const -> json_result<ondemand_value>;
+    [[nodiscard]] auto operator[](std::string_view key) const -> json_result<ondemand_value>;
+};
+
+class ondemand_array {
+    ondemand_document* doc_;
+    size_t tape_start_;  // Points to '['
+
+public:
+    ondemand_array(ondemand_document* doc, size_t tape_pos) noexcept
+        : doc_(doc), tape_start_(tape_pos) {}
+
+    [[nodiscard]] auto count_elements() const -> size_t;
+
+    // Simple indexed access
+    [[nodiscard]] auto at(size_t index) const -> json_result<ondemand_value>;
+};
+
+// ============================================================================
+// Ondemand Implementation
+// ============================================================================
+
+auto ondemand_document::parse(std::string input) -> json_result<ondemand_document> {
+    ondemand_document doc;
+    doc.input_ = std::move(input);
+    doc.tape_ = build_structural_index(
+        std::span<const char>(doc.input_.data(), doc.input_.size()));
+    if (doc.tape_.empty()) {
+        return std::unexpected(json_error{json_error_code::empty_input, "Empty or whitespace-only input", 0, 0});
+    }
+    return std::move(doc);
+}
+
+auto ondemand_document::root() -> ondemand_value {
+    return ondemand_value(this, 0);
+}
+
+auto ondemand_document::materialize() -> json_result<json_value> {
+    return fastjson::parse(input_);
+}
+
+// Helper: skip to the matching closing bracket/brace in the structural tape
+inline auto skip_container(const std::vector<structural_index>& tape,
+                           size_t start_pos) -> size_t {
+    auto open_type = tape[start_pos].type;
+    structural_type close_type;
+    if (open_type == structural_type::left_brace)
+        close_type = structural_type::right_brace;
+    else if (open_type == structural_type::left_bracket)
+        close_type = structural_type::right_bracket;
+    else
+        return start_pos + 1;  // Not a container
+
+    int depth = 1;
+    size_t pos = start_pos + 1;
+    while (pos < tape.size() && depth > 0) {
+        if (tape[pos].type == open_type) ++depth;
+        else if (tape[pos].type == close_type) --depth;
+        ++pos;
+    }
+    return pos;  // One past the closing bracket
+}
+
+auto ondemand_value::type() const noexcept -> json_type {
+    if (tape_start_ >= doc_->tape().size()) return json_type::null_value;
+    auto t = doc_->tape()[tape_start_].type;
+    switch (t) {
+        case structural_type::left_brace: return json_type::object_value;
+        case structural_type::left_bracket: return json_type::array_value;
+        case structural_type::quote: return json_type::string_value;
+        case structural_type::null_start: return json_type::null_value;
+        case structural_type::true_start:
+        case structural_type::false_start: return json_type::boolean_value;
+        case structural_type::number_start: return json_type::number_value;
+        default: break;
+    }
+    // Check if the character at the position is a number
+    size_t pos = doc_->tape()[tape_start_].position;
+    if (pos < doc_->input_size()) {
+        char c = doc_->raw_input()[pos];
+        if (c == '-' || (c >= '0' && c <= '9')) return json_type::number_value;
+    }
+    return json_type::null_value;
+}
+
+auto ondemand_value::get_string() const -> json_result<std::string_view> {
+    if (tape_start_ >= doc_->tape().size()) {
+        return std::unexpected(json_error{json_error_code::invalid_string, "Invalid tape position", 0, 0});
+    }
+    if (doc_->tape()[tape_start_].type != structural_type::quote) {
+        return std::unexpected(json_error{json_error_code::invalid_string, "Value is not a string", 0, 0});
+    }
+    size_t start = doc_->tape()[tape_start_].position + 1;  // Skip opening quote
+    // Find closing quote in tape
+    if (tape_start_ + 1 < doc_->tape().size() &&
+        doc_->tape()[tape_start_ + 1].type == structural_type::quote) {
+        size_t end = doc_->tape()[tape_start_ + 1].position;
+        return std::string_view(doc_->raw_input() + start, end - start);
+    }
+    // Fallback: scan for closing quote
+    const char* ptr = doc_->raw_input() + start;
+    const char* input_end = doc_->raw_input() + doc_->input_size();
+    while (ptr < input_end && *ptr != '"') {
+        if (*ptr == '\\') ++ptr;  // Skip escaped char
+        ++ptr;
+    }
+    return std::string_view(doc_->raw_input() + start, ptr - (doc_->raw_input() + start));
+}
+
+auto ondemand_value::get_double() const -> json_result<double> {
+    if (tape_start_ >= doc_->tape().size()) {
+        return std::unexpected(json_error{json_error_code::invalid_number, "Invalid tape position", 0, 0});
+    }
+    size_t pos = doc_->tape()[tape_start_].position;
+    const char* start = doc_->raw_input() + pos;
+    char* end_ptr = nullptr;
+    double val = std::strtod(start, &end_ptr);
+    if (end_ptr == start) {
+        return std::unexpected(json_error{json_error_code::invalid_number, "Not a number", 0, 0});
+    }
+    return val;
+}
+
+auto ondemand_value::get_int64() const -> json_result<int64_t> {
+    if (tape_start_ >= doc_->tape().size()) {
+        return std::unexpected(json_error{json_error_code::invalid_number, "Invalid tape position", 0, 0});
+    }
+    size_t pos = doc_->tape()[tape_start_].position;
+    const char* start = doc_->raw_input() + pos;
+    char* end_ptr = nullptr;
+    long long val = std::strtoll(start, &end_ptr, 10);
+    if (end_ptr == start) {
+        return std::unexpected(json_error{json_error_code::invalid_number, "Not an integer", 0, 0});
+    }
+    return static_cast<int64_t>(val);
+}
+
+auto ondemand_value::get_bool() const -> json_result<bool> {
+    if (tape_start_ >= doc_->tape().size()) {
+        return std::unexpected(json_error{json_error_code::invalid_syntax, "Invalid tape position", 0, 0});
+    }
+    auto t = doc_->tape()[tape_start_].type;
+    if (t == structural_type::true_start) return true;
+    if (t == structural_type::false_start) return false;
+    return std::unexpected(json_error{json_error_code::invalid_syntax, "Value is not a boolean", 0, 0});
+}
+
+auto ondemand_value::is_null() const noexcept -> bool {
+    if (tape_start_ >= doc_->tape().size()) return true;
+    return doc_->tape()[tape_start_].type == structural_type::null_start;
+}
+
+auto ondemand_value::get_object() const -> json_result<ondemand_object> {
+    if (tape_start_ >= doc_->tape().size() ||
+        doc_->tape()[tape_start_].type != structural_type::left_brace) {
+        return std::unexpected(json_error{json_error_code::invalid_syntax, "Value is not an object", 0, 0});
+    }
+    return ondemand_object(doc_, tape_start_);
+}
+
+auto ondemand_value::get_array() const -> json_result<ondemand_array> {
+    if (tape_start_ >= doc_->tape().size() ||
+        doc_->tape()[tape_start_].type != structural_type::left_bracket) {
+        return std::unexpected(json_error{json_error_code::invalid_syntax, "Value is not an array", 0, 0});
+    }
+    return ondemand_array(doc_, tape_start_);
+}
+
+auto ondemand_value::skip() const -> size_t {
+    if (tape_start_ >= doc_->tape().size()) return tape_start_;
+    auto t = doc_->tape()[tape_start_].type;
+    if (t == structural_type::left_brace || t == structural_type::left_bracket) {
+        return skip_container(doc_->tape(), tape_start_);
+    }
+    if (t == structural_type::quote) {
+        // Skip opening + closing quote pair
+        return tape_start_ + 2;
+    }
+    // Primitive (null, true, false, number) = 1 tape entry
+    return tape_start_ + 1;
+}
+
+auto ondemand_object::find_field(std::string_view key) const -> json_result<ondemand_value> {
+    const auto& tape = doc_->tape();
+    const char* input = doc_->raw_input();
+    size_t input_size = doc_->input_size();
+
+    // Start after the opening brace
+    size_t pos = tape_start_ + 1;
+
+    while (pos < tape.size() && tape[pos].type != structural_type::right_brace) {
+        // Expect a string key (quote)
+        if (tape[pos].type != structural_type::quote) {
+            ++pos;
+            continue;
+        }
+
+        // Extract the key
+        size_t key_start = tape[pos].position + 1;
+        size_t key_end = key_start;
+        if (pos + 1 < tape.size() && tape[pos + 1].type == structural_type::quote) {
+            key_end = tape[pos + 1].position;
+        } else {
+            // Scan for closing quote
+            const char* ptr = input + key_start;
+            const char* end = input + input_size;
+            while (ptr < end && *ptr != '"') {
+                if (*ptr == '\\') ++ptr;
+                ++ptr;
+            }
+            key_end = ptr - input;
+        }
+
+        std::string_view field_key(input + key_start, key_end - key_start);
+
+        // Skip past closing quote + colon
+        pos += 2;  // Past both quote markers
+        // Skip colon
+        while (pos < tape.size() && tape[pos].type == structural_type::colon) ++pos;
+
+        // Now pos points to the value
+        if (field_key == key) {
+            return ondemand_value(doc_, pos);
+        }
+
+        // Skip the value to get to the next field
+        ondemand_value val(doc_, pos);
+        pos = val.skip();
+
+        // Skip comma
+        while (pos < tape.size() && tape[pos].type == structural_type::comma) ++pos;
+    }
+
+    return std::unexpected(json_error{json_error_code::invalid_syntax,
+                                       "Field not found: " + std::string(key), 0, 0});
+}
+
+auto ondemand_object::operator[](std::string_view key) const -> json_result<ondemand_value> {
+    return find_field(key);
+}
+
+auto ondemand_array::count_elements() const -> size_t {
+    const auto& tape = doc_->tape();
+    size_t count = 0;
+    size_t pos = tape_start_ + 1;
+
+    if (pos >= tape.size() || tape[pos].type == structural_type::right_bracket) {
+        return 0;
+    }
+
+    while (pos < tape.size() && tape[pos].type != structural_type::right_bracket) {
+        ++count;
+        ondemand_value val(doc_, pos);
+        pos = val.skip();
+        // Skip comma
+        while (pos < tape.size() && tape[pos].type == structural_type::comma) ++pos;
+    }
+    return count;
+}
+
+auto ondemand_array::at(size_t index) const -> json_result<ondemand_value> {
+    const auto& tape = doc_->tape();
+    size_t pos = tape_start_ + 1;
+    size_t current = 0;
+
+    while (pos < tape.size() && tape[pos].type != structural_type::right_bracket) {
+        if (current == index) {
+            return ondemand_value(doc_, pos);
+        }
+        ondemand_value val(doc_, pos);
+        pos = val.skip();
+        // Skip comma
+        while (pos < tape.size() && tape[pos].type == structural_type::comma) ++pos;
+        ++current;
+    }
+
+    return std::unexpected(json_error{json_error_code::invalid_syntax, "Array index out of range", 0, 0});
+}
+
+// Convenience function for ondemand parsing
+auto parse_ondemand(std::string input) -> json_result<ondemand_document> {
+    return ondemand_document::parse(std::move(input));
 }
 
 auto object() -> json_value {

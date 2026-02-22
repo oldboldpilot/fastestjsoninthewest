@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -91,42 +92,51 @@ find_structural_chars_avx2(std::span<const char> input, std::vector<structural_i
 
             uint32_t mask = _mm256_movemask_epi8(structural);
 
-            // Process each structural character found
+            // Process structural characters left-to-right, tracking string state.
+            // When we encounter a quote, toggle in_string. When inside a string,
+            // skip non-quote structural chars (they're literal characters).
             while (mask != 0) {
-                int bit_pos = __builtin_ctz(mask);  // Count trailing zeros
+                int bit_pos = __builtin_ctz(mask);
                 size_t char_pos = pos + bit_pos;
                 char c = data[char_pos];
 
                 if (c == '"') {
-                    in_string = true;
+                    in_string = !in_string;
                     indices.push_back({char_pos, structural_type::quote, {}});
-                } else {
+                } else if (!in_string) {
                     indices.push_back({char_pos, static_cast<structural_type>(c), {}});
                 }
 
-                mask &= mask - 1;  // Clear lowest set bit
+                mask &= mask - 1;
             }
         } else {
-            // In string: look for closing quote (handle escapes)
-            __m256i is_quote = _mm256_cmpeq_epi8(chunk, quote);
-            __m256i is_backslash = _mm256_cmpeq_epi8(chunk, backslash);
+            // In string at chunk start: scalar fallback with proper escape handling.
+            // After finding the closing quote, continue processing the rest of the
+            // chunk for structural characters (don't skip them).
+            for (size_t i = 0; i < 32 && pos + i < len; i++) {
+                char c = data[pos + i];
 
-            uint32_t quote_mask = _mm256_movemask_epi8(is_quote);
-            uint32_t backslash_mask = _mm256_movemask_epi8(is_backslash);
-
-            // Simple escape handling (TODO: optimize with carry propagation)
-            for (int i = 0; i < 32 && pos + i < len; i++) {
-                if (prev_escape) {
-                    prev_escape = false;
-                    continue;
-                }
-
-                if (backslash_mask & (1u << i)) {
-                    prev_escape = true;
-                } else if (quote_mask & (1u << i)) {
-                    in_string = false;
-                    indices.push_back({pos + i, structural_type::quote, {}});
-                    break;
+                if (in_string) {
+                    if (prev_escape) {
+                        prev_escape = false;
+                    } else if (c == '\\') {
+                        prev_escape = true;
+                    } else if (c == '"') {
+                        in_string = false;
+                        indices.push_back({pos + i, structural_type::quote, {}});
+                    }
+                } else {
+                    switch (c) {
+                        case '{': case '}': case '[': case ']': case ',': case ':':
+                            indices.push_back({pos + i, static_cast<structural_type>(c), {}});
+                            break;
+                        case '"':
+                            in_string = true;
+                            indices.push_back({pos + i, structural_type::quote, {}});
+                            break;
+                        default:
+                            break;
+                    }
                 }
             }
         }
@@ -285,6 +295,50 @@ inline auto build_structural_index(std::span<const char> input) -> std::vector<s
 #else
     find_structural_chars_scalar(input, indices);
 #endif
+
+    // Post-process: insert primitive value starts (numbers, booleans, null).
+    // The SIMD/scalar scanners only index structural characters ({ } [ ] , : ")
+    // but ondemand navigation needs tape entries for primitive values too.
+    const char* data = input.data();
+    const size_t len = input.size();
+    std::vector<structural_index> primitives;
+
+    for (size_t i = 0; i < indices.size(); ++i) {
+        auto type = indices[i].type;
+        // After colon, comma, or opening bracket, check for a primitive value
+        if (type == structural_type::colon || type == structural_type::comma ||
+            type == structural_type::left_bracket) {
+            size_t scan = indices[i].position + 1;
+            // Skip whitespace
+            while (scan < len && (data[scan] == ' ' || data[scan] == '\t' ||
+                                   data[scan] == '\n' || data[scan] == '\r')) {
+                ++scan;
+            }
+            if (scan < len) {
+                char c = data[scan];
+                // If not a structural value start, it's a primitive
+                if (c != '{' && c != '[' && c != '"' && c != '}' && c != ']') {
+                    structural_type prim_type;
+                    if (c == 't') prim_type = structural_type::true_start;
+                    else if (c == 'f') prim_type = structural_type::false_start;
+                    else if (c == 'n') prim_type = structural_type::null_start;
+                    else prim_type = structural_type::number_start;  // digit or '-'
+                    primitives.push_back({scan, prim_type, {}});
+                }
+            }
+        }
+    }
+
+    if (!primitives.empty()) {
+        size_t old_size = indices.size();
+        indices.insert(indices.end(), primitives.begin(), primitives.end());
+        std::inplace_merge(indices.begin(),
+                           indices.begin() + static_cast<ptrdiff_t>(old_size),
+                           indices.end(),
+                           [](const structural_index& a, const structural_index& b) {
+                               return a.position < b.position;
+                           });
+    }
 
     return indices;
 }
