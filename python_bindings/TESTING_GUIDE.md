@@ -325,7 +325,7 @@ cd python_bindings
 uv sync
 
 # Verify installation
-uv run python -c "import pybind11; print(pybind11.__version__)"
+uv run python -c "import nanobind; print(nanobind.cmake_dir())"
 ```
 
 ### 2. Build C++ Extension
@@ -433,16 +433,16 @@ uv pip install -e .
 #### 2. CMake Configuration Error
 
 ```
-Could not find pybind11
+Could not find nanobind
 ```
 
 **Solution:**
 ```bash
-# Install pybind11 properly
-uv add pybind11
+# Install nanobind properly
+uv add nanobind
 
 # Or specify explicitly
-cmake .. -Dpybind11_DIR=$(python3 -m pybind11 --cmake-dir)
+cmake .. -Dnanobind_ROOT=$(python3 -c "import nanobind; print(nanobind.cmake_dir())")
 ```
 
 #### 3. Tests Not Found
@@ -499,7 +499,7 @@ uv run pytest tests/ -l
 ✓ Clang 21+ available (/opt/clang-21/bin/clang++ --version)
 ✓ CMake 3.15+ installed (cmake --version)
 ✓ OpenMP installed
-✓ pybind11 installed (uv add pybind11)
+✓ nanobind installed (uv add nanobind)
 ✓ C++ extension built (ls build/lib/fastjson.so)
 ✓ Extension importable (python -c "import fastjson")
 ✓ Tests discovered (pytest --collect-only)

@@ -1,3 +1,15 @@
+#include <stdlib.h>
+#include <math.h>
+#include <string.h>
+#include <stdlib.h>
+#include <math.h>
+#include <string.h>
+#include <stdlib.h>
+#include <string.h>
+#include <math.h>
+#include <stdlib.h>
+#include <string.h>
+#include <math.h>
 /**
  * FastJSON vs simdjson Head-to-Head Benchmark
  *
@@ -21,6 +33,7 @@
 // Forward-declare fastjson types (from the module)
 // The build system compiles this with -fprebuilt-module-path pointing to fastjson.pcm
 import fastjson;
+import fastjson_multiregister_parser;
 
 namespace {
 
@@ -96,7 +109,7 @@ const simdjson::padded_string g_large_padded{g_large};
 
 void BM_Parse_FastJSON_Small(benchmark::State& state) {
     for (auto _ : state) {
-        auto result = fastjson::parse(g_small);
+        auto result = fastjson::mr::parse(g_small);
         benchmark::DoNotOptimize(result);
     }
     state.SetBytesProcessed(static_cast<int64_t>(state.iterations() * g_small.size()));
@@ -115,7 +128,7 @@ BENCHMARK(BM_Parse_SimdJSON_Small);
 
 void BM_Parse_FastJSON_Medium(benchmark::State& state) {
     for (auto _ : state) {
-        auto result = fastjson::parse(g_medium);
+        auto result = fastjson::mr::parse(g_medium);
         benchmark::DoNotOptimize(result);
     }
     state.SetBytesProcessed(static_cast<int64_t>(state.iterations() * g_medium.size()));
@@ -134,7 +147,7 @@ BENCHMARK(BM_Parse_SimdJSON_Medium);
 
 void BM_Parse_FastJSON_Large(benchmark::State& state) {
     for (auto _ : state) {
-        auto result = fastjson::parse(g_large);
+        auto result = fastjson::mr::parse(g_large);
         benchmark::DoNotOptimize(result);
     }
     state.SetBytesProcessed(static_cast<int64_t>(state.iterations() * g_large.size()));
@@ -187,7 +200,7 @@ BENCHMARK(BM_Parse_FastJSON_Arena_Large);
 // ============================================================================
 
 void BM_Serialize_FastJSON_Small(benchmark::State& state) {
-    auto val = fastjson::parse(g_small).value();
+    auto val = fastjson::mr::parse(g_small).value();
     for (auto _ : state) {
         auto s = val.to_string();
         benchmark::DoNotOptimize(s);
@@ -197,7 +210,7 @@ void BM_Serialize_FastJSON_Small(benchmark::State& state) {
 BENCHMARK(BM_Serialize_FastJSON_Small);
 
 void BM_Serialize_FastJSON_Medium(benchmark::State& state) {
-    auto val = fastjson::parse(g_medium).value();
+    auto val = fastjson::mr::parse(g_medium).value();
     for (auto _ : state) {
         auto s = val.to_string();
         benchmark::DoNotOptimize(s);
@@ -207,7 +220,7 @@ void BM_Serialize_FastJSON_Medium(benchmark::State& state) {
 BENCHMARK(BM_Serialize_FastJSON_Medium);
 
 void BM_Serialize_FastJSON_Large(benchmark::State& state) {
-    auto val = fastjson::parse(g_large).value();
+    auto val = fastjson::mr::parse(g_large).value();
     for (auto _ : state) {
         auto s = val.to_string();
         benchmark::DoNotOptimize(s);
@@ -221,13 +234,13 @@ BENCHMARK(BM_Serialize_FastJSON_Large);
 // ============================================================================
 
 void BM_FieldAccess_FastJSON(benchmark::State& state) {
-    auto val = fastjson::parse(g_small).value();
+    auto val = fastjson::mr::parse(g_small).value();
     for (auto _ : state) {
-        double o = val["o"].as_number();
-        double h = val["h"].as_number();
-        double l = val["l"].as_number();
-        double c = val["c"].as_number();
-        double v = val["v"].as_number();
+        double o = val["o"].as_float().value_or(0.0);
+        double h = val["h"].as_float().value_or(0.0);
+        double l = val["l"].as_float().value_or(0.0);
+        double c = val["c"].as_float().value_or(0.0);
+        double v = val["v"].as_float().value_or(0.0);
         benchmark::DoNotOptimize(o + h + l + c + v);
     }
 }
@@ -252,12 +265,14 @@ BENCHMARK(BM_FieldAccess_SimdJSON);
 // ============================================================================
 
 void BM_ArrayIteration_FastJSON(benchmark::State& state) {
-    auto val = fastjson::parse(g_large).value();
+    auto val = fastjson::mr::parse(g_large).value();
     for (auto _ : state) {
         double sum = 0.0;
-        const auto& records = val["records"].as_array();
-        for (const auto& record : records) {
-            sum += record["close"].as_number();
+        const auto* records = val["records"].as_array();
+        if (records) {
+            for (const auto& record : *records) {
+                sum += record["close"].as_float().value_or(0.0);
+            }
         }
         benchmark::DoNotOptimize(sum);
     }
@@ -315,8 +330,8 @@ BENCHMARK(BM_SingleField_Ondemand_Large);
 void BM_SingleField_FullParse_Large(benchmark::State& state) {
     // Same access pattern but with full DOM construction
     for (auto _ : state) {
-        auto val = fastjson::parse(g_large).value();
-        auto close_val = val["records"].as_array()[0]["close"].as_number();
+        auto val = fastjson::mr::parse(g_large).value();
+        auto close_val = val["records"].as_array()->at(0)["close"].as_float().value_or(0.0);
         benchmark::DoNotOptimize(close_val);
     }
     state.SetBytesProcessed(static_cast<int64_t>(state.iterations() * g_large.size()));
@@ -330,7 +345,7 @@ BENCHMARK(BM_SingleField_FullParse_Large);
 void BM_Throughput_FastJSON(benchmark::State& state) {
     for (auto _ : state) {
         for (int i = 0; i < 100; ++i) {
-            auto result = fastjson::parse(g_medium);
+            auto result = fastjson::mr::parse(g_medium);
             benchmark::DoNotOptimize(result);
         }
     }

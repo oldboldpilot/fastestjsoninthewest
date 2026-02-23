@@ -59,12 +59,12 @@ if [ -z "$PYTHON_BIN" ]; then
 fi
 print_status "Python found: $PYTHON_BIN"
 
-# Get pybind11 directory
-PYBIND11_DIR=$($PYTHON_BIN -m pybind11 --cmakedir 2>/dev/null || echo "")
-if [ -z "$PYBIND11_DIR" ]; then
-    print_error "pybind11 not found. Install with: pip install pybind11"
+# Get nanobind cmake directory
+NANOBIND_DIR=$($PYTHON_BIN -c "import nanobind; print(nanobind.cmake_dir())" 2>/dev/null || echo "")
+if [ -z "$NANOBIND_DIR" ]; then
+    print_error "nanobind not found. Install with: pip install nanobind"
 fi
-print_status "pybind11 found at: $PYBIND11_DIR"
+print_status "nanobind found at: $NANOBIND_DIR"
 
 # Create build directory
 print_info "Preparing build directory..."
@@ -80,7 +80,7 @@ $CMAKE_BIN \
     -DCMAKE_CXX_COMPILER="$CLANG_BIN" \
     -DCMAKE_BUILD_TYPE=Release \
     -DPython3_EXECUTABLE="$PYTHON_BIN" \
-    "-Dpybind11_ROOT=$PYBIND11_DIR" \
+    "-Dnanobind_ROOT=$NANOBIND_DIR" \
     .. || print_error "CMake configuration failed"
 
 print_status "CMake configuration successful"

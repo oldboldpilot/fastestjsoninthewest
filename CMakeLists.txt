@@ -225,10 +225,12 @@ target_compile_options(fastjson PRIVATE
     -fstack-protector-strong # Stack protection
     -D_FORTIFY_SOURCE=2     # Buffer overflow detection
     -stdlib=libc++          # Use custom libc++
+    -pthread                # POSIX thread support
 )
 target_link_options(fastjson PRIVATE 
     -stdlib=libc++
     -L/opt/clang-21/lib
+    -pthread
 )
 
 # Set compile features and properties
@@ -361,6 +363,7 @@ target_sources(fastjson_multiregister_parser
         BASE_DIRS modules
         FILES
             modules/fastjson_multiregister_parser.cppm
+            modules/fastjson_turbo.cppm
 )
 
 target_include_directories(fastjson_multiregister_parser PUBLIC
@@ -386,6 +389,8 @@ set(MULTIREGISTER_SIMD_FLAGS
     -mfma
     -fstack-protector-strong
     -D_FORTIFY_SOURCE=2
+    -pthread
+    ${SIMD_FLAGS}
 )
 
 target_compile_options(fastjson_multiregister_parser PRIVATE
@@ -841,6 +846,13 @@ target_link_libraries(fastjson PRIVATE
     logger
 )
 
+# Find jemalloc
+find_library(JEMALLOC_LIBRARY jemalloc)
+if(JEMALLOC_LIBRARY)
+    message(STATUS "Found jemalloc: ${JEMALLOC_LIBRARY}")
+    target_link_libraries(fastjson PRIVATE ${JEMALLOC_LIBRARY})
+endif()
+
 # Optional OpenMP linking
 if(ENABLE_OPENMP AND OpenMP_CXX_FOUND)
     target_link_libraries(fastjson PUBLIC OpenMP::OpenMP_CXX)
@@ -904,592 +916,116 @@ set_target_properties(fastjson PROPERTIES
 #     INSTALL_RPATH "/home/linuxbrew/.linuxbrew/lib;/home/linuxbrew/.linuxbrew/Cellar/libomp/21.1.5/lib"
 # )
 
+
+# Fetch Google Benchmark
+include(FetchContent)
+FetchContent_Declare(
+  googlebenchmark
+  GIT_REPOSITORY https://github.com/google/benchmark.git
+  GIT_TAG v1.8.3
+)
+set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+set(BENCHMARK_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
+FetchContent_MakeAvailable(googlebenchmark)
+
 # Comparative benchmark: FastestJSONInTheWest vs simdjson
-add_executable(comparative_benchmark benchmarks/comparative_benchmark.cpp)
-target_link_libraries(comparative_benchmark PRIVATE logger)
-if(OpenMP_CXX_FOUND)
-    target_link_libraries(comparative_benchmark PRIVATE OpenMP::OpenMP_CXX)
-endif()
-target_compile_options(comparative_benchmark PRIVATE
-    -std=c++23
-    -O3
-    -ffast-math
-    -funroll-loops
-    -fvectorize
-    -fslp-vectorize
-    -Wall
-    -Wextra
-    -Wpedantic
-    -Wno-unused-parameter
-    -pthread
-)
-
-# LINQ benchmark: Sequential vs Parallel LINQ operations
-add_executable(linq_benchmark benchmarks/linq_benchmark.cpp)
-target_link_libraries(linq_benchmark PRIVATE fastjson_parallel json_linq)
-if(OpenMP_CXX_FOUND)
-    target_link_libraries(linq_benchmark PRIVATE OpenMP::OpenMP_CXX)
-endif()
-target_compile_options(linq_benchmark PRIVATE
-    -std=c++23
-    -O3
-    -ffast-math
-    -funroll-loops
-    -fvectorize
-    -fslp-vectorize
-    -Wall
-    -Wextra
-    -Wpedantic
-    -Wno-unused-parameter
-    -pthread
-    -fstack-protector-strong
-    -D_FORTIFY_SOURCE=2
-)
-
-# Simple performance demo using modules (COMMENTED - file doesn't exist)
-# add_executable(performance_demo tests/performance_demo.cpp)
-# target_link_libraries(performance_demo fastjson logger)
-
-# Comprehensive test using modules (COMMENTED - file doesn't exist)
-# add_executable(comprehensive_test tests/comprehensive_test.cpp)
-# target_link_libraries(comprehensive_test fastjson logger)
-
-# C++17 Compatible Header-Only Test (COMMENTED - file doesn't exist)
-# add_executable(test_cpp17
-#     test_cpp17.cpp
-# )
-
-# set_target_properties(test_cpp17 PROPERTIES
-#     CXX_STANDARD 17
-#     CXX_STANDARD_REQUIRED ON
-#     CXX_EXTENSIONS OFF
-# )
-
-# target_include_directories(test_cpp17 PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-
-# if(OpenMP_CXX_FOUND)
-#     target_link_libraries(test_cpp17 PRIVATE ${OpenMP_CXX_LIBRARIES})
-#     target_compile_options(test_cpp17 PRIVATE ${OpenMP_CXX_FLAGS})
-# endif()
-
-# if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
-#     target_compile_options(test_cpp17 PRIVATE ${SIMD_FLAGS})
-#     target_compile_definitions(test_cpp17 PRIVATE ${SIMD_DEFINES} FASTJSON_ENABLE_SIMD)
-# endif()
-
-# target_compile_options(test_cpp17 PRIVATE
-#     -O3
-#     -ffast-math
-#     -funroll-loops
-#     -fvectorize
-#     -fslp-vectorize
-#     -Wall
-#     -Wextra
-#     -Wpedantic
-#     -Wno-unused-parameter
-#     -pthread
-# )
-
-# set_target_properties(test_cpp17 PROPERTIES
-#     BUILD_RPATH "/home/linuxbrew/.linuxbrew/lib;/home/linuxbrew/.linuxbrew/Cellar/libomp/21.1.5/lib"
-#     INSTALL_RPATH "/home/linuxbrew/.linuxbrew/lib;/home/linuxbrew/.linuxbrew/Cellar/libomp/21.1.5/lib"
-# )
-
-# Legacy GCC Support Test (C++17 without SIMD) (COMMENTED - file doesn't exist)
-# add_executable(test_legacy_cpp17
-#     test_cpp17.cpp
-# )
-
-# set_target_properties(test_legacy_cpp17 PROPERTIES
-#     CXX_STANDARD 17
-#     CXX_STANDARD_REQUIRED ON
-#     CXX_EXTENSIONS OFF
-# )
-
-# target_include_directories(test_legacy_cpp17 PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-
-# Disable SIMD for legacy compatibility test
-# target_compile_definitions(test_legacy_cpp17 PRIVATE
-#     FASTJSON_LEGACY_MODE
-# )
-
-# target_compile_options(test_legacy_cpp17 PRIVATE
-#     -O2
-#     -Wall
-#     -Wextra
-#     -Wpedantic
-#     -Wno-unused-parameter
-# )
-
-# Print configuration summary
-message(STATUS "=== FastestJSONInTheWest Configuration ===")
-message(STATUS "Compiler: ${CMAKE_CXX_COMPILER}")
-message(STATUS "C++ Standard: ${CMAKE_CXX_STANDARD}")
-message(STATUS "Architecture: ${CMAKE_SYSTEM_PROCESSOR}")
-message(STATUS "Build Type: ${CMAKE_BUILD_TYPE}")
-message(STATUS "Modules Support: Enabled")
-message(STATUS "Trail Calling Syntax: Enforced via clang-tidy")
-message(STATUS "==========================================")
-message(STATUS "=== FastestJSONInTheWest MVP Build ===")
-message(STATUS "Version: ${PROJECT_VERSION}")
-message(STATUS "Compiler: ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")
-message(STATUS "Build Type: ${CMAKE_BUILD_TYPE}")
-message(STATUS "C++ Standard: ${CMAKE_CXX_STANDARD}")
-message(STATUS "Header-Only: TRUE")
-message(STATUS "Python Bindings: Available in python_bindings/ folder")
-message(STATUS "  - Build: mkdir python_bindings/build && cd python_bindings/build && cmake .. && make")
-message(STATUS "  - Tests: uv run pytest python_bindings/tests/ -v")
-message(STATUS "========================================")
-
-# Quick object parsing test (only if source exists)
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/test_simple.cpp")
-    add_executable(test_simple test_simple.cpp)
-    target_link_libraries(test_simple PRIVATE fastjson)
-    target_compile_options(test_simple PRIVATE
-        ${SIMD_FLAGS}
-        -fstack-protector-strong
-    )
-    target_compile_definitions(test_simple PRIVATE ${SIMD_DEFINES} FASTJSON_ENABLE_SIMD)
-    find_package(OpenMP)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/fastjson_vs_simdjson.cpp")
+    add_executable(fastjson_vs_simdjson_benchmark benchmarks/fastjson_vs_simdjson.cpp)
+    target_link_libraries(fastjson_vs_simdjson_benchmark PRIVATE fastjson fastjson_multiregister_parser)
     if(OpenMP_CXX_FOUND)
-        target_link_libraries(test_simple PRIVATE OpenMP::OpenMP_CXX)
+        target_link_libraries(fastjson_vs_simdjson_benchmark PRIVATE OpenMP::OpenMP_CXX)
     endif()
-    set_target_properties(test_simple PROPERTIES
-        CXX_STANDARD 23
-        CXX_STANDARD_REQUIRED ON
-        POSITION_INDEPENDENT_CODE ON
-        BUILD_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
-        INSTALL_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
-    )
-endif()
-
-# Comprehensive test suite (only if source exists)
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/test_comprehensive.cpp")
-    add_executable(test_comprehensive test_comprehensive.cpp)
-    target_link_libraries(test_comprehensive PRIVATE fastjson)
-    target_compile_options(test_comprehensive PRIVATE
-        ${SIMD_FLAGS}
-        -fstack-protector-strong
-    )
-    target_compile_definitions(test_comprehensive PRIVATE ${SIMD_DEFINES} FASTJSON_ENABLE_SIMD)
-    if(OpenMP_CXX_FOUND)
-        target_link_libraries(test_comprehensive PRIVATE OpenMP::OpenMP_CXX)
+    target_link_libraries(fastjson_vs_simdjson_benchmark PRIVATE benchmark::benchmark benchmark::benchmark_main)
+    
+    # Find simdjson
+    find_package(simdjson QUIET)
+    if(simdjson_FOUND)
+        target_link_libraries(fastjson_vs_simdjson_benchmark PRIVATE simdjson::simdjson)
+    else()
+        # Try to find it via pkg-config or just link it if it's installed system-wide
+        target_link_libraries(fastjson_vs_simdjson_benchmark PRIVATE simdjson)
     endif()
-    set_target_properties(test_comprehensive PROPERTIES
-        CXX_STANDARD 23
-        CXX_STANDARD_REQUIRED ON
-        POSITION_INDEPENDENT_CODE ON
-        BUILD_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
-        INSTALL_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
-    )
-endif()
 
-# 128-bit number parsing test suite (only if source exists)
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/test_128bit.cpp")
-    add_executable(test_128bit test_128bit.cpp)
-    target_link_libraries(test_128bit PRIVATE fastjson)
-    target_compile_options(test_128bit PRIVATE
-        ${SIMD_FLAGS}
-        -fstack-protector-strong
-    )
-    target_compile_definitions(test_128bit PRIVATE ${SIMD_DEFINES} FASTJSON_ENABLE_SIMD)
-    if(OpenMP_CXX_FOUND)
-        target_link_libraries(test_128bit PRIVATE OpenMP::OpenMP_CXX)
+    if(JEMALLOC_LIBRARY)
+        target_link_libraries(fastjson_vs_simdjson_benchmark PRIVATE ${JEMALLOC_LIBRARY})
     endif()
-    set_target_properties(test_128bit PROPERTIES
-        CXX_STANDARD 23
-        CXX_STANDARD_REQUIRED ON
-        POSITION_INDEPENDENT_CODE ON
-        BUILD_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
-        INSTALL_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
-    )
-endif()
 
-# Numeric conversion helpers test suite (only if source exists)
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/test_conversion_helpers.cpp")
-    add_executable(test_conversion_helpers test_conversion_helpers.cpp)
-    target_link_libraries(test_conversion_helpers PRIVATE fastjson)
-    target_compile_options(test_conversion_helpers PRIVATE
-        ${SIMD_FLAGS}
-        -fstack-protector-strong
-    )
-    target_compile_definitions(test_conversion_helpers PRIVATE ${SIMD_DEFINES} FASTJSON_ENABLE_SIMD)
-    if(OpenMP_CXX_FOUND)
-        target_link_libraries(test_conversion_helpers PRIVATE OpenMP::OpenMP_CXX)
-    endif()
-    set_target_properties(test_conversion_helpers PROPERTIES
-        CXX_STANDARD 23
-        CXX_STANDARD_REQUIRED ON
-        POSITION_INDEPENDENT_CODE ON
-        BUILD_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
-        INSTALL_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
-    )
-endif()
-
-# Tool: Generate large JSON test files
-add_executable(generate_test_file tools/generate_test_file.cpp)
-target_compile_options(generate_test_file PRIVATE
-    -std=c++23
-    -O3
-    -Wall
-    -Wextra
-)
-set_target_properties(generate_test_file PROPERTIES
-    CXX_STANDARD 23
-    CXX_STANDARD_REQUIRED ON
-)
-
-# Tool: Test large file parsing with current parser (only if source exists)
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/test_large_file.cpp")
-    add_executable(test_large_file test_large_file.cpp)
-    target_link_libraries(test_large_file PRIVATE fastjson)
-    if(OpenMP_CXX_FOUND)
-        target_link_libraries(test_large_file PRIVATE OpenMP::OpenMP_CXX)
-    endif()
-    target_compile_options(test_large_file PRIVATE
-        ${SIMD_FLAGS}
-        -fstack-protector-strong
-    )
-    target_compile_definitions(test_large_file PRIVATE ${SIMD_DEFINES} FASTJSON_ENABLE_SIMD)
-    set_target_properties(test_large_file PROPERTIES
-        CXX_STANDARD 23
-        CXX_STANDARD_REQUIRED ON
-        POSITION_INDEPENDENT_CODE ON
-        BUILD_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
-        INSTALL_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
-    )
-endif()
-
-# Tool: Test large file parsing with parallel benchmarks (only if source exists)
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/test_large_file_parallel.cpp")
-    add_executable(test_large_file_parallel test_large_file_parallel.cpp)
-    target_link_libraries(test_large_file_parallel PRIVATE fastjson_parallel)
-    if(OpenMP_CXX_FOUND)
-        target_link_libraries(test_large_file_parallel PRIVATE OpenMP::OpenMP_CXX)
-    endif()
-    target_compile_options(test_large_file_parallel PRIVATE
-        ${SIMD_FLAGS}
-        -fstack-protector-strong
-        -fopenmp=libomp
-    )
-    target_compile_definitions(test_large_file_parallel PRIVATE ${SIMD_DEFINES} FASTJSON_ENABLE_SIMD FASTJSON_THREAD_SAFE)
-    set_target_properties(test_large_file_parallel PROPERTIES
-        CXX_STANDARD 23
-        CXX_STANDARD_REQUIRED ON
-        POSITION_INDEPENDENT_CODE ON
-        BUILD_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
-        INSTALL_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
-    )
-endif()
-
-# Tool: Test using the legacy parallel parser (only if source exists)
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/test_parallel_parser.cpp")
-    add_executable(test_parallel_parser test_parallel_parser.cpp)
-    target_link_libraries(test_parallel_parser PRIVATE fastjson_parallel)
-    if(OpenMP_CXX_FOUND)
-        target_link_libraries(test_parallel_parser PRIVATE OpenMP::OpenMP_CXX)
-    endif()
-    target_compile_options(test_parallel_parser PRIVATE
-        ${SIMD_FLAGS}
+    target_compile_options(fastjson_vs_simdjson_benchmark PRIVATE
+        -std=c++23
         -O3
-        -DFASTJSON_NO_LOGGER
-        -DFASTJSON_ENABLE_SIMD
-    )
-    target_compile_definitions(test_parallel_parser PRIVATE ${SIMD_DEFINES} FASTJSON_ENABLE_SIMD FASTJSON_NO_LOGGER)
-    set_target_properties(test_parallel_parser PROPERTIES
-        CXX_STANDARD 23
-        CXX_STANDARD_REQUIRED ON
-        POSITION_INDEPENDENT_CODE ON
-        BUILD_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
-        INSTALL_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
-    )
-endif()
-
-# Test executable for parallel module (only if source exists)
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/test_parallel_module.cpp")
-    add_executable(test_parallel_module test_parallel_module.cpp)
-    target_link_libraries(test_parallel_module PRIVATE fastjson_parallel)
-    if(ENABLE_OPENMP)
-        target_link_libraries(test_parallel_module PRIVATE OpenMP::OpenMP_CXX)
-    endif()
-    target_compile_options(test_parallel_module PRIVATE
-        -fPIC
+        -Wall
+        -Wextra
+        -Wpedantic
+        -Wno-unused-parameter
+        -pthread
+        -stdlib=libc++
         -fstack-protector-strong
         -D_FORTIFY_SOURCE=2
+        ${MULTIREGISTER_SIMD_FLAGS}
+        -fprebuilt-module-path=${CMAKE_BINARY_DIR}/external/std/CMakeFiles/std_module.dir
+        -fprebuilt-module-path=${CMAKE_BINARY_DIR}/CMakeFiles/fastjson_multiregister_parser.dir
     )
-    target_compile_definitions(test_parallel_module PRIVATE
-        FASTJSON_ENABLE_SIMD
-        FASTJSON_THREAD_SAFE
-    )
-    set_target_properties(test_parallel_module PROPERTIES
-        CXX_STANDARD 23
-        CXX_STANDARD_REQUIRED ON
-        CXX_EXTENSIONS OFF
-        BUILD_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
-        INSTALL_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
+    target_link_options(fastjson_vs_simdjson_benchmark PRIVATE 
+        -stdlib=libc++
     )
 endif()
 
-# Type mappings demonstration executable
-add_executable(type_mappings_demo examples/type_mappings_demo.cpp)
-target_link_libraries(type_mappings_demo PRIVATE fastjson_parallel)
-if(ENABLE_OPENMP)
-    target_link_libraries(type_mappings_demo PRIVATE OpenMP::OpenMP_CXX)
-endif()
-target_compile_options(type_mappings_demo PRIVATE
-    -fPIC
-    -fstack-protector-strong
-    -D_FORTIFY_SOURCE=2
-)
-target_compile_definitions(type_mappings_demo PRIVATE 
-    FASTJSON_ENABLE_SIMD
-    FASTJSON_THREAD_SAFE
-)
-set_target_properties(type_mappings_demo PROPERTIES
-    CXX_STANDARD 23
-    CXX_STANDARD_REQUIRED ON
-    CXX_EXTENSIONS OFF
-    BUILD_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
-    INSTALL_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
-)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/turbo_benchmark.cpp")
+    add_executable(turbo_benchmark benchmarks/turbo_benchmark.cpp)
+    target_link_libraries(turbo_benchmark PRIVATE fastjson fastjson_multiregister_parser)
+    if(OpenMP_CXX_FOUND)
+        target_link_libraries(turbo_benchmark PRIVATE OpenMP::OpenMP_CXX)
+    endif()
+    target_link_libraries(turbo_benchmark PRIVATE benchmark::benchmark benchmark::benchmark_main)
+    
+    # Find simdjson
+    find_package(simdjson QUIET)
+    if(simdjson_FOUND)
+        target_link_libraries(turbo_benchmark PRIVATE simdjson::simdjson)
+    else()
+        # Try to find it via pkg-config or just link it if it's installed system-wide
+        target_link_libraries(turbo_benchmark PRIVATE simdjson)
+    endif()
 
-# ============================================================================
-# SIMD Multi-Register Performance Tests and Benchmarks
-# ============================================================================
+    if(JEMALLOC_LIBRARY)
+        target_link_libraries(turbo_benchmark PRIVATE ${JEMALLOC_LIBRARY})
+    endif()
 
-# SIMD Multi-Register Performance Test Executable  
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_simd_multiregister_performance.cpp")
-    add_executable(test_simd_multiregister_performance tests/test_simd_multiregister_performance.cpp)
-    target_link_libraries(test_simd_multiregister_performance PRIVATE 
-        fastjson_simd_multiregister
-        fastjson_parallel
+    target_compile_options(turbo_benchmark PRIVATE
+        -std=c++23
+        -O3
+        -Wall
+        -Wextra
+        -Wpedantic
+        -Wno-unused-parameter
+        -pthread
+        -stdlib=libc++
+        -fstack-protector-strong
+        -D_FORTIFY_SOURCE=2
+        ${MULTIREGISTER_SIMD_FLAGS}
+        -fprebuilt-module-path=${CMAKE_BINARY_DIR}/external/std/CMakeFiles/std_module.dir
+        -fprebuilt-module-path=${CMAKE_BINARY_DIR}/CMakeFiles/fastjson_multiregister_parser.dir
     )
-    
-    target_compile_options(test_simd_multiregister_performance PRIVATE
-        -O3                     # Maximum optimization
-        -fPIC
-        -ffast-math
-        -funroll-loops
-        -fvectorize
-        -fslp-vectorize
-        -march=native
-        -mtune=native
-        $<$<BOOL:${FASTJSON_FORCE_AVX512}>:-mavx512f -mavx512bw>
-        $<$<BOOL:${ENABLE_NATIVE_OPTIMIZATIONS}>:-mavx2 -mfma>
-    )
-    
-    target_compile_definitions(test_simd_multiregister_performance PRIVATE
-        FASTJSON_ENABLE_SIMD
-        FASTJSON_MULTIREGISTER_SIMD
-    )
-    
-    set_target_properties(test_simd_multiregister_performance PROPERTIES
-        CXX_STANDARD 23
-        CXX_STANDARD_REQUIRED ON
-        CXX_EXTENSIONS OFF
-        BUILD_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
-        INSTALL_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
+    target_link_options(turbo_benchmark PRIVATE 
+        -stdlib=libc++
+        -L/opt/clang-21/lib
     )
 endif()
+add_executable(test_match test_match.cpp)
+target_link_libraries(test_match fastjson_multiregister_parser)
+target_compile_options(test_match PRIVATE -fprebuilt-module-path=${CMAKE_BINARY_DIR}/external/std/CMakeFiles/std_module.dir -fprebuilt-module-path=${CMAKE_BINARY_DIR}/CMakeFiles/fastjson_multiregister_parser.dir)
+add_dependencies(test_match std_module fastjson_multiregister_parser)
 
-# SIMD Multi-Register Benchmark Executable (if Google Benchmark is available)
-find_package(benchmark QUIET)
-if(benchmark_FOUND AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/simd_multiregister_benchmark.cpp")
-    add_executable(simd_multiregister_benchmark benchmarks/simd_multiregister_benchmark.cpp)
-    target_link_libraries(simd_multiregister_benchmark PRIVATE
-        fastjson_simd_multiregister
-        fastjson_parallel
-        benchmark::benchmark
-        benchmark::benchmark_main
-    )
-    
-    target_compile_options(simd_multiregister_benchmark PRIVATE
-        -O3                     # Maximum optimization for benchmarking
-        -fPIC
-        -ffast-math
-        -funroll-loops
-        -fvectorize
-        -fslp-vectorize
-        -march=native
-        -mtune=native
-        $<$<BOOL:${FASTJSON_FORCE_AVX512}>:-mavx512f -mavx512bw>
-        $<$<BOOL:${ENABLE_NATIVE_OPTIMIZATIONS}>:-mavx2 -mfma>
-    )
-    
-    target_compile_definitions(simd_multiregister_benchmark PRIVATE
-        FASTJSON_ENABLE_SIMD
-        FASTJSON_MULTIREGISTER_SIMD
-    )
-    
-    set_target_properties(simd_multiregister_benchmark PROPERTIES
-        CXX_STANDARD 23
-        CXX_STANDARD_REQUIRED ON
-        CXX_EXTENSIONS OFF
-        BUILD_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
-        INSTALL_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
-    )
-    
-    message(STATUS "Added SIMD multi-register benchmark executable")
-else()
-    message(STATUS "Google Benchmark not found, skipping benchmark executable")
-endif()
-
-# Standalone SIMD Multi-Register Demo
-add_executable(simd_multiregister_demo examples/simd_multiregister_demo.cpp)
-target_link_libraries(simd_multiregister_demo PRIVATE 
-    fastjson_simd_multiregister
-    fastjson_parallel
-)
-
-target_compile_options(simd_multiregister_demo PRIVATE
+add_executable(test_turbo_correctness tests/test_turbo_correctness.cpp)
+target_link_libraries(test_turbo_correctness fastjson_multiregister_parser)
+target_compile_options(test_turbo_correctness PRIVATE
+    -std=c++23
     -O2
-    -fPIC
-    -ffast-math
-    -march=native
-    $<$<BOOL:${FASTJSON_FORCE_AVX512}>:-mavx512f -mavx512bw>
-    $<$<BOOL:${ENABLE_NATIVE_OPTIMIZATIONS}>:-mavx2 -mfma>
+    -stdlib=libc++
+    ${MULTIREGISTER_SIMD_FLAGS}
+    -fprebuilt-module-path=${CMAKE_BINARY_DIR}/external/std/CMakeFiles/std_module.dir
+    -fprebuilt-module-path=${CMAKE_BINARY_DIR}/CMakeFiles/fastjson_multiregister_parser.dir
 )
-
-target_compile_definitions(simd_multiregister_demo PRIVATE
-    FASTJSON_ENABLE_SIMD
-    FASTJSON_MULTIREGISTER_SIMD
-)
-
-set_target_properties(simd_multiregister_demo PROPERTIES
-    CXX_STANDARD 23
-    CXX_STANDARD_REQUIRED ON
-    CXX_EXTENSIONS OFF
-    BUILD_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
-    INSTALL_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
-)
-
-# ============================================================================
-# Multi-Register Parser Module Tests (Self-contained C++23 Module)
-# ============================================================================
-
-# Test module for multiregister parser (if test module exists)
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_multiregister_parser.cppm")
-    add_library(test_multiregister_parser_lib STATIC)
-    target_sources(test_multiregister_parser_lib
-        PUBLIC
-            FILE_SET CXX_MODULES 
-            BASE_DIRS tests
-            FILES
-                tests/test_multiregister_parser.cppm
-    )
-    
-    # IMPORTANT: Compile flags MUST match fastjson_multiregister_parser exactly
-    # to avoid C++23 module configuration mismatch errors
-    target_compile_options(test_multiregister_parser_lib PRIVATE
-        -O3
-        ${MULTIREGISTER_SIMD_FLAGS}
-        -fprebuilt-module-path=${CMAKE_CURRENT_BINARY_DIR}
-        -fprebuilt-module-path=${CMAKE_CURRENT_BINARY_DIR}/external/std/CMakeFiles/std_module.dir
-        -fprebuilt-module-path=${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/fastjson_multiregister_parser.dir
-    )
-    
-    target_link_options(test_multiregister_parser_lib PRIVATE 
-        -stdlib=libc++
-        -L/opt/clang-21/lib
-    )
-    
-    # Link to parser module to get the PCM file dependency
-    target_link_libraries(test_multiregister_parser_lib PRIVATE
-        fastjson_multiregister_parser
-    )
-    
-    add_dependencies(test_multiregister_parser_lib 
-        std_module 
-        fastjson_multiregister_parser
-    )
-    
-    set_target_properties(test_multiregister_parser_lib PROPERTIES
-        CXX_STANDARD 23
-        CXX_STANDARD_REQUIRED ON
-        CXX_EXTENSIONS OFF
-    )
-endif()
-
-# Test executable for multiregister parser
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_multiregister_main.cpp")
-    add_executable(test_multiregister_parser tests/test_multiregister_main.cpp)
-    target_link_libraries(test_multiregister_parser PRIVATE 
-        test_multiregister_parser_lib
-        fastjson_multiregister_parser
-    )
-    
-    target_compile_options(test_multiregister_parser PRIVATE
-        -O3
-        ${MULTIREGISTER_SIMD_FLAGS}
-        -fprebuilt-module-path=${CMAKE_CURRENT_BINARY_DIR}
-        -fprebuilt-module-path=${CMAKE_CURRENT_BINARY_DIR}/external/std/CMakeFiles/std_module.dir
-        -fprebuilt-module-path=${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/fastjson_multiregister_parser.dir
-        -fprebuilt-module-path=${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/test_multiregister_parser_lib.dir
-    )
-    
-    target_link_options(test_multiregister_parser PRIVATE 
-        -stdlib=libc++
-        -L/opt/clang-21/lib
-    )
-    
-    add_dependencies(test_multiregister_parser 
-        test_multiregister_parser_lib
-        fastjson_multiregister_parser
-    )
-    
-    set_target_properties(test_multiregister_parser PROPERTIES
-        CXX_STANDARD 23
-        CXX_STANDARD_REQUIRED ON
-        CXX_EXTENSIONS OFF
-        BUILD_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
-        INSTALL_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
-    )
-    
-    message(STATUS "Added Multi-Register Parser test executable")
-endif()
-
-# Benchmark executable for multiregister vs original parser
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/benchmark_multiregister.cpp")
-    add_executable(benchmark_multiregister tests/benchmark_multiregister.cpp)
-    
-    target_link_libraries(benchmark_multiregister PRIVATE 
-        fastjson_multiregister_parser
-        fastjson
-    )
-    
-    target_compile_options(benchmark_multiregister PRIVATE
-        -O3
-        -stdlib=libc++
-        -march=native
-        -mtune=native
-        -mavx2
-        -mfma
-        # Must match fastjson module flags for module compatibility
-        -fstack-protector-strong
-        -D_FORTIFY_SOURCE=2
-        -fprebuilt-module-path=${CMAKE_CURRENT_BINARY_DIR}
-        -fprebuilt-module-path=${CMAKE_CURRENT_BINARY_DIR}/external/std/CMakeFiles/std_module.dir
-        -fprebuilt-module-path=${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/fastjson_multiregister_parser.dir
-        -fprebuilt-module-path=${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/fastjson.dir
-    )
-    
-    target_link_options(benchmark_multiregister PRIVATE 
-        -stdlib=libc++
-        -L/opt/clang-21/lib
-    )
-    
-    add_dependencies(benchmark_multiregister 
-        fastjson_multiregister_parser
-        fastjson
-    )
-    
-    set_target_properties(benchmark_multiregister PROPERTIES
-        CXX_STANDARD 23
-        CXX_STANDARD_REQUIRED ON
-        CXX_EXTENSIONS OFF
-        BUILD_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
-        INSTALL_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
-    )
-    
-    message(STATUS "Added Multi-Register Parser benchmark executable")
-endif()
+target_link_options(test_turbo_correctness PRIVATE -stdlib=libc++ -L/opt/clang-21/lib -L/home/linuxbrew/.linuxbrew/lib -Wl,-rpath,/home/linuxbrew/.linuxbrew/lib)
+add_dependencies(test_turbo_correctness std_module fastjson_multiregister_parser)
