@@ -41,6 +41,17 @@ static void BM_Simdjson_Parse(benchmark::State& state) {
     state.SetBytesProcessed(int64_t(state.iterations()) * json.size());
 }
 
+static void BM_Fastjson_Turbo_ParseOnly(benchmark::State& state) {
+    std::string json = generate_json();
+    fastjson::turbo::turbo_parser parser;
+
+    for (auto _ : state) {
+        auto doc_res = fastjson::turbo::parse(json, parser);
+        benchmark::DoNotOptimize(doc_res);
+    }
+    state.SetBytesProcessed(int64_t(state.iterations()) * json.size());
+}
+
 static void BM_Fastjson_Turbo_Parse(benchmark::State& state) {
     std::string json = generate_json();
     fastjson::turbo::turbo_parser parser;
@@ -77,51 +88,46 @@ static void BM_Fastjson_Turbo_Parse(benchmark::State& state) {
 
 static void BM_Fastjson_Turbo_IndexOnly(benchmark::State& state) {
     std::string json = generate_json();
-    std::unique_ptr<uint32_t[]> structurals = std::make_unique<uint32_t[]>(json.size() + 32);
-    std::unique_ptr<char[]> structural_chars = std::make_unique<char[]>(json.size() + 32);
-    std::unique_ptr<uint64_t[]> structural_masks = std::make_unique<uint64_t[]>(json.size() / 64 + 1);
-    std::unique_ptr<uint32_t[]> matching = std::make_unique<uint32_t[]>(json.size() + 32);
-    
+    // scan-only: no match table (nullptr). Uses AVX-512 or AVX2 via runtime dispatch.
+    std::unique_ptr<uint32_t[]> sp = std::make_unique<uint32_t[]>(json.size() + 32);
+
     for (auto _ : state) {
-        size_t count = fastjson::turbo::detail::build_structural_index_avx2(json, structurals.get(), structural_chars.get(), structural_masks.get(), matching.get());
+        size_t count = fastjson::turbo::detail::build_structural_index(json, sp.get(), nullptr);
         benchmark::DoNotOptimize(count);
     }
     state.SetBytesProcessed(int64_t(state.iterations()) * json.size());
 }
 
 BENCHMARK(BM_Simdjson_Parse);
+BENCHMARK(BM_Fastjson_Turbo_ParseOnly);
 BENCHMARK(BM_Fastjson_Turbo_Parse);
 BENCHMARK(BM_Fastjson_Turbo_IndexOnly);
 
 BENCHMARK_MAIN();
 
-static void BM_Fastjson_Turbo_Match(benchmark::State& state) {
+// Depth-scan skip benchmark (replaces old bracket-match benchmark).
+static void BM_Fastjson_Turbo_DepthScan(benchmark::State& state) {
     std::string json = generate_json();
     fastjson::turbo::turbo_parser parser;
     auto doc_res = fastjson::turbo::parse(json, parser);
     auto& doc = doc_res.value();
     
     for (auto _ : state) {
-        std::vector<uint32_t> matching(doc.structurals_count());
-        std::vector<uint32_t> stack;
-        stack.reserve(256);
-        
-        for (size_t i = 0; i < doc.structurals_count(); i++) {
-            char c = doc.get_structural_char(i);
-            if (c == '{' || c == '[') {
-                stack.push_back(i);
-            } else if (c == '}' || c == ']') {
-                uint32_t start_idx = stack.back();
-                stack.pop_back();
-                matching[start_idx] = i;
-                matching[i] = start_idx;
+        // Exercise skip_value for every array element (depth-scan skip).
+        size_t total = 0;
+        auto root = doc.root();
+        auto arr = root.get_array();
+        if (arr) {
+            for (auto item : *arr) {
+                benchmark::DoNotOptimize(item);
+                ++total;
             }
         }
-        benchmark::DoNotOptimize(matching);
+        benchmark::DoNotOptimize(total);
     }
     state.SetBytesProcessed(int64_t(state.iterations()) * json.size());
 }
-BENCHMARK(BM_Fastjson_Turbo_Match);
+BENCHMARK(BM_Fastjson_Turbo_DepthScan);
 
 __attribute__((target("avx2")))
 static void BM_Fastjson_Turbo_IndexOnly_NoChar(benchmark::State& state) {

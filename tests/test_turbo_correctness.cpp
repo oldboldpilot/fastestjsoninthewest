@@ -1,14 +1,16 @@
 // Comprehensive correctness tests for fastjson_turbo.
 // Run: ./test_turbo_correctness (exits 0 on pass, non-zero on first failure)
 
-import fastjson_turbo;
-
+// Legacy C headers must precede module imports to avoid std-module conflicts.
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <cstdint>
 #include <string>
 #include <string_view>
 #include <vector>
+
+import fastjson_turbo;
 
 // ---------------------------------------------------------------------------
 // Minimal test framework

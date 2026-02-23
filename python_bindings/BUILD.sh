@@ -15,7 +15,7 @@ NC='\033[0m' # No Color
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_DIR="${PROJECT_DIR}/build"
 INSTALL_DIR="${PROJECT_DIR}/install"
-PYTHON_VERSION="${PYTHON_VERSION:-3.13}"
+PYTHON_VERSION="${PYTHON_VERSION:-3.14}"
 
 # Tool paths (customize as needed)
 CMAKE_BIN="${CMAKE_BIN:-/home/muyiwa/toolchain-build/cmake-4.1.2/bin/cmake}"

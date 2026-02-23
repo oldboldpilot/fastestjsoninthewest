@@ -101,6 +101,13 @@ target_compile_options(fastjson PRIVATE
     ${OpenMP_CXX_FLAGS}
 )
 
+# Embed RPATH so libomp.so is found without LD_LIBRARY_PATH
+set_target_properties(fastjson PROPERTIES
+    BUILD_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
+    INSTALL_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
+    BUILD_WITH_INSTALL_RPATH TRUE
+)
+
 # Link Libraries
 target_link_libraries(fastjson PRIVATE 
     Threads::Threads

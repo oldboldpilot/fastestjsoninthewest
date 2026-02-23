@@ -68,24 +68,58 @@ double price = obj["price"].value().get_double().value();
 ### Error Handling
 All parse functions return `json_result<T>` which is `std::expected<T, json_error>`.
 
-### Python Bindings (Nanobind)
+### Python Bindings (Nanobind, Python 3.14)
 ```python
-import fastjson_py as json
+import fastjson
 
-data = json.loads('{"key": "value"}')   # Parse string
-text = json.dumps(data)                  # Serialize
-data = json.load("file.json")           # Parse file
-json.dump(data, "out.json", indent=2)   # Write file
-info = json.simd_info()                 # SIMD capabilities
+# Core parsing
+val = fastjson.parse('{"key": "value"}')          # returns JSONValue
+val = fastjson.parse_file("path/to/file.json")    # parse file
+
+# SIMD info
+caps = fastjson.get_simd_capabilities()           # SIMDCapabilities object
+# e.g. <SIMDCapabilities: AVX2, 128 bytes/iter, avx512=no, avx2=yes>
+
+# Mustache templating
+result = fastjson.render_template(
+    '{{#items}}{{name}} {{/items}}',
+    fastjson.parse('{"items":[{"name":"A"},{"name":"B"}]}')
+)  # → 'A B '
+
+# LINQ-style queries
+query = fastjson.query(val)
+result = query.where(lambda x: x["age"].as_int() > 10).to_list()
+```
+
+### Building Python Bindings (uv + nanobind)
+```bash
+cd python_bindings
+uv venv .venv --python python3.14
+uv pip install nanobind pytest numpy
+
+NANOBIND_CMAKE_DIR=$(.venv/bin/python -c "import nanobind; print(nanobind.cmake_dir())")
+mkdir build && cd build
+cmake .. -GNinja \
+  -DCMAKE_CXX_COMPILER=/opt/clang-21/bin/clang++ \
+  -DPython_EXECUTABLE=$(pwd)/../.venv/bin/python \
+  -DCMAKE_PREFIX_PATH="$NANOBIND_CMAKE_DIR" \
+  -DCMAKE_BUILD_TYPE=Release
+ninja -j$(nproc)
+
+# Test (53 passed, 1 skipped — Python 3.14.2)
+cd .. && PYTHONPATH=build .venv/bin/pytest tests/ -v
 ```
 
 ## File Locations
 - **Core module**: `modules/fastjson.cppm`
+- **Turbo scanner module**: `modules/fastjson_turbo.cppm` (v5.0 AVX-512/AVX2 dispatch)
 - **SIMD structural index**: `modules/fastjson_simd_index.h`
 - **Template module**: `modules/json_template.cppm`
-- **Nanobind bindings**: `python/fastjson_bindings.cpp`
-- **Benchmark**: `benchmarks/fastjson_vs_simdjson.cpp`
-- **Tests**: `tests/test_fastjson_nanobind.py` (85 tests)
+- **Nanobind bindings**: `python_bindings/src/fastjson_bindings.cpp`
+- **Turbo benchmark**: `benchmarks/turbo_benchmark.cpp`
+- **Comparative benchmark**: `benchmarks/comparative_benchmark.cpp`
+- **Python tests**: `python_bindings/tests/` (53 passed, Python 3.14.2)
+- **Turbo correctness tests**: `tests/test_turbo_correctness.cpp` (207/207)
 
 ## Architecture Notes
 - SIMD implementations live in `namespace fastjson::detail` inside the Global Module Fragment (before `export module fastjson;`)

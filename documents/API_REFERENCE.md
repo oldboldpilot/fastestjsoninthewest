@@ -1,7 +1,7 @@
 # FastestJSONInTheWest API Reference
 
-**Version:** 3.0.0
-**Last Updated:** February 22, 2026
+**Version:** 5.0.0
+**Last Updated:** February 23, 2026
 **License:** MIT
 
 ---
@@ -57,73 +57,70 @@ int main() {
 }
 ```
 
-## Python Bindings (v2.0)
+## Python Bindings (v5.0 — Python 3.14)
 
-**Version:** 2.0.0 (Nanobind + UV)
+**Version:** 5.0.0 · **Runtime:** Python 3.14.2 · **Package:** nanobind 2.11.0 · **Manager:** uv
 
 ### `fastjson` Module
 
+```python
+import fastjson
+```
+
 #### Core Parsing
 ```python
-# Parse string (releases GIL)
+# Parse JSON string (releases GIL)
 val = fastjson.parse('{"key": "value"}')
 
-# Parse file (releases GIL)
+# Parse from file (releases GIL)
 val = fastjson.parse_file("path/to/file.json")
 
-# Parallel Parse (releases GIL, uses OpenMP)
-val = fastjson.parse_parallel(large_json_str)
+# SIMD capabilities
+caps = fastjson.get_simd_capabilities()
+# <SIMDCapabilities: AVX2, 256 bytes/iter, avx512=no, avx2=yes>
+```
 
-# LINQ Query
+#### LINQ Queries
+```python
 query = fastjson.query(val)
 result = (query
     .where(lambda x: x["age"].as_int() > 10)
+    .select(lambda x: x["name"].as_string())
     .to_list())
 ```
 
-#### Templating
+#### Mustache Templating
 ```python
-# Render Mustache Template
-context = fastjson.parse('{"user": "Admin"}')
-html = fastjson.render_template("<h1>Hello {{user}}</h1>", context)
+# Variables, sections ({{#}}/{{/}}), inverted ({{^}}/{{/}}), array iteration
+result = fastjson.render_template(
+    '{{#items}}{{name}} {{/items}}',
+    fastjson.parse('{"items":[{"name":"A"},{"name":"B"}]}')
+)  # → 'A B '
 ```
 
 #### 128-bit Integer Support
-128-bit integers are automatically detected and can be converted to Python integers without precision loss via `to_python()`.
+128-bit integers are automatically converted to/from native Python `int` without precision loss.
 
----
-
-## Nanobind Python Bindings (v3.0)
-
-**Version:** 3.0.0 (Nanobind — replaces pybind11)
-
-### `fastjson_py` Module
-
-```python
-import fastjson_py as json
-
-# Parse string
-data = json.loads('{"key": "value", "num": 42}')
-
-# Serialize
-text = json.dumps(data)                    # Compact
-text = json.dumps(data, indent=2)          # Pretty-printed
-
-# File I/O
-data = json.load("input.json")
-json.dump(data, "output.json", indent=2)
-
-# Pretty-print
-pretty = json.prettify('{"a":1}', indent=4)
-
-# SIMD capabilities
-info = json.simd_info()
-# "FastJSON C++23 module (SIMD GMF: AVX2 + SSE4.2 + SSE2)"
+#### Building (uv + nanobind)
+```bash
+cd python_bindings
+uv venv .venv --python python3.14
+uv pip install nanobind pytest numpy
+NANOBIND_CMAKE_DIR=$(.venv/bin/python -c "import nanobind; print(nanobind.cmake_dir())")
+mkdir build && cd build
+cmake .. -GNinja \
+  -DCMAKE_CXX_COMPILER=/opt/clang-21/bin/clang++ \
+  -DPython_EXECUTABLE=$(pwd)/../.venv/bin/python \
+  -DCMAKE_PREFIX_PATH="$NANOBIND_CMAKE_DIR" \
+  -DCMAKE_BUILD_TYPE=Release
+ninja -j$(nproc)
 ```
 
-### 85 Regression Tests
+#### Test Results
 ```bash
-pytest tests/test_fastjson_nanobind.py -v  # All 85 tests pass
+cd python_bindings
+PYTHONPATH=build .venv/bin/pytest tests/ -v
+# 53 passed, 1 skipped (Int64Vector not yet exposed) — Python 3.14.2
 ```
 
 ---
