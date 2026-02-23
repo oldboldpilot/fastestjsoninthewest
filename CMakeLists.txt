@@ -1012,10 +1012,6 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/turbo_benchmark.cpp")
         -L/opt/clang-21/lib
     )
 endif()
-add_executable(test_match test_match.cpp)
-target_link_libraries(test_match fastjson_multiregister_parser)
-target_compile_options(test_match PRIVATE -fprebuilt-module-path=${CMAKE_BINARY_DIR}/external/std/CMakeFiles/std_module.dir -fprebuilt-module-path=${CMAKE_BINARY_DIR}/CMakeFiles/fastjson_multiregister_parser.dir)
-add_dependencies(test_match std_module fastjson_multiregister_parser)
 
 add_executable(test_turbo_correctness tests/test_turbo_correctness.cpp)
 target_link_libraries(test_turbo_correctness fastjson_multiregister_parser)
