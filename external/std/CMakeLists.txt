@@ -28,9 +28,13 @@ target_include_directories(std_module PUBLIC
 # Use our custom libc++ at link time
 target_compile_options(std_module PRIVATE 
     -stdlib=libc++
+    -fstack-protector-strong
+    -pthread
 )
 target_link_options(std_module PRIVATE 
     -stdlib=libc++
+    -fstack-protector-strong
+    -pthread
     -L/opt/clang-21/lib
 )
 

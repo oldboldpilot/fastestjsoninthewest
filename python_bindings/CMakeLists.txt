@@ -38,7 +38,10 @@ endif()
 # Standard Library Module
 # ============================================================================
 add_library(std_module STATIC)
-target_include_directories(std_module PUBLIC /usr/local/share/libc++/v1)
+target_include_directories(std_module PUBLIC 
+    /opt/clang-21/include/c++/v1
+    /opt/clang-21/share/libc++/v1
+)
 target_sources(std_module PUBLIC
     FILE_SET CXX_MODULES 
     BASE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/../external/std

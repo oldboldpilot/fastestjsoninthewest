@@ -1189,7 +1189,7 @@ auto serialize_value(std::ostringstream& oss, const json_value& val) -> void {
         else if constexpr (std::is_same_v<T, json_bool>) {
             oss << (v ? "true" : "false");
         }
-        else if constexpr (std::is_same_v<T, json_int_128> || std::is_same_v<T, json_uint_128>) {
+        else if constexpr (std::is_same_v<T, json_int_128_128> || std::is_same_v<T, json_uint_128_128>) {
             oss << to_string_128(v);
         }
         else if constexpr (std::is_same_v<T, json_float>) {
@@ -1255,7 +1255,7 @@ auto serialize_pretty(std::ostringstream& oss, const json_value& val, int indent
         else if constexpr (std::is_same_v<T, json_bool>) {
             oss << (v ? "true" : "false");
         }
-        else if constexpr (std::is_same_v<T, json_int_128> || std::is_same_v<T, json_uint_128>) {
+        else if constexpr (std::is_same_v<T, json_int_128_128> || std::is_same_v<T, json_uint_128_128>) {
             oss << to_string_128(v);
         }
         else if constexpr (std::is_same_v<T, json_float>) {

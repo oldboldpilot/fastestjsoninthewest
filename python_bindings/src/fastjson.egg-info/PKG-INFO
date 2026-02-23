@@ -19,7 +19,7 @@ Classifier: Topic :: Text Processing :: Markup
 Classifier: Operating System :: POSIX :: Linux
 Requires-Python: >=3.11
 Description-Content-Type: text/markdown
-Requires-Dist: pybind11>=3.0.1
+Requires-Dist: nanobind>=2.4.0
 Requires-Dist: numpy>=2.0.0
 Provides-Extra: dev
 Requires-Dist: pytest>=9.0.0; extra == "dev"
@@ -34,7 +34,7 @@ Requires-Dist: pytest-benchmark>=4.0.0; extra == "test"
 
 # FastestJSONInTheWest Python Bindings
 
-High-performance Python bindings for the FastestJSONInTheWest C++23 JSON library using pybind11.
+High-performance Python bindings for the FastestJSONInTheWest C++23 JSON library using nanobind.
 
 ## Features
 
@@ -239,7 +239,7 @@ Total: **100+ test cases** covering all features
 - Python 3.9+
 - Clang 21+ (for C++23 modules)
 - CMake 3.15+
-- pybind11 >= 3.0.1
+- nanobind >= 2.4.0
 - OpenMP
 
 ### Build Steps
@@ -353,7 +353,7 @@ BSD 4-Clause License - See [LICENSE_BSD_4_CLAUSE](../../LICENSE_BSD_4_CLAUSE)
 ## Acknowledgments
 
 - FastestJSONInTheWest core library by Olumuyiwa Oluwasanmi
-- pybind11 for excellent Python/C++ bindings
+- nanobind for next-gen GIL-free Python/C++ bindings
 - CPython development team
 
 ## Support
