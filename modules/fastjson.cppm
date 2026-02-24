@@ -756,7 +756,7 @@ public:
         return std::visit(
             [](const auto& v) -> std::string {
                 using T = std::decay_t<decltype(v)>;
-                if constexpr (std::is_same_v<T, std::string>) {
+                if constexpr (std::is_same_v<T, json_string_data>) {
                     return v;
                 } else {
                     return std::string(v);
@@ -1108,10 +1108,7 @@ auto json_value::as_string() const -> std::string_view {
 }
 
 auto json_value::as_std_string() const -> std::string {
-    if (!is_string()) {
-        throw std::runtime_error("JSON value is not a string");
-    }
-    return std::get<json_string_data>(data_).to_string();
+    return std::string(as_string());
 }
 
 auto json_value::as_string_data() const -> const json_string_data& {

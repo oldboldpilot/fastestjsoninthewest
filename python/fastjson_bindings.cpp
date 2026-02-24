@@ -57,7 +57,7 @@ static auto to_python(const fastjson::json_value& val) -> nb::object {
         return nb::float_(d);
     }
     if (val.is_string()) {
-        return nb::cast(val.as_string());
+        return nb::cast(val.as_std_string());
     }
     if (val.is_array()) {
         const auto& arr = val.as_array();
