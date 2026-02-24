@@ -1,3 +1,9 @@
-/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/build/CMakeFiles/fastjson.dir
-/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/build/CMakeFiles/edit_cache.dir
-/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/build/CMakeFiles/rebuild_cache.dir
+/home/muyiwa/Development/BigBrotherAnalytics/external/fastestjsoninthewest/python_bindings/build/CMakeFiles/std_module.dir
+/home/muyiwa/Development/BigBrotherAnalytics/external/fastestjsoninthewest/python_bindings/build/CMakeFiles/fastjson.dir
+/home/muyiwa/Development/BigBrotherAnalytics/external/fastestjsoninthewest/python_bindings/build/CMakeFiles/nanobind-static.dir
+/home/muyiwa/Development/BigBrotherAnalytics/external/fastestjsoninthewest/python_bindings/build/CMakeFiles/edit_cache.dir
+/home/muyiwa/Development/BigBrotherAnalytics/external/fastestjsoninthewest/python_bindings/build/CMakeFiles/rebuild_cache.dir
+/home/muyiwa/Development/BigBrotherAnalytics/external/fastestjsoninthewest/python_bindings/build/CMakeFiles/list_install_components.dir
+/home/muyiwa/Development/BigBrotherAnalytics/external/fastestjsoninthewest/python_bindings/build/CMakeFiles/install.dir
+/home/muyiwa/Development/BigBrotherAnalytics/external/fastestjsoninthewest/python_bindings/build/CMakeFiles/install/local.dir
+/home/muyiwa/Development/BigBrotherAnalytics/external/fastestjsoninthewest/python_bindings/build/CMakeFiles/install/strip.dir

@@ -1,7 +1,7 @@
 {
 	"InstallScripts" : 
 	[
-		"/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/build/cmake_install.cmake"
+		"/home/muyiwa/Development/BigBrotherAnalytics/external/fastestjsoninthewest/python_bindings/build/cmake_install.cmake"
 	],
 	"Parallel" : false
 }

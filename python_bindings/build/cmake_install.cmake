@@ -1,4 +1,4 @@
-# Install script for directory: /home/muyiwa/Development/FastestJSONInTheWest/python_bindings
+# Install script for directory: /home/muyiwa/Development/BigBrotherAnalytics/external/fastestjsoninthewest/python_bindings
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)
@@ -39,13 +39,29 @@ endif()
 
 # Set path to fallback-tool for dependency-resolution.
 if(NOT DEFINED CMAKE_OBJDUMP)
-  set(CMAKE_OBJDUMP "/home/muyiwa/toolchain/clang-21/bin/llvm-objdump")
+  set(CMAKE_OBJDUMP "/usr/local/bin/llvm-objdump")
+endif()
+
+if(CMAKE_INSTALL_COMPONENT STREQUAL "Unspecified" OR NOT CMAKE_INSTALL_COMPONENT)
+  if(EXISTS "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/./fastjson.cpython-313-x86_64-linux-gnu.so" AND
+     NOT IS_SYMLINK "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/./fastjson.cpython-313-x86_64-linux-gnu.so")
+    file(RPATH_CHECK
+         FILE "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/./fastjson.cpython-313-x86_64-linux-gnu.so"
+         RPATH "")
+  endif()
+  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/." TYPE MODULE FILES "/home/muyiwa/Development/BigBrotherAnalytics/external/fastestjsoninthewest/python_bindings/build/fastjson.cpython-313-x86_64-linux-gnu.so")
+  if(EXISTS "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/./fastjson.cpython-313-x86_64-linux-gnu.so" AND
+     NOT IS_SYMLINK "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/./fastjson.cpython-313-x86_64-linux-gnu.so")
+    if(CMAKE_INSTALL_DO_STRIP)
+      execute_process(COMMAND "/usr/local/bin/llvm-strip" "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/./fastjson.cpython-313-x86_64-linux-gnu.so")
+    endif()
+  endif()
 endif()
 
 string(REPLACE ";" "\n" CMAKE_INSTALL_MANIFEST_CONTENT
        "${CMAKE_INSTALL_MANIFEST_FILES}")
 if(CMAKE_INSTALL_LOCAL_ONLY)
-  file(WRITE "/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/build/install_local_manifest.txt"
+  file(WRITE "/home/muyiwa/Development/BigBrotherAnalytics/external/fastestjsoninthewest/python_bindings/build/install_local_manifest.txt"
      "${CMAKE_INSTALL_MANIFEST_CONTENT}")
 endif()
 if(CMAKE_INSTALL_COMPONENT)
@@ -61,6 +77,6 @@ else()
 endif()
 
 if(NOT CMAKE_INSTALL_LOCAL_ONLY)
-  file(WRITE "/home/muyiwa/Development/FastestJSONInTheWest/python_bindings/build/${CMAKE_INSTALL_MANIFEST}"
+  file(WRITE "/home/muyiwa/Development/BigBrotherAnalytics/external/fastestjsoninthewest/python_bindings/build/${CMAKE_INSTALL_MANIFEST}"
      "${CMAKE_INSTALL_MANIFEST_CONTENT}")
 endif()
