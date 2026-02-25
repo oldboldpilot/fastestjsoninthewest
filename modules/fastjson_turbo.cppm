@@ -25,7 +25,7 @@ import std;
 //   • AVX2 fallback: 8× ymm = 256 bytes/iteration
 //   • Runtime CPUID dispatch: AVX-512BW → AVX2 (one branch, static bool)
 //   • Packed tokens: bits[31:24]=char, bits[23:0]=byte-offset → one array
-//   • Inline bracket matching during the SIMD scan (no second O(n) pass)
+//   • Single-pass tape build: SIMD scan + bracket matching overlapped via OOO
 //   • Supports JSON up to 16 777 215 bytes (~16 MB)
 //
 // v5.1 perf fix:
@@ -34,6 +34,14 @@ import std;
 //   • Added uint32_t* overloads of process_group64 / process_scalar_tail
 //     for pure IndexOnly path: zero bracket stack, 1 DWORD store per token
 //   • Added build_structural_index(string_view, uint32_t*) dispatch
+//
+// Decoupled two-pass investigation (v5.1 → rejected):
+//   Three two-pass variants were benchmarked against single-pass (836 MB/s):
+//     bitmask intermediate (75 KB): 649 MB/s  — data[p] re-read at L2/L3
+//     position-array intermediate:  474 MB/s  — 4.3 MB vs 2.4 MB total traffic
+//   Single-pass wins: OOO execution overlaps SIMD mask computation with the
+//   bracket-stack scalar loop; data[base+bit] is L1-resident in that same
+//   iteration.  Any two-pass forces a second touch of the input at L2+ latency.
 // ---------------------------------------------------------------------------
 
 export namespace fastjson::turbo {
@@ -818,16 +826,6 @@ inline size_t build_structural_index_avx512_index(
 #endif
 }
 
-// ── Runtime dispatch [tape_entry*]: AVX-512BW → AVX2 ─────────────────────
-inline size_t build_structural_index(
-        std::string_view input, tape_entry* te) noexcept
-{
-    static const bool have_avx512bw = cpu_has_avx512bw();
-    if (__builtin_expect(have_avx512bw, 1))
-        return build_structural_index_avx512(input, te);
-    return build_structural_index_avx2(input, te);
-}
-
 // ── Runtime dispatch [uint32_t*]: lean IndexOnly — AVX-512BW → AVX2 ──────
 inline size_t build_structural_index(
         std::string_view input, uint32_t* sp) noexcept
@@ -836,6 +834,28 @@ inline size_t build_structural_index(
     if (__builtin_expect(have_avx512bw, 1))
         return build_structural_index_avx512_index(input, sp);
     return build_structural_index_avx2_index(input, sp);
+}
+
+// ── Runtime dispatch [tape_entry*]: single-pass AVX-512BW → AVX2 ──────────
+// Two-pass variants (bitmask intermediate, position intermediate) were
+// benchmarked and found slower:
+//
+//   single-pass (current):            836 MB/s  ← best
+//   bitmask two-pass:                 649 MB/s  ← data[p] re-read from L2/L3
+//   position-array two-pass:          474 MB/s  ← 4.3 MB total traffic vs 2.4 MB
+//
+// Root cause: in single-pass, data[base+bit] is read from the zmm block
+// already in L1.  Any two-pass approach forces a second touch of the data at
+// L2/L3 latency for the char lookup.  The OOO processor naturally overlaps
+// the SIMD mask computation with bracket-stack updates inside the same loop
+// iteration, hiding most of the sequential dependency.
+inline size_t build_structural_index(
+        std::string_view input, tape_entry* te) noexcept
+{
+    static const bool have_avx512bw = cpu_has_avx512bw();
+    if (__builtin_expect(have_avx512bw, 1))
+        return build_structural_index_avx512(input, te);
+    return build_structural_index_avx2(input, te);
 }
 
 } // namespace detail
