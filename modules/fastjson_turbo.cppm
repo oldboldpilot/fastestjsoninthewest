@@ -16,7 +16,7 @@ export module fastjson_turbo;
 import std;
 
 // ---------------------------------------------------------------------------
-// fastjson_turbo v5.0 — AVX-512/AVX2 runtime-dispatch JSON parser
+// fastjson_turbo v5.1 — AVX-512/AVX2 runtime-dispatch JSON parser
 //
 // Key design decisions:
 //   • AVX-512 path: 8× zmm = 512 bytes/iteration
@@ -27,6 +27,13 @@ import std;
 //   • Packed tokens: bits[31:24]=char, bits[23:0]=byte-offset → one array
 //   • Inline bracket matching during the SIMD scan (no second O(n) pass)
 //   • Supports JSON up to 16 777 215 bytes (~16 MB)
+//
+// v5.1 perf fix:
+//   • tape_entry stores use __builtin_memcpy(8) → single QWORD MOV
+//     (struct aggregate init {tok, 0u} was generating 2× DWORD stores)
+//   • Added uint32_t* overloads of process_group64 / process_scalar_tail
+//     for pure IndexOnly path: zero bracket stack, 1 DWORD store per token
+//   • Added build_structural_index(string_view, uint32_t*) dispatch
 // ---------------------------------------------------------------------------
 
 export namespace fastjson::turbo {
@@ -292,7 +299,7 @@ inline auto turbo_object::find_field(std::string_view key) const noexcept
 }
 
 // =========================================================================
-// SIMD structural indexer  — v5.0
+// SIMD structural indexer  — v5.1
 //   AVX-512:  8 × zmm  = 512 bytes/iteration  (native 64-bit masks)
 //   AVX2 fb:  8 × ymm  = 256 bytes/iteration  (2×movemask per group)
 // =========================================================================
@@ -305,8 +312,7 @@ struct scan_state {
     uint64_t prev_scalar_bit  = 0;
 };
 
-// ── process_group64: carry-chain, PCLMUL string-region, token emission ────
-// Shared by both AVX2 and AVX-512 scanners.
+// ── process_group64 [tape_entry*]: carry-chain, PCLMUL string-region, bracket matching ──
 // Uses pclmul — caller must be in a pclmul-targeted function.
 __attribute__((target("pclmul")))
 inline void process_group64(
@@ -338,7 +344,7 @@ inline void process_group64(
 
     const uint64_t combined = uq | (stm & ~sm) | (sc_start & ~sm);
 
-    // Emit tape entries. No branch on mt — always write token + partner.
+    // Emit tape entries.
     uint64_t mask = combined;
     while (mask) {
         const uint32_t bit = static_cast<uint32_t>(__builtin_ctzll(mask));
@@ -361,7 +367,45 @@ inline void process_group64(
     }
 }
 
-// ── Scalar tail (byte-by-byte for last <64 bytes) ─────────────────────────
+// ── process_group64 [uint32_t*]: lean IndexOnly — no bracket matching ─────
+// Zero bracket-stack overhead. Single DWORD store per structural token.
+__attribute__((target("pclmul")))
+inline void process_group64(
+        scan_state& st,
+        uint64_t qm, uint64_t bm, uint64_t stm, uint64_t wsm,
+        uint32_t base,
+        const char* __restrict__ data,
+        uint32_t* __restrict__ sp, size_t& si) noexcept
+{
+    uint64_t em = 0, tmp_bm = bm;
+    if (st.prev_escaped) em |= 1ULL;
+    while (tmp_bm) { uint64_t b = tmp_bm & -tmp_bm; if (!(em & b)) em |= (b << 1); tmp_bm &= tmp_bm - 1; }
+    st.prev_escaped = (bm >> 63) & (1ULL - ((em >> 63) & 1ULL));
+
+    const uint64_t uq = qm & ~em;
+
+    uint64_t sm = static_cast<uint64_t>(_mm_cvtsi128_si64(_mm_clmulepi64_si128(
+                       _mm_set_epi64x(0LL, static_cast<int64_t>(uq)),
+                       _mm_set1_epi8('\xFF'), 0))) ^ st.prev_string_mask;
+    st.prev_string_mask = static_cast<uint64_t>(static_cast<int64_t>(sm) >> 63);
+
+    const uint64_t scalar   = ~(qm | stm | wsm);
+    const uint64_t sc_start = scalar & ~((scalar << 1) | st.prev_scalar_bit);
+    st.prev_scalar_bit = scalar >> 63;
+
+    const uint64_t combined = uq | (stm & ~sm) | (sc_start & ~sm);
+
+    uint64_t mask = combined;
+    while (mask) {
+        const uint32_t bit = static_cast<uint32_t>(__builtin_ctzll(mask));
+        mask &= mask - 1ULL;
+        const uint32_t p  = base + bit;
+        const uint8_t  ch = static_cast<uint8_t>(data[p]);
+        sp[si++] = (static_cast<uint32_t>(ch) << 24) | p;
+    }
+}
+
+// ── Scalar tail [tape_entry*]: byte-by-byte for last <64 bytes ────────────
 inline void process_scalar_tail(
         scan_state& st, size_t pos, size_t len,
         const char* __restrict__ data,
@@ -378,7 +422,8 @@ inline void process_scalar_tail(
             if (c == '"' && !prev_escaped) {
                 const uint32_t tok = (static_cast<uint32_t>(static_cast<uint8_t>(c)) << 24)
                                    | static_cast<uint32_t>(pos);
-                te[si++] = {tok, 0u};
+                uint64_t _q = static_cast<uint64_t>(tok);
+                __builtin_memcpy(&te[si++], &_q, 8);
                 in_string = !in_string;
             } else if (!in_string) {
                 const bool is_struct = (c=='{' || c=='}' || c=='[' || c==']' || c==':' || c==',');
@@ -391,14 +436,17 @@ inline void process_scalar_tail(
                     const uint32_t tok = (static_cast<uint32_t>(static_cast<uint8_t>(c)) << 24)
                                        | static_cast<uint32_t>(pos);
                     if (c == '{' || c == '[') {
-                        te[si] = {tok, 0u};
+                        uint64_t _q = static_cast<uint64_t>(tok);
+                        __builtin_memcpy(&te[si], &_q, 8);
                         bkt_stk[++bkt_top] = static_cast<uint32_t>(si);
                     } else if ((c == '}' || c == ']') && bkt_top >= 0) {
                         uint32_t open = bkt_stk[bkt_top--];
                         te[open].partner = static_cast<uint32_t>(si);
-                        te[si] = {tok, open};
+                        te[si].token   = tok;
+                        te[si].partner = open;
                     } else {
-                        te[si] = {tok, 0u};
+                        uint64_t _q = static_cast<uint64_t>(tok);
+                        __builtin_memcpy(&te[si], &_q, 8);
                     }
                     ++si;
                 }
@@ -408,11 +456,48 @@ inline void process_scalar_tail(
         ++pos;
     }
     // Sentinel: position past end, no partner
-    te[si] = {static_cast<uint32_t>(len), 0u};
+    uint64_t _sentinel = static_cast<uint64_t>(len);
+    __builtin_memcpy(&te[si], &_sentinel, 8);
+}
+
+// ── Scalar tail [uint32_t*]: lean IndexOnly — no bracket matching ─────────
+inline void process_scalar_tail(
+        scan_state& st, size_t pos, size_t len,
+        const char* __restrict__ data,
+        uint32_t* __restrict__ sp, size_t& si) noexcept
+{
+    bool     in_string    = (st.prev_string_mask != 0);
+    uint64_t prev_escaped = st.prev_escaped;
+    while (pos < len) {
+        char c = data[pos];
+        if (c == '\\') {
+            prev_escaped = !prev_escaped;
+        } else {
+            if (c == '"' && !prev_escaped) {
+                sp[si++] = (static_cast<uint32_t>(static_cast<uint8_t>(c)) << 24)
+                          | static_cast<uint32_t>(pos);
+                in_string = !in_string;
+            } else if (!in_string) {
+                const bool is_struct = (c=='{' || c=='}' || c=='[' || c==']' || c==':' || c==',');
+                const bool is_scalar_start = !is_struct && c != ' ' && c != '\n' && c != '\r' && c != '\t'
+                    && (pos == 0 || ({
+                        char p = data[pos-1];
+                        p==' '||p=='\n'||p=='\r'||p=='\t'||p=='{'||p=='}'||p=='['||p==']'||p==':'||p==','||p=='"';
+                    }));
+                if (is_struct || is_scalar_start) {
+                    sp[si++] = (static_cast<uint32_t>(static_cast<uint8_t>(c)) << 24)
+                              | static_cast<uint32_t>(pos);
+                }
+            }
+            prev_escaped = false;
+        }
+        ++pos;
+    }
+    sp[si] = static_cast<uint32_t>(len);  // sentinel
 }
 
 // =========================================================================
-// AVX2 scanner — 8× ymm = 256 bytes/iteration
+// AVX2 scanner [tape_entry*] — 8× ymm = 256 bytes/iteration
 // =========================================================================
 __attribute__((target("avx2,pclmul")))
 inline size_t build_structural_index_avx2(
@@ -489,7 +574,81 @@ inline size_t build_structural_index_avx2(
 }
 
 // =========================================================================
-// AVX-512 scanner — 8× zmm = 512 bytes/iteration
+// AVX2 scanner [uint32_t*] — lean IndexOnly, no bracket stack
+// =========================================================================
+__attribute__((target("avx2,pclmul")))
+inline size_t build_structural_index_avx2_index(
+        std::string_view input,
+        uint32_t* __restrict__ sp) noexcept
+{
+    const char*  data = input.data();
+    const size_t len  = input.size();
+    size_t pos = 0, si = 0;
+    scan_state st{};
+
+    const __m256i vquote    = _mm256_set1_epi8('"');
+    const __m256i vbs       = _mm256_set1_epi8('\\');
+    const __m256i lower_tbl = _mm256_setr_epi8(
+        16,0,0,0,0,0,0,0,0,32,36,1,8,34,0,0,
+        16,0,0,0,0,0,0,0,0,32,36,1,8,34,0,0);
+    const __m256i upper_tbl = _mm256_setr_epi8(
+        32,0,24,4,0,3,0,3,0,0,0,0,0,0,0,0,
+        32,0,24,4,0,3,0,3,0,0,0,0,0,0,0,0);
+    const __m256i nibmask   = _mm256_set1_epi8(0x0F);
+    const __m256i sc_bit    = _mm256_set1_epi8(0x0F);
+    const __m256i ws_bit    = _mm256_set1_epi8(0x30);
+    const __m256i vzero     = _mm256_setzero_si256();
+
+    auto cl32 = [&](__m256i ch) __attribute__((always_inline)) -> std::pair<uint32_t, uint32_t> {
+        __m256i lo = _mm256_shuffle_epi8(lower_tbl, _mm256_and_si256(ch, nibmask));
+        __m256i hi = _mm256_shuffle_epi8(upper_tbl, _mm256_and_si256(_mm256_srli_epi16(ch, 4), nibmask));
+        __m256i cl = _mm256_and_si256(lo, hi);
+        return {
+            static_cast<uint32_t>(_mm256_movemask_epi8(_mm256_cmpgt_epi8(_mm256_and_si256(cl, sc_bit), vzero))),
+            static_cast<uint32_t>(_mm256_movemask_epi8(_mm256_cmpgt_epi8(_mm256_and_si256(cl, ws_bit), vzero)))
+        };
+    };
+    auto qm64 = [&](__m256i a, __m256i b, __m256i v) __attribute__((always_inline)) -> uint64_t {
+        return static_cast<uint32_t>(_mm256_movemask_epi8(_mm256_cmpeq_epi8(a, v))) |
+               (static_cast<uint64_t>(static_cast<uint32_t>(_mm256_movemask_epi8(_mm256_cmpeq_epi8(b, v)))) << 32);
+    };
+
+#define PG64_AVX2_IDX(c0, c1, OFF) do { \
+    const uint64_t _qm  = qm64(c0, c1, vquote); \
+    const uint64_t _bm  = qm64(c0, c1, vbs); \
+    const auto [_s0,_w0] = cl32(c0); const auto [_s1,_w1] = cl32(c1); \
+    const uint64_t _stm = static_cast<uint64_t>(_s0) | (static_cast<uint64_t>(_s1) << 32); \
+    const uint64_t _wsm = static_cast<uint64_t>(_w0) | (static_cast<uint64_t>(_w1) << 32); \
+    process_group64(st, _qm, _bm, _stm, _wsm, static_cast<uint32_t>(pos + (OFF)), data, sp, si); \
+} while(0)
+
+    while (__builtin_expect(pos + 255 < len, 1)) {
+        const __m256i c0 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(data + pos));
+        const __m256i c1 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(data + pos +  32));
+        const __m256i c2 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(data + pos +  64));
+        const __m256i c3 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(data + pos +  96));
+        const __m256i c4 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(data + pos + 128));
+        const __m256i c5 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(data + pos + 160));
+        const __m256i c6 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(data + pos + 192));
+        const __m256i c7 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(data + pos + 224));
+        PG64_AVX2_IDX(c0, c1,   0); PG64_AVX2_IDX(c2, c3,  64);
+        PG64_AVX2_IDX(c4, c5, 128); PG64_AVX2_IDX(c6, c7, 192);
+        pos += 256;
+    }
+    while (pos + 63 < len) {
+        const __m256i c0 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(data + pos));
+        const __m256i c1 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(data + pos + 32));
+        PG64_AVX2_IDX(c0, c1, 0);
+        pos += 64;
+    }
+#undef PG64_AVX2_IDX
+
+    process_scalar_tail(st, pos, len, data, sp, si);
+    return si;
+}
+
+// =========================================================================
+// AVX-512 scanner [tape_entry*] — 8× zmm = 512 bytes/iteration
 //
 // Key advantages over AVX2:
 //   • _mm512_cmpeq_epi8_mask  → native __mmask64  (no vmovmskb)
@@ -574,6 +733,79 @@ inline size_t build_structural_index_avx512(
 #undef CL64_AVX512
 #undef PG64_AVX512
 
+// =========================================================================
+// AVX-512 scanner [uint32_t*] — lean IndexOnly, no bracket stack
+// =========================================================================
+__attribute__((target("avx512f,avx512bw,pclmul")))
+inline size_t build_structural_index_avx512_index(
+        std::string_view input,
+        uint32_t* __restrict__ sp) noexcept
+{
+    const char*  data = input.data();
+    const size_t len  = input.size();
+    size_t pos = 0, si = 0;
+    scan_state st{};
+
+    const __m512i vquote512 = _mm512_set1_epi8('"');
+    const __m512i vbs512    = _mm512_set1_epi8('\\');
+
+    const __m512i lower_tbl = _mm512_broadcast_i32x4(
+        _mm_setr_epi8(16,0,0,0,0,0,0,0,0,32,36,1,8,34,0,0));
+    const __m512i upper_tbl = _mm512_broadcast_i32x4(
+        _mm_setr_epi8(32,0,24,4,0,3,0,3,0,0,0,0,0,0,0,0));
+    const __m512i nibmask   = _mm512_set1_epi8(0x0F);
+    const __m512i sc_bit    = _mm512_set1_epi8(0x0F);
+    const __m512i ws_bit    = _mm512_set1_epi8(0x30);
+    const __m512i vzero     = _mm512_setzero_si512();
+
+#define CL64_AVX512_IDX(zmm, stm_out, wsm_out) do { \
+    __m512i _lo = _mm512_shuffle_epi8(lower_tbl, _mm512_and_si512(zmm, nibmask)); \
+    __m512i _hi = _mm512_shuffle_epi8(upper_tbl, \
+                      _mm512_and_si512(_mm512_srli_epi16(zmm, 4), nibmask)); \
+    __m512i _cl = _mm512_and_si512(_lo, _hi); \
+    stm_out = static_cast<uint64_t>(_mm512_cmpgt_epi8_mask( \
+                  _mm512_and_si512(_cl, sc_bit), vzero)); \
+    wsm_out = static_cast<uint64_t>(_mm512_cmpgt_epi8_mask( \
+                  _mm512_and_si512(_cl, ws_bit), vzero)); \
+} while(0)
+
+#define PG64_AVX512_IDX(zmm, OFF) do { \
+    const uint64_t _qm = static_cast<uint64_t>(_mm512_cmpeq_epi8_mask(zmm, vquote512)); \
+    const uint64_t _bm = static_cast<uint64_t>(_mm512_cmpeq_epi8_mask(zmm, vbs512)); \
+    uint64_t _stm = 0, _wsm = 0; \
+    CL64_AVX512_IDX(zmm, _stm, _wsm); \
+    process_group64(st, _qm, _bm, _stm, _wsm, \
+                    static_cast<uint32_t>(pos + (OFF)), \
+                    data, sp, si); \
+} while(0)
+
+    while (__builtin_expect(pos + 511 < len, 1)) {
+        const __m512i c0 = _mm512_loadu_si512(static_cast<const void*>(data + pos));
+        const __m512i c1 = _mm512_loadu_si512(static_cast<const void*>(data + pos +  64));
+        const __m512i c2 = _mm512_loadu_si512(static_cast<const void*>(data + pos + 128));
+        const __m512i c3 = _mm512_loadu_si512(static_cast<const void*>(data + pos + 192));
+        const __m512i c4 = _mm512_loadu_si512(static_cast<const void*>(data + pos + 256));
+        const __m512i c5 = _mm512_loadu_si512(static_cast<const void*>(data + pos + 320));
+        const __m512i c6 = _mm512_loadu_si512(static_cast<const void*>(data + pos + 384));
+        const __m512i c7 = _mm512_loadu_si512(static_cast<const void*>(data + pos + 448));
+        PG64_AVX512_IDX(c0,   0); PG64_AVX512_IDX(c1,  64);
+        PG64_AVX512_IDX(c2, 128); PG64_AVX512_IDX(c3, 192);
+        PG64_AVX512_IDX(c4, 256); PG64_AVX512_IDX(c5, 320);
+        PG64_AVX512_IDX(c6, 384); PG64_AVX512_IDX(c7, 448);
+        pos += 512;
+    }
+    while (pos + 63 < len) {
+        const __m512i c = _mm512_loadu_si512(static_cast<const void*>(data + pos));
+        PG64_AVX512_IDX(c, 0);
+        pos += 64;
+    }
+#undef CL64_AVX512_IDX
+#undef PG64_AVX512_IDX
+
+    process_scalar_tail(st, pos, len, data, sp, si);
+    return si;
+}
+
 // ── CPUID: detect AVX-512F + AVX-512BW at runtime ─────────────────────────
 [[nodiscard]] inline bool cpu_has_avx512bw() noexcept {
 #if defined(__x86_64__) || defined(_M_X64)
@@ -586,7 +818,7 @@ inline size_t build_structural_index_avx512(
 #endif
 }
 
-// ── Runtime dispatch: AVX-512BW → AVX2 ───────────────────────────────────
+// ── Runtime dispatch [tape_entry*]: AVX-512BW → AVX2 ─────────────────────
 inline size_t build_structural_index(
         std::string_view input, tape_entry* te) noexcept
 {
@@ -594,6 +826,16 @@ inline size_t build_structural_index(
     if (__builtin_expect(have_avx512bw, 1))
         return build_structural_index_avx512(input, te);
     return build_structural_index_avx2(input, te);
+}
+
+// ── Runtime dispatch [uint32_t*]: lean IndexOnly — AVX-512BW → AVX2 ──────
+inline size_t build_structural_index(
+        std::string_view input, uint32_t* sp) noexcept
+{
+    static const bool have_avx512bw = cpu_has_avx512bw();
+    if (__builtin_expect(have_avx512bw, 1))
+        return build_structural_index_avx512_index(input, sp);
+    return build_structural_index_avx2_index(input, sp);
 }
 
 } // namespace detail
