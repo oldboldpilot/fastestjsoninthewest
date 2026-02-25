@@ -53,11 +53,23 @@ class turbo_object;
 class turbo_array;
 
 // -------------------------------------------------------------------------
+// tape_entry: single interleaved 64-bit token slot.
+//   token:   (char<<24 | byte_offset24) — same encoding as old structurals_[i]
+//   partner: index of matching bracket; 0 for non-brackets
+// Memory layout: 8 bytes/token, same total as old (4B structurals_ + 4B matching_).
+// Spatial locality: skip_value() reads token+partner from the SAME 8-byte slot.
+// -------------------------------------------------------------------------
+struct tape_entry {
+    uint32_t token;    // bits[31:24]=char, bits[23:0]=byte-offset
+    uint32_t partner;  // matching bracket index (0 = no partner)
+};
+static_assert(sizeof(tape_entry) == 8, "tape_entry must be 8 bytes");
+
+// -------------------------------------------------------------------------
 // turbo_parser
 // -------------------------------------------------------------------------
 class turbo_parser {
-    std::unique_ptr<uint32_t[]> structurals_; // packed tokens (char<<24 | pos)
-    std::unique_ptr<uint32_t[]> matching_;    // matching_[i] = matching bracket index
+    std::unique_ptr<tape_entry[]> tape_;
     size_t capacity_ = 0;
 
 public:
@@ -65,56 +77,56 @@ public:
 
     void allocate(size_t capacity) {
         if (capacity > capacity_) {
-            structurals_ = std::make_unique<uint32_t[]>(capacity + 32);
-            matching_    = std::make_unique<uint32_t[]>(capacity + 32);
-            capacity_    = capacity;
+            tape_     = std::make_unique<tape_entry[]>(capacity + 32);
+            capacity_ = capacity;
         }
     }
 
-    auto structurals() noexcept -> uint32_t* { return structurals_.get(); }
-    auto matching()    noexcept -> uint32_t* { return matching_.get(); }
+    tape_entry* tape() noexcept { return tape_.get(); }
 };
 
 // -------------------------------------------------------------------------
 // turbo_document
 // -------------------------------------------------------------------------
 class turbo_document {
-    std::string_view input_;
-    uint32_t*        structurals_;
-    uint32_t*        matching_; // O(1) bracket jump: matching_[i] = matching bracket
-    size_t           structurals_count_ = 0;
+    std::string_view   input_;
+    const tape_entry*  tape_;              // immutable after parse() completes
+    size_t             count_ = 0;
 
 public:
     explicit turbo_document(std::string_view input, turbo_parser& parser)
-        : input_(input), structurals_(parser.structurals()), matching_(parser.matching()) {
+        : input_(input), tape_(nullptr)
+    {
         parser.allocate(input.size());
-        structurals_ = parser.structurals(); // re-read after possible realloc
-        matching_    = parser.matching();
+        tape_ = parser.tape();
     }
 
+    // Byte position of structural token i
     [[nodiscard]] uint32_t get_structural(size_t idx) const noexcept {
-        return structurals_[idx] & 0x00FF'FFFFu;
+        return tape_[idx].token & 0x00FF'FFFFu;
     }
 
+    // Character type of structural token i
     [[nodiscard]] char get_structural_char(size_t idx) const noexcept {
-        if (idx >= structurals_count_) return '\0';
-        return static_cast<char>(structurals_[idx] >> 24);
+        if (idx >= count_) return '\0';
+        return static_cast<char>(tape_[idx].token >> 24);
     }
 
-    // O(1) skip using precomputed bracket table; O(2) for strings, O(1) for scalars.
+    // O(1) skip: reads token+partner from the SAME 8-byte cache line slot.
     [[nodiscard]] size_t skip_value(size_t idx) const noexcept {
-        char c = static_cast<char>(structurals_[idx] >> 24);
+        const tape_entry& e = tape_[idx];
+        const char c = static_cast<char>(e.token >> 24);
         if (c == '"') return idx + 2;
-        if (c == '{' || c == '[') return matching_[idx] + 1;
+        if (c == '{' || c == '[') return e.partner + 1;
         return idx + 1;
     }
 
-    [[nodiscard]] auto root() const noexcept -> turbo_value;
-    [[nodiscard]] size_t structurals_count() const noexcept { return structurals_count_; }
-    void set_structurals_count(size_t n) noexcept { structurals_count_ = n; }
+    [[nodiscard]] auto root()              const noexcept -> turbo_value;
+    [[nodiscard]] size_t structurals_count() const noexcept { return count_; }
+    void set_structurals_count(size_t n)   noexcept { count_ = n; }
     [[nodiscard]] std::string_view input() const noexcept { return input_; }
-    const uint32_t* structurals() const noexcept { return structurals_; }
-    void set_matching(uint32_t* m) noexcept { matching_ = m; }
+    const tape_entry* tape()               const noexcept { return tape_; }
+    void set_tape(const tape_entry* t)     noexcept { tape_ = t; }
 };
 
 // -------------------------------------------------------------------------
@@ -302,8 +314,7 @@ inline void process_group64(
         uint64_t qm, uint64_t bm, uint64_t stm, uint64_t wsm,
         uint32_t base,
         const char* __restrict__ data,
-        uint32_t* __restrict__ sp, size_t& si,
-        uint32_t* __restrict__ mt,
+        tape_entry* __restrict__ te, size_t& si,
         uint32_t* __restrict__ bkt_stk, int32_t& bkt_top) noexcept
 {
     // Escape prefix-sum.
@@ -320,29 +331,31 @@ inline void process_group64(
                        _mm_set1_epi8('\xFF'), 0))) ^ st.prev_string_mask;
     st.prev_string_mask = static_cast<uint64_t>(static_cast<int64_t>(sm) >> 63);
 
-    // Scalar-start bit (leading byte of a number / literal).
+    // Scalar-start bit.
     const uint64_t scalar   = ~(qm | stm | wsm);
     const uint64_t sc_start = scalar & ~((scalar << 1) | st.prev_scalar_bit);
     st.prev_scalar_bit = scalar >> 63;
 
     const uint64_t combined = uq | (stm & ~sm) | (sc_start & ~sm);
 
-    // Emit packed tokens and build bracket-match table.
+    // Emit tape entries. No branch on mt — always write token + partner.
     uint64_t mask = combined;
     while (mask) {
         const uint32_t bit = static_cast<uint32_t>(__builtin_ctzll(mask));
         mask &= mask - 1ULL;
-        const uint32_t p  = base + bit;
-        const uint8_t  ch = static_cast<uint8_t>(data[p]);
-        sp[si] = (static_cast<uint32_t>(ch) << 24) | p;
-        if (mt) {
-            if (ch == '{' || ch == '[') {
-                bkt_stk[++bkt_top] = static_cast<uint32_t>(si);
-            } else if ((ch == '}' || ch == ']') & (bkt_top >= 0)) {
-                const uint32_t open = bkt_stk[bkt_top--];
-                mt[open] = static_cast<uint32_t>(si);
-                mt[si]   = open;
-            }
+        const uint32_t  p   = base + bit;
+        const uint8_t   ch  = static_cast<uint8_t>(data[p]);
+        const uint32_t  tok = (static_cast<uint32_t>(ch) << 24) | p;
+
+        if (ch == '{' || ch == '[') {
+            te[si] = {tok, 0u};
+            bkt_stk[++bkt_top] = static_cast<uint32_t>(si);
+        } else if ((ch == '}' || ch == ']') & (bkt_top >= 0)) {
+            const uint32_t open = bkt_stk[bkt_top--];
+            te[open].partner    = static_cast<uint32_t>(si);
+            te[si]              = {tok, open};
+        } else {
+            te[si] = {tok, 0u};
         }
         ++si;
     }
@@ -352,8 +365,7 @@ inline void process_group64(
 inline void process_scalar_tail(
         scan_state& st, size_t pos, size_t len,
         const char* __restrict__ data,
-        uint32_t* __restrict__ sp, size_t& si,
-        uint32_t* __restrict__ mt,
+        tape_entry* __restrict__ te, size_t& si,
         uint32_t* __restrict__ bkt_stk, int32_t& bkt_top) noexcept
 {
     bool     in_string    = (st.prev_string_mask != 0);
@@ -364,7 +376,9 @@ inline void process_scalar_tail(
             prev_escaped = !prev_escaped;
         } else {
             if (c == '"' && !prev_escaped) {
-                sp[si++] = (static_cast<uint32_t>(static_cast<uint8_t>(c)) << 24) | static_cast<uint32_t>(pos);
+                const uint32_t tok = (static_cast<uint32_t>(static_cast<uint8_t>(c)) << 24)
+                                   | static_cast<uint32_t>(pos);
+                te[si++] = {tok, 0u};
                 in_string = !in_string;
             } else if (!in_string) {
                 const bool is_struct = (c=='{' || c=='}' || c=='[' || c==']' || c==':' || c==',');
@@ -374,13 +388,17 @@ inline void process_scalar_tail(
                         p==' '||p=='\n'||p=='\r'||p=='\t'||p=='{'||p=='}'||p=='['||p==']'||p==':'||p==','||p=='"';
                     }));
                 if (is_struct || is_scalar_start) {
-                    sp[si] = (static_cast<uint32_t>(static_cast<uint8_t>(c)) << 24) | static_cast<uint32_t>(pos);
-                    if (mt) {
-                        if (c == '{' || c == '[') bkt_stk[++bkt_top] = static_cast<uint32_t>(si);
-                        else if ((c == '}' || c == ']') && bkt_top >= 0) {
-                            uint32_t open = bkt_stk[bkt_top--];
-                            mt[open] = static_cast<uint32_t>(si); mt[si] = open;
-                        }
+                    const uint32_t tok = (static_cast<uint32_t>(static_cast<uint8_t>(c)) << 24)
+                                       | static_cast<uint32_t>(pos);
+                    if (c == '{' || c == '[') {
+                        te[si] = {tok, 0u};
+                        bkt_stk[++bkt_top] = static_cast<uint32_t>(si);
+                    } else if ((c == '}' || c == ']') && bkt_top >= 0) {
+                        uint32_t open = bkt_stk[bkt_top--];
+                        te[open].partner = static_cast<uint32_t>(si);
+                        te[si] = {tok, open};
+                    } else {
+                        te[si] = {tok, 0u};
                     }
                     ++si;
                 }
@@ -389,7 +407,8 @@ inline void process_scalar_tail(
         }
         ++pos;
     }
-    sp[si] = static_cast<uint32_t>(len); // sentinel
+    // Sentinel: position past end, no partner
+    te[si] = {static_cast<uint32_t>(len), 0u};
 }
 
 // =========================================================================
@@ -398,8 +417,7 @@ inline void process_scalar_tail(
 __attribute__((target("avx2,pclmul")))
 inline size_t build_structural_index_avx2(
         std::string_view input,
-        uint32_t* __restrict__ sp,
-        uint32_t* __restrict__ mt = nullptr) noexcept
+        tape_entry* __restrict__ te) noexcept
 {
     const char*  data = input.data();
     const size_t len  = input.size();
@@ -440,7 +458,7 @@ inline size_t build_structural_index_avx2(
     const auto [_s0,_w0] = cl32(c0); const auto [_s1,_w1] = cl32(c1); \
     const uint64_t _stm = static_cast<uint64_t>(_s0) | (static_cast<uint64_t>(_s1) << 32); \
     const uint64_t _wsm = static_cast<uint64_t>(_w0) | (static_cast<uint64_t>(_w1) << 32); \
-    process_group64(st, _qm, _bm, _stm, _wsm, static_cast<uint32_t>(pos + (OFF)), data, sp, si, mt, bkt_stk, bkt_top); \
+    process_group64(st, _qm, _bm, _stm, _wsm, static_cast<uint32_t>(pos + (OFF)), data, te, si, bkt_stk, bkt_top); \
 } while(0)
 
     // Main loop: 8× ymm = 256 bytes.
@@ -466,7 +484,7 @@ inline size_t build_structural_index_avx2(
     }
 #undef PG64_AVX2
 
-    process_scalar_tail(st, pos, len, data, sp, si, mt, bkt_stk, bkt_top);
+    process_scalar_tail(st, pos, len, data, te, si, bkt_stk, bkt_top);
     return si;
 }
 
@@ -482,8 +500,7 @@ inline size_t build_structural_index_avx2(
 __attribute__((target("avx512f,avx512bw,pclmul")))
 inline size_t build_structural_index_avx512(
         std::string_view input,
-        uint32_t* __restrict__ sp,
-        uint32_t* __restrict__ mt = nullptr) noexcept
+        tape_entry* __restrict__ te) noexcept
 {
     const char*  data = input.data();
     const size_t len  = input.size();
@@ -525,7 +542,7 @@ inline size_t build_structural_index_avx512(
     CL64_AVX512(zmm, _stm, _wsm); \
     process_group64(st, _qm, _bm, _stm, _wsm, \
                     static_cast<uint32_t>(pos + (OFF)), \
-                    data, sp, si, mt, bkt_stk, bkt_top); \
+                    data, te, si, bkt_stk, bkt_top); \
 } while(0)
 
     // Main loop: 8× zmm = 512 bytes.
@@ -551,7 +568,7 @@ inline size_t build_structural_index_avx512(
         pos += 64;
     }
 
-    process_scalar_tail(st, pos, len, data, sp, si, mt, bkt_stk, bkt_top);
+    process_scalar_tail(st, pos, len, data, te, si, bkt_stk, bkt_top);
     return si;
 }
 #undef CL64_AVX512
@@ -571,12 +588,12 @@ inline size_t build_structural_index_avx512(
 
 // ── Runtime dispatch: AVX-512BW → AVX2 ───────────────────────────────────
 inline size_t build_structural_index(
-        std::string_view input, uint32_t* sp, uint32_t* mt) noexcept
+        std::string_view input, tape_entry* te) noexcept
 {
     static const bool have_avx512bw = cpu_has_avx512bw();
-    if (__builtin_expect(have_avx512bw, 0))
-        return build_structural_index_avx512(input, sp, mt);
-    return build_structural_index_avx2(input, sp, mt);
+    if (__builtin_expect(have_avx512bw, 1))
+        return build_structural_index_avx512(input, te);
+    return build_structural_index_avx2(input, te);
 }
 
 } // namespace detail
@@ -588,9 +605,7 @@ inline size_t build_structural_index(
     -> result<turbo_document>
 {
     turbo_document doc(input, parser);
-    // Single pass: SIMD scan (AVX-512 or AVX2) + inline bracket-matching.
-    size_t count = detail::build_structural_index(
-        input, parser.structurals(), parser.matching());
+    size_t count = detail::build_structural_index(input, parser.tape());
     doc.set_structurals_count(count);
     return doc;
 }

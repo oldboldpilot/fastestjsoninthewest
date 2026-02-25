@@ -88,11 +88,11 @@ static void BM_Fastjson_Turbo_Parse(benchmark::State& state) {
 
 static void BM_Fastjson_Turbo_IndexOnly(benchmark::State& state) {
     std::string json = generate_json();
-    // scan-only: no match table (nullptr). Uses AVX-512 or AVX2 via runtime dispatch.
-    std::unique_ptr<uint32_t[]> sp = std::make_unique<uint32_t[]>(json.size() + 32);
+    // scan-only: single tape buffer. Uses AVX-512 or AVX2 via runtime dispatch.
+    auto tape = std::make_unique<fastjson::turbo::tape_entry[]>(json.size() + 32);
 
     for (auto _ : state) {
-        size_t count = fastjson::turbo::detail::build_structural_index(json, sp.get(), nullptr);
+        size_t count = fastjson::turbo::detail::build_structural_index(json, tape.get());
         benchmark::DoNotOptimize(count);
     }
     state.SetBytesProcessed(int64_t(state.iterations()) * json.size());
