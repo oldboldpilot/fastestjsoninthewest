@@ -106,7 +106,9 @@ if(ENABLE_PARALLEL_STL)
     set(TBB_STRICT OFF CACHE BOOL "Disable strict warnings" FORCE)
 
     # Make TBB available
-    FetchContent_MakeAvailable(TBB)
+    if(NOT TARGET TBB::tbb)
+        FetchContent_MakeAvailable(TBB)
+    endif()
 
     # Export TBB configuration for parent projects
     # NOTE: Unlike std.pcm, TBB doesn't require flag matching for binary compatibility
