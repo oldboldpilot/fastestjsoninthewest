@@ -4,6 +4,90 @@
 
 module;
 
+#if defined(_MSC_VER) && !defined(__clang__)
+struct msvc_float128 {
+    double val;
+    constexpr msvc_float128() noexcept : val(0.0) {}
+    constexpr msvc_float128(double v) noexcept : val(v) {}
+    constexpr operator double() const noexcept { return val; }
+    constexpr auto operator+(msvc_float128 o) const noexcept -> msvc_float128 { return val + o.val; }
+    constexpr auto operator-(msvc_float128 o) const noexcept -> msvc_float128 { return val - o.val; }
+    constexpr auto operator*(msvc_float128 o) const noexcept -> msvc_float128 { return val * o.val; }
+    constexpr auto operator/(msvc_float128 o) const noexcept -> msvc_float128 { return val / o.val; }
+    constexpr auto operator+=(msvc_float128 o) noexcept -> msvc_float128& { val += o.val; return *this; }
+    constexpr auto operator-=(msvc_float128 o) noexcept -> msvc_float128& { val -= o.val; return *this; }
+    constexpr auto operator*=(msvc_float128 o) noexcept -> msvc_float128& { val *= o.val; return *this; }
+    constexpr auto operator/=(msvc_float128 o) noexcept -> msvc_float128& { val /= o.val; return *this; }
+    constexpr auto operator-() const noexcept -> msvc_float128 { return -val; }
+    constexpr auto operator==(msvc_float128 o) const noexcept -> bool { return val == o.val; }
+    constexpr auto operator<(msvc_float128 o) const noexcept -> bool { return val < o.val; }
+    constexpr auto operator>(msvc_float128 o) const noexcept -> bool { return val > o.val; }
+    constexpr auto operator<=(msvc_float128 o) const noexcept -> bool { return val <= o.val; }
+    constexpr auto operator>=(msvc_float128 o) const noexcept -> bool { return val >= o.val; }
+};
+struct msvc_int128 {
+    int64_t val;
+    constexpr msvc_int128() noexcept : val(0) {}
+    constexpr msvc_int128(int64_t v) noexcept : val(v) {}
+    constexpr operator int64_t() const noexcept { return val; }
+    constexpr auto operator+(msvc_int128 o) const noexcept -> msvc_int128 { return val + o.val; }
+    constexpr auto operator-(msvc_int128 o) const noexcept -> msvc_int128 { return val - o.val; }
+    constexpr auto operator*(msvc_int128 o) const noexcept -> msvc_int128 { return val * o.val; }
+    constexpr auto operator/(msvc_int128 o) const noexcept -> msvc_int128 { return val / o.val; }
+    constexpr auto operator-() const noexcept -> msvc_int128 { return -val; }
+    constexpr auto operator%(int64_t o) const noexcept -> int64_t { return val % o; }
+    constexpr auto operator/=(int64_t o) noexcept -> msvc_int128& { val /= o; return *this; }
+    constexpr auto operator==(int64_t o) const noexcept -> bool { return val == o; }
+    constexpr auto operator<(int64_t o) const noexcept -> bool { return val < o; }
+};
+struct msvc_uint128 {
+    uint64_t val;
+    constexpr msvc_uint128() noexcept : val(0) {}
+    constexpr msvc_uint128(uint64_t v) noexcept : val(v) {}
+    constexpr msvc_uint128(msvc_int128 v) noexcept : val(static_cast<uint64_t>(static_cast<int64_t>(v))) {}
+    constexpr operator uint64_t() const noexcept { return val; }
+    constexpr auto operator+(msvc_uint128 o) const noexcept -> msvc_uint128 { return val + o.val; }
+    constexpr auto operator-(msvc_uint128 o) const noexcept -> msvc_uint128 { return val - o.val; }
+    constexpr auto operator*(msvc_uint128 o) const noexcept -> msvc_uint128 { return val * o.val; }
+    constexpr auto operator/(msvc_uint128 o) const noexcept -> msvc_uint128 { return val / o.val; }
+    constexpr auto operator%(uint64_t o) const noexcept -> uint64_t { return val % o; }
+    constexpr auto operator/=(uint64_t o) noexcept -> msvc_uint128& { val /= o; return *this; }
+    constexpr auto operator==(uint64_t o) const noexcept -> bool { return val == o; }
+};
+using float128_compat = msvc_float128;
+using int128_compat = msvc_int128;
+using uint128_compat = msvc_uint128;
+#elif defined(_WIN32)
+struct msvc_float128 {
+    double val;
+    constexpr msvc_float128() noexcept : val(0.0) {}
+    constexpr msvc_float128(double v) noexcept : val(v) {}
+    constexpr operator double() const noexcept { return val; }
+    constexpr auto operator+(msvc_float128 o) const noexcept -> msvc_float128 { return val + o.val; }
+    constexpr auto operator-(msvc_float128 o) const noexcept -> msvc_float128 { return val - o.val; }
+    constexpr auto operator*(msvc_float128 o) const noexcept -> msvc_float128 { return val * o.val; }
+    constexpr auto operator/(msvc_float128 o) const noexcept -> msvc_float128 { return val / o.val; }
+    constexpr auto operator+=(msvc_float128 o) noexcept -> msvc_float128& { val += o.val; return *this; }
+    constexpr auto operator-=(msvc_float128 o) noexcept -> msvc_float128& { val -= o.val; return *this; }
+    constexpr auto operator*=(msvc_float128 o) noexcept -> msvc_float128& { val *= o.val; return *this; }
+    constexpr auto operator/=(msvc_float128 o) noexcept -> msvc_float128& { val /= o.val; return *this; }
+    constexpr auto operator-() const noexcept -> msvc_float128 { return -val; }
+    constexpr auto operator==(msvc_float128 o) const noexcept -> bool { return val == o.val; }
+    constexpr auto operator<(msvc_float128 o) const noexcept -> bool { return val < o.val; }
+    constexpr auto operator>(msvc_float128 o) const noexcept -> bool { return val > o.val; }
+    constexpr auto operator<=(msvc_float128 o) const noexcept -> bool { return val <= o.val; }
+    constexpr auto operator>=(msvc_float128 o) const noexcept -> bool { return val >= o.val; }
+};
+using float128_compat = msvc_float128;
+using int128_compat = __int128;
+using uint128_compat = unsigned __int128;
+#else
+using float128_compat = __float128;
+using int128_compat = __int128;
+using uint128_compat = unsigned __int128;
+#endif
+
+
 // Global module fragment - all includes must be here
 #include <algorithm>
 #include <array>
@@ -290,12 +374,12 @@ auto parser::parse_number() -> json_result<json_value> {
         bool neg = (*p == '-');
         if (neg) p++;
 
-        unsigned __int128 result = 0;
+        uint128_compat result = 0;
         bool overflow = false;
         const char* end = number_str.data() + number_str.size();
         
         while (p < end && *p >= '0' && *p <= '9') {
-            unsigned __int128 prev = result;
+            uint128_compat prev = result;
             result = result * 10 + (*p - '0');
             if (result < prev) { 
                 overflow = true; 
@@ -306,12 +390,12 @@ auto parser::parse_number() -> json_result<json_value> {
 
         if (!overflow) {
             if (neg) {
-                return json_value{static_cast<__int128>(-static_cast<__int128>(result))};
+                return json_value{static_cast<int128_compat>(-static_cast<int128_compat>(result))};
             } else {
-                if (result > static_cast<unsigned __int128>(std::numeric_limits<__int128>::max())) {
-                    return json_value{result}; // unsigned __int128
+                if (result > static_cast<uint128_compat>(std::numeric_limits<int128_compat>::max())) {
+                    return json_value{result}; // uint128_compat
                 }
-                return json_value{static_cast<__int128>(result)};
+                return json_value{static_cast<int128_compat>(result)};
             }
         }
         

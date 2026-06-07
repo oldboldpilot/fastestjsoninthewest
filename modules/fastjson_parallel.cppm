@@ -4,6 +4,90 @@
 
 module;
 
+#if defined(_MSC_VER) && !defined(__clang__)
+struct msvc_float128 {
+    double val;
+    constexpr msvc_float128() noexcept : val(0.0) {}
+    constexpr msvc_float128(double v) noexcept : val(v) {}
+    constexpr operator double() const noexcept { return val; }
+    constexpr auto operator+(msvc_float128 o) const noexcept -> msvc_float128 { return val + o.val; }
+    constexpr auto operator-(msvc_float128 o) const noexcept -> msvc_float128 { return val - o.val; }
+    constexpr auto operator*(msvc_float128 o) const noexcept -> msvc_float128 { return val * o.val; }
+    constexpr auto operator/(msvc_float128 o) const noexcept -> msvc_float128 { return val / o.val; }
+    constexpr auto operator+=(msvc_float128 o) noexcept -> msvc_float128& { val += o.val; return *this; }
+    constexpr auto operator-=(msvc_float128 o) noexcept -> msvc_float128& { val -= o.val; return *this; }
+    constexpr auto operator*=(msvc_float128 o) noexcept -> msvc_float128& { val *= o.val; return *this; }
+    constexpr auto operator/=(msvc_float128 o) noexcept -> msvc_float128& { val /= o.val; return *this; }
+    constexpr auto operator-() const noexcept -> msvc_float128 { return -val; }
+    constexpr auto operator==(msvc_float128 o) const noexcept -> bool { return val == o.val; }
+    constexpr auto operator<(msvc_float128 o) const noexcept -> bool { return val < o.val; }
+    constexpr auto operator>(msvc_float128 o) const noexcept -> bool { return val > o.val; }
+    constexpr auto operator<=(msvc_float128 o) const noexcept -> bool { return val <= o.val; }
+    constexpr auto operator>=(msvc_float128 o) const noexcept -> bool { return val >= o.val; }
+};
+struct msvc_int128 {
+    int64_t val;
+    constexpr msvc_int128() noexcept : val(0) {}
+    constexpr msvc_int128(int64_t v) noexcept : val(v) {}
+    constexpr operator int64_t() const noexcept { return val; }
+    constexpr auto operator+(msvc_int128 o) const noexcept -> msvc_int128 { return val + o.val; }
+    constexpr auto operator-(msvc_int128 o) const noexcept -> msvc_int128 { return val - o.val; }
+    constexpr auto operator*(msvc_int128 o) const noexcept -> msvc_int128 { return val * o.val; }
+    constexpr auto operator/(msvc_int128 o) const noexcept -> msvc_int128 { return val / o.val; }
+    constexpr auto operator-() const noexcept -> msvc_int128 { return -val; }
+    constexpr auto operator%(int64_t o) const noexcept -> int64_t { return val % o; }
+    constexpr auto operator/=(int64_t o) noexcept -> msvc_int128& { val /= o; return *this; }
+    constexpr auto operator==(int64_t o) const noexcept -> bool { return val == o; }
+    constexpr auto operator<(int64_t o) const noexcept -> bool { return val < o; }
+};
+struct msvc_uint128 {
+    uint64_t val;
+    constexpr msvc_uint128() noexcept : val(0) {}
+    constexpr msvc_uint128(uint64_t v) noexcept : val(v) {}
+    constexpr msvc_uint128(msvc_int128 v) noexcept : val(static_cast<uint64_t>(static_cast<int64_t>(v))) {}
+    constexpr operator uint64_t() const noexcept { return val; }
+    constexpr auto operator+(msvc_uint128 o) const noexcept -> msvc_uint128 { return val + o.val; }
+    constexpr auto operator-(msvc_uint128 o) const noexcept -> msvc_uint128 { return val - o.val; }
+    constexpr auto operator*(msvc_uint128 o) const noexcept -> msvc_uint128 { return val * o.val; }
+    constexpr auto operator/(msvc_uint128 o) const noexcept -> msvc_uint128 { return val / o.val; }
+    constexpr auto operator%(uint64_t o) const noexcept -> uint64_t { return val % o; }
+    constexpr auto operator/=(uint64_t o) noexcept -> msvc_uint128& { val /= o; return *this; }
+    constexpr auto operator==(uint64_t o) const noexcept -> bool { return val == o; }
+};
+using float128_compat = msvc_float128;
+using int128_compat = msvc_int128;
+using uint128_compat = msvc_uint128;
+#elif defined(_WIN32)
+struct msvc_float128 {
+    double val;
+    constexpr msvc_float128() noexcept : val(0.0) {}
+    constexpr msvc_float128(double v) noexcept : val(v) {}
+    constexpr operator double() const noexcept { return val; }
+    constexpr auto operator+(msvc_float128 o) const noexcept -> msvc_float128 { return val + o.val; }
+    constexpr auto operator-(msvc_float128 o) const noexcept -> msvc_float128 { return val - o.val; }
+    constexpr auto operator*(msvc_float128 o) const noexcept -> msvc_float128 { return val * o.val; }
+    constexpr auto operator/(msvc_float128 o) const noexcept -> msvc_float128 { return val / o.val; }
+    constexpr auto operator+=(msvc_float128 o) noexcept -> msvc_float128& { val += o.val; return *this; }
+    constexpr auto operator-=(msvc_float128 o) noexcept -> msvc_float128& { val -= o.val; return *this; }
+    constexpr auto operator*=(msvc_float128 o) noexcept -> msvc_float128& { val *= o.val; return *this; }
+    constexpr auto operator/=(msvc_float128 o) noexcept -> msvc_float128& { val /= o.val; return *this; }
+    constexpr auto operator-() const noexcept -> msvc_float128 { return -val; }
+    constexpr auto operator==(msvc_float128 o) const noexcept -> bool { return val == o.val; }
+    constexpr auto operator<(msvc_float128 o) const noexcept -> bool { return val < o.val; }
+    constexpr auto operator>(msvc_float128 o) const noexcept -> bool { return val > o.val; }
+    constexpr auto operator<=(msvc_float128 o) const noexcept -> bool { return val <= o.val; }
+    constexpr auto operator>=(msvc_float128 o) const noexcept -> bool { return val >= o.val; }
+};
+using float128_compat = msvc_float128;
+using int128_compat = __int128;
+using uint128_compat = unsigned __int128;
+#else
+using float128_compat = __float128;
+using int128_compat = __int128;
+using uint128_compat = unsigned __int128;
+#endif
+
+
 // Global module fragment - all includes must be here
 #include <algorithm>
 #include <array>
@@ -347,9 +431,9 @@ auto convert_to_utf8(std::string_view input, text_encoding encoding)
 // null               std::nullptr_t                        json_value(nullptr)
 // boolean            bool                                  json_value(true)
 // number             double                                json_value(42.0)
-// number (128-bit)   __float128                           json_value((__float128)3.14...)
-// integer (128-bit)  __int128                             json_value((__int128)large_int)
-// uint (128-bit)     unsigned __int128                    json_value((unsigned __int128)...)
+// number (128-bit)   float128_compat                           json_value((float128_compat)3.14...)
+// integer (128-bit)  int128_compat                             json_value((int128_compat)large_int)
+// uint (128-bit)     uint128_compat                    json_value((uint128_compat)...)
 // string             std::string                           json_value("text")
 // array              std::vector<json_value>               json_value(json_array{...})
 // object             std::unordered_map<string, value>     json_value(json_object{...})
@@ -400,9 +484,9 @@ template <typename T> using json_result = std::expected<T, json_error>;
 // Core JSON type aliases
 export using json_string = std::string;
 export using json_number = double;
-export using json_number_128 = __float128;       // Extended 128-bit float
-export using json_int_128 = __int128;            // 128-bit signed integer
-export using json_uint_128 = unsigned __int128;  // 128-bit unsigned integer
+export using json_number_128 = float128_compat;       // Extended 128-bit float
+export using json_int_128 = int128_compat;            // 128-bit signed integer
+export using json_uint_128 = uint128_compat;  // 128-bit unsigned integer
 export using json_boolean = bool;
 export using json_null = std::nullptr_t;
 
@@ -436,17 +520,17 @@ public:
 
     json_value(double d) : data_(d) {}
 
-    json_value(int i) : data_(static_cast<__int128>(i)) {}
+    json_value(int i) : data_(static_cast<int128_compat>(i)) {}
 
-    json_value(int64_t i) : data_(static_cast<__int128>(i)) {}
+    json_value(int64_t i) : data_(static_cast<int128_compat>(i)) {}
 
-    json_value(uint64_t i) : data_(static_cast<unsigned __int128>(i)) {}
+    json_value(uint64_t i) : data_(static_cast<uint128_compat>(i)) {}
 
-    json_value(__float128 value) : data_(value) {}
+    json_value(float128_compat value) : data_(value) {}
 
-    json_value(__int128 value) : data_(value) {}
+    json_value(int128_compat value) : data_(value) {}
 
-    json_value(unsigned __int128 value) : data_(value) {}
+    json_value(uint128_compat value) : data_(value) {}
 
     json_value(const std::string& s) : data_(s) {}
 
@@ -508,7 +592,7 @@ public:
     }
 
     auto as_number_128() const -> json_number_128 {
-        if (!is_number_128()) return static_cast<__float128>(std::numeric_limits<double>::quiet_NaN());
+        if (!is_number_128()) return static_cast<float128_compat>(std::numeric_limits<double>::quiet_NaN());
         return std::get<json_number_128>(data_);
     }
 
@@ -539,20 +623,20 @@ public:
         return std::numeric_limits<double>::quiet_NaN();
     }
 
-    auto as_int128() const -> __int128 {
+    auto as_int128() const -> int128_compat {
         if (is_int_128()) return std::get<json_int_128>(data_);
-        if (is_uint_128()) return static_cast<__int128>(std::get<json_uint_128>(data_));
-        if (is_number()) return static_cast<__int128>(std::get<json_number>(data_));
-        if (is_number_128()) return static_cast<__int128>(std::get<json_number_128>(data_));
+        if (is_uint_128()) return static_cast<int128_compat>(std::get<json_uint_128>(data_));
+        if (is_number()) return static_cast<int128_compat>(std::get<json_number>(data_));
+        if (is_number_128()) return static_cast<int128_compat>(std::get<json_number_128>(data_));
         return 0;
     }
 
-    auto as_float128() const -> __float128 {
+    auto as_float128() const -> float128_compat {
         if (is_number_128()) return std::get<json_number_128>(data_);
-        if (is_number()) return static_cast<__float128>(std::get<json_number>(data_));
-        if (is_int_128()) return static_cast<__float128>(std::get<json_int_128>(data_));
-        if (is_uint_128()) return static_cast<__float128>(std::get<json_uint_128>(data_));
-        return static_cast<__float128>(std::numeric_limits<double>::quiet_NaN());
+        if (is_number()) return static_cast<float128_compat>(std::get<json_number>(data_));
+        if (is_int_128()) return static_cast<float128_compat>(std::get<json_int_128>(data_));
+        if (is_uint_128()) return static_cast<float128_compat>(std::get<json_uint_128>(data_));
+        return static_cast<float128_compat>(std::numeric_limits<double>::quiet_NaN());
     }
 
     // Array/Object size operations
@@ -1900,7 +1984,7 @@ auto parser::parse_number() -> json_result<json_value> {
     // For pure integers (no decimal/exponent) that may exceed int64 range,
     // try to parse as 128-bit integer if digit count suggests overflow
     // int64 max is ~19 digits (9223372036854775807)
-    // __int128 max is ~39 digits
+    // int128_compat max is ~39 digits
     if (!has_decimal && !has_exponent && digit_count >= 19) {
         // Try parsing as 128-bit integer
         thread_local std::array<char, 128> int_buffer;
@@ -1913,10 +1997,10 @@ auto parser::parse_number() -> json_result<json_value> {
         bool neg = (*p == '-');
         if (neg) p++;
 
-        unsigned __int128 result = 0;
+        uint128_compat result = 0;
         bool overflow = false;
         while (*p >= '0' && *p <= '9') {
-            unsigned __int128 prev = result;
+            uint128_compat prev = result;
             result = result * 10 + (*p - '0');
             if (result < prev) { overflow = true; break; }
             p++;
@@ -1925,13 +2009,13 @@ auto parser::parse_number() -> json_result<json_value> {
         if (!overflow) {
             if (neg) {
                 // Return signed 128-bit
-                return json_value{static_cast<__int128>(-static_cast<__int128>(result))};
+                return json_value{static_cast<int128_compat>(-static_cast<int128_compat>(result))};
             } else {
                 // For very large positive numbers, use unsigned if it exceeds signed range
-                if (result > static_cast<unsigned __int128>(std::numeric_limits<__int128>::max())) {
-                    return json_value{result};  // unsigned __int128
+                if (result > static_cast<uint128_compat>(std::numeric_limits<int128_compat>::max())) {
+                    return json_value{result};  // uint128_compat
                 }
-                return json_value{static_cast<__int128>(result)};
+                return json_value{static_cast<int128_compat>(result)};
             }
         }
         // On overflow (> 128 bits), fall through to double parsing (will lose precision)
@@ -3138,10 +3222,10 @@ auto json_value::serialize_to_buffer(std::string& buffer, int indent) const -> v
                 char tmp[64];
                 char* p = tmp + 64;
                 bool neg = false;
-                unsigned __int128 uv;
+                uint128_compat uv;
                 if constexpr (std::is_same_v<T, json_int_128>) {
-                    if (v < 0) { neg = true; uv = (unsigned __int128)-v; }
-                    else uv = (unsigned __int128)v;
+                    if (v < 0) { neg = true; uv = (uint128_compat)-v; }
+                    else uv = (uint128_compat)v;
                 } else uv = v;
                 while (uv > 0) { *--p = '0' + (uv % 10); uv /= 10; }
                 if (neg) *--p = '-';
