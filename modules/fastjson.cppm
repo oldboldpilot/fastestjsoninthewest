@@ -4,12 +4,574 @@
 
 module;
 
+#if defined(_MSC_VER) && !defined(__clang__)
+struct alignas(16) msvc_uint128;
+struct alignas(16) msvc_int128;
+struct alignas(16) msvc_float128;
+
+// Helper Functions for Carry Math (Declarations)
+constexpr auto mul64_to_128(uint64_t u, uint64_t v) noexcept -> msvc_uint128;
+constexpr auto divmod128(msvc_uint128 dividend, msvc_uint128 divisor, msvc_uint128& remainder) noexcept -> msvc_uint128;
+
+struct alignas(16) msvc_uint128 {
+    uint64_t low{0};
+    uint64_t high{0};
+
+    constexpr msvc_uint128() noexcept = default;
+    constexpr msvc_uint128(uint64_t l, uint64_t h) noexcept : low(l), high(h) {}
+    
+    template <typename T, typename = std::enable_if_t<std::is_integral_v<T>>>
+    constexpr msvc_uint128(T val) noexcept {
+        if constexpr (std::is_signed_v<T>) {
+            low = static_cast<uint64_t>(val);
+            high = val < 0 ? 0xFFFFFFFFFFFFFFFFULL : 0ULL;
+        } else {
+            low = static_cast<uint64_t>(val);
+            high = 0ULL;
+        }
+    }
+
+    constexpr msvc_uint128(msvc_int128 v) noexcept;
+
+    constexpr explicit operator uint64_t() const noexcept { return low; }
+    constexpr explicit operator int64_t() const noexcept { return static_cast<int64_t>(low); }
+    constexpr explicit operator bool() const noexcept { return low != 0 || high != 0; }
+    constexpr explicit operator double() const noexcept {
+        return static_cast<double>(high) * 18446744073709551616.0 + static_cast<double>(low);
+    }
+
+    // Inline Friend Operators
+    friend constexpr auto operator+(msvc_uint128 lhs, msvc_uint128 rhs) noexcept -> msvc_uint128 {
+        uint64_t low = lhs.low + rhs.low;
+        uint64_t high = lhs.high + rhs.high + (low < lhs.low);
+        return {low, high};
+    }
+
+    friend constexpr auto operator-(msvc_uint128 lhs, msvc_uint128 rhs) noexcept -> msvc_uint128 {
+        uint64_t low = lhs.low - rhs.low;
+        uint64_t high = lhs.high - rhs.high - (lhs.low < rhs.low);
+        return {low, high};
+    }
+
+    friend constexpr auto operator*(msvc_uint128 lhs, msvc_uint128 rhs) noexcept -> msvc_uint128 {
+        msvc_uint128 res = mul64_to_128(lhs.low, rhs.low);
+        res.high += lhs.high * rhs.low + lhs.low * rhs.high;
+        return res;
+    }
+
+    friend constexpr auto operator/(msvc_uint128 lhs, msvc_uint128 rhs) noexcept -> msvc_uint128 {
+        msvc_uint128 remainder;
+        return divmod128(lhs, rhs, remainder);
+    }
+
+    friend constexpr auto operator%(msvc_uint128 lhs, msvc_uint128 rhs) noexcept -> msvc_uint128 {
+        msvc_uint128 remainder;
+        divmod128(lhs, rhs, remainder);
+        return remainder;
+    }
+
+    friend constexpr auto operator-(msvc_uint128 val) noexcept -> msvc_uint128 {
+        uint64_t low = ~val.low + 1;
+        uint64_t high = ~val.high + (low == 0);
+        return {low, high};
+    }
+
+    friend constexpr auto operator&(msvc_uint128 lhs, msvc_uint128 rhs) noexcept -> msvc_uint128 {
+        return {lhs.low & rhs.low, lhs.high & rhs.high};
+    }
+    friend constexpr auto operator|(msvc_uint128 lhs, msvc_uint128 rhs) noexcept -> msvc_uint128 {
+        return {lhs.low | rhs.low, lhs.high | rhs.high};
+    }
+    friend constexpr auto operator^(msvc_uint128 lhs, msvc_uint128 rhs) noexcept -> msvc_uint128 {
+        return {lhs.low ^ rhs.low, lhs.high ^ rhs.high};
+    }
+    friend constexpr auto operator~(msvc_uint128 val) noexcept -> msvc_uint128 {
+        return {~val.low, ~val.high};
+    }
+
+    friend constexpr auto operator<<(msvc_uint128 lhs, int count) noexcept -> msvc_uint128 {
+        if (count <= 0) return lhs;
+        if (count >= 128) return {0, 0};
+        if (count >= 64) {
+            return {0, lhs.low << (count - 64)};
+        } else {
+            return {lhs.low << count, (lhs.high << count) | (lhs.low >> (64 - count))};
+        }
+    }
+
+    friend constexpr auto operator>>(msvc_uint128 lhs, int count) noexcept -> msvc_uint128 {
+        if (count <= 0) return lhs;
+        if (count >= 128) return {0, 0};
+        if (count >= 64) {
+            return {lhs.high >> (count - 64), 0};
+        } else {
+            return {(lhs.low >> count) | (lhs.high << (64 - count)), lhs.high >> count};
+        }
+    }
+
+    friend constexpr auto operator==(msvc_uint128 lhs, msvc_uint128 rhs) noexcept -> bool {
+        return lhs.low == rhs.low && lhs.high == rhs.high;
+    }
+    friend constexpr auto operator!=(msvc_uint128 lhs, msvc_uint128 rhs) noexcept -> bool {
+        return !(lhs == rhs);
+    }
+    friend constexpr auto operator<(msvc_uint128 lhs, msvc_uint128 rhs) noexcept -> bool {
+        if (lhs.high != rhs.high) return lhs.high < rhs.high;
+        return lhs.low < rhs.low;
+    }
+    friend constexpr auto operator>(msvc_uint128 lhs, msvc_uint128 rhs) noexcept -> bool { return rhs < lhs; }
+    friend constexpr auto operator<=(msvc_uint128 lhs, msvc_uint128 rhs) noexcept -> bool { return !(rhs < lhs); }
+    friend constexpr auto operator>=(msvc_uint128 lhs, msvc_uint128 rhs) noexcept -> bool { return !(lhs < rhs); }
+
+    constexpr auto operator+=(msvc_uint128 other) noexcept -> msvc_uint128& { *this = *this + other; return *this; }
+    constexpr auto operator-=(msvc_uint128 other) noexcept -> msvc_uint128& { *this = *this - other; return *this; }
+    constexpr auto operator*=(msvc_uint128 other) noexcept -> msvc_uint128& { *this = *this * other; return *this; }
+    constexpr auto operator/=(msvc_uint128 other) noexcept -> msvc_uint128& { *this = *this / other; return *this; }
+    constexpr auto operator%=(msvc_uint128 other) noexcept -> msvc_uint128& { *this = *this % other; return *this; }
+    constexpr auto operator&=(msvc_uint128 other) noexcept -> msvc_uint128& { *this = *this & other; return *this; }
+    constexpr auto operator|=(msvc_uint128 other) noexcept -> msvc_uint128& { *this = *this | other; return *this; }
+    constexpr auto operator^=(msvc_uint128 other) noexcept -> msvc_uint128& { *this = *this ^ other; return *this; }
+    constexpr auto operator<<=(int count) noexcept -> msvc_uint128& { *this = *this << count; return *this; }
+    constexpr auto operator>>=(int count) noexcept -> msvc_uint128& { *this = *this >> count; return *this; }
+    
+    constexpr auto operator++() noexcept -> msvc_uint128& { *this += 1; return *this; }
+    constexpr auto operator++(int) noexcept -> msvc_uint128 { msvc_uint128 tmp = *this; *this += 1; return tmp; }
+    constexpr auto operator--() noexcept -> msvc_uint128& { *this -= 1; return *this; }
+    constexpr auto operator--(int) noexcept -> msvc_uint128 { msvc_uint128 tmp = *this; *this -= 1; return tmp; }
+};
+
+struct alignas(16) msvc_int128 {
+    uint64_t low{0};
+    int64_t high{0};
+
+    constexpr msvc_int128() noexcept = default;
+    constexpr msvc_int128(uint64_t l, int64_t h) noexcept : low(l), high(h) {}
+    
+    template <typename T, typename = std::enable_if_t<std::is_integral_v<T>>>
+    constexpr msvc_int128(T val) noexcept {
+        if constexpr (std::is_signed_v<T>) {
+            low = static_cast<uint64_t>(val);
+            high = val < 0 ? -1 : 0;
+        } else {
+            low = static_cast<uint64_t>(val);
+            high = 0;
+        }
+    }
+
+    constexpr msvc_int128(msvc_uint128 v) noexcept;
+
+    constexpr explicit operator uint64_t() const noexcept { return low; }
+    constexpr explicit operator int64_t() const noexcept { return static_cast<int64_t>(low); }
+    constexpr explicit operator bool() const noexcept { return low != 0 || high != 0; }
+    constexpr explicit operator double() const noexcept {
+        return static_cast<double>(high) * 18446744073709551616.0 + static_cast<double>(low);
+    }
+
+    // Inline Friend Operators
+    friend constexpr auto operator+(msvc_int128 lhs, msvc_int128 rhs) noexcept -> msvc_int128 {
+        uint64_t low = lhs.low + rhs.low;
+        int64_t high = lhs.high + rhs.high + (low < lhs.low);
+        return {low, high};
+    }
+
+    friend constexpr auto operator-(msvc_int128 lhs, msvc_int128 rhs) noexcept -> msvc_int128 {
+        uint64_t low = lhs.low - rhs.low;
+        int64_t high = lhs.high - rhs.high - (lhs.low < rhs.low);
+        return {low, high};
+    }
+
+    friend constexpr auto operator*(msvc_int128 lhs, msvc_int128 rhs) noexcept -> msvc_int128 {
+        msvc_uint128 u_lhs{lhs.low, static_cast<uint64_t>(lhs.high)};
+        msvc_uint128 u_rhs{rhs.low, static_cast<uint64_t>(rhs.high)};
+        msvc_uint128 u_res = u_lhs * u_rhs;
+        return {u_res.low, static_cast<int64_t>(u_res.high)};
+    }
+
+    friend constexpr auto operator/(msvc_int128 lhs, msvc_int128 rhs) noexcept -> msvc_int128 {
+        bool neg_lhs = lhs.high < 0;
+        bool neg_rhs = rhs.high < 0;
+
+        msvc_uint128 u_lhs = neg_lhs ? static_cast<msvc_uint128>(-lhs) : msvc_uint128{lhs.low, static_cast<uint64_t>(lhs.high)};
+        msvc_uint128 u_rhs = neg_rhs ? static_cast<msvc_uint128>(-rhs) : msvc_uint128{rhs.low, static_cast<uint64_t>(rhs.high)};
+
+        msvc_uint128 u_rem;
+        msvc_uint128 u_quot = divmod128(u_lhs, u_rhs, u_rem);
+
+        msvc_int128 quot{u_quot.low, static_cast<int64_t>(u_quot.high)};
+        return (neg_lhs ^ neg_rhs) ? -quot : quot;
+    }
+
+    friend constexpr auto operator%(msvc_int128 lhs, msvc_int128 rhs) noexcept -> msvc_int128 {
+        bool neg_lhs = lhs.high < 0;
+        bool neg_rhs = rhs.high < 0;
+
+        msvc_uint128 u_lhs = neg_lhs ? static_cast<msvc_uint128>(-lhs) : msvc_uint128{lhs.low, static_cast<uint64_t>(lhs.high)};
+        msvc_uint128 u_rhs = neg_rhs ? static_cast<msvc_uint128>(-rhs) : msvc_uint128{rhs.low, static_cast<uint64_t>(rhs.high)};
+
+        msvc_uint128 u_rem;
+        divmod128(u_lhs, u_rhs, u_rem);
+
+        msvc_int128 rem{u_rem.low, static_cast<int64_t>(u_rem.high)};
+        return neg_lhs ? -rem : rem;
+    }
+
+    friend constexpr auto operator-(msvc_int128 val) noexcept -> msvc_int128 {
+        uint64_t low = ~val.low + 1;
+        int64_t high = ~val.high + (low == 0);
+        return {low, high};
+    }
+
+    friend constexpr auto operator&(msvc_int128 lhs, msvc_int128 rhs) noexcept -> msvc_int128 {
+        return {lhs.low & rhs.low, lhs.high & rhs.high};
+    }
+    friend constexpr auto operator|(msvc_int128 lhs, msvc_int128 rhs) noexcept -> msvc_int128 {
+        return {lhs.low | rhs.low, lhs.high | rhs.high};
+    }
+    friend constexpr auto operator^(msvc_int128 lhs, msvc_int128 rhs) noexcept -> msvc_int128 {
+        return {lhs.low ^ rhs.low, lhs.high ^ rhs.high};
+    }
+    friend constexpr auto operator~(msvc_int128 val) noexcept -> msvc_int128 {
+        return {~val.low, ~val.high};
+    }
+
+    friend constexpr auto operator<<(msvc_int128 lhs, int count) noexcept -> msvc_int128 {
+        if (count <= 0) return lhs;
+        if (count >= 128) return {0, 0};
+        if (count >= 64) {
+            return {0, static_cast<int64_t>(lhs.low << (count - 64))};
+        } else {
+            return {lhs.low << count, static_cast<int64_t>((static_cast<uint64_t>(lhs.high) << count) | (lhs.low >> (64 - count)))};
+        }
+    }
+
+    friend constexpr auto operator>>(msvc_int128 lhs, int count) noexcept -> msvc_int128 {
+        if (count <= 0) return lhs;
+        if (count >= 128) {
+            return lhs.high < 0 ? msvc_int128{0xFFFFFFFFFFFFFFFFULL, -1} : msvc_int128{0, 0};
+        }
+        if (count >= 64) {
+            int64_t new_high = lhs.high < 0 ? -1 : 0;
+            return {static_cast<uint64_t>(lhs.high >> (count - 64)), new_high};
+        } else {
+            return {(lhs.low >> count) | (static_cast<uint64_t>(lhs.high) << (64 - count)), lhs.high >> count};
+        }
+    }
+
+    friend constexpr auto operator==(msvc_int128 lhs, msvc_int128 rhs) noexcept -> bool {
+        return lhs.low == rhs.low && lhs.high == rhs.high;
+    }
+    friend constexpr auto operator!=(msvc_int128 lhs, msvc_int128 rhs) noexcept -> bool {
+        return !(lhs == rhs);
+    }
+    friend constexpr auto operator<(msvc_int128 lhs, msvc_int128 rhs) noexcept -> bool {
+        if (lhs.high != rhs.high) return lhs.high < rhs.high;
+        return lhs.low < rhs.low;
+    }
+    friend constexpr auto operator>(msvc_int128 lhs, msvc_int128 rhs) noexcept -> bool { return rhs < lhs; }
+    friend constexpr auto operator<=(msvc_int128 lhs, msvc_int128 rhs) noexcept -> bool { return !(rhs < lhs); }
+    friend constexpr auto operator>=(msvc_int128 lhs, msvc_int128 rhs) noexcept -> bool { return !(lhs < rhs); }
+
+    constexpr auto operator+=(msvc_int128 other) noexcept -> msvc_int128& { *this = *this + other; return *this; }
+    constexpr auto operator-=(msvc_int128 other) noexcept -> msvc_int128& { *this = *this - other; return *this; }
+    constexpr auto operator*=(msvc_int128 other) noexcept -> msvc_int128& { *this = *this * other; return *this; }
+    constexpr auto operator/=(msvc_int128 other) noexcept -> msvc_int128& { *this = *this / other; return *this; }
+    constexpr auto operator%=(msvc_int128 other) noexcept -> msvc_int128& { *this = *this % other; return *this; }
+    constexpr auto operator&=(msvc_int128 other) noexcept -> msvc_int128& { *this = *this & other; return *this; }
+    constexpr auto operator|=(msvc_int128 other) noexcept -> msvc_int128& { *this = *this | other; return *this; }
+    constexpr auto operator^=(msvc_int128 other) noexcept -> msvc_int128& { *this = *this ^ other; return *this; }
+    constexpr auto operator<<=(int count) noexcept -> msvc_int128& { *this = *this << count; return *this; }
+    constexpr auto operator>>=(int count) noexcept -> msvc_int128& { *this = *this >> count; return *this; }
+
+    constexpr auto operator++() noexcept -> msvc_int128& { *this += 1; return *this; }
+    constexpr auto operator++(int) noexcept -> msvc_int128 { msvc_int128 tmp = *this; *this += 1; return tmp; }
+    constexpr auto operator--() noexcept -> msvc_int128& { *this -= 1; return *this; }
+    constexpr auto operator--(int) noexcept -> msvc_int128 { msvc_int128 tmp = *this; *this -= 1; return tmp; }
+};
+
+// Cross conversion implementations
+constexpr msvc_uint128::msvc_uint128(msvc_int128 v) noexcept : low(v.low), high(static_cast<uint64_t>(v.high)) {}
+constexpr msvc_int128::msvc_int128(msvc_uint128 v) noexcept : low(v.low), high(static_cast<int64_t>(v.high)) {}
+
+// Helper math implementations
+constexpr auto mul64_to_128(uint64_t u, uint64_t v) noexcept -> msvc_uint128 {
+    uint64_t u_lo = u & 0xFFFFFFFFULL;
+    uint64_t u_hi = u >> 32;
+    uint64_t v_lo = v & 0xFFFFFFFFULL;
+    uint64_t v_hi = v >> 32;
+
+    uint64_t w0 = u_lo * v_lo;
+    uint64_t w1 = u_hi * v_lo;
+    uint64_t w2 = u_lo * v_hi;
+    uint64_t w3 = u_hi * v_hi;
+
+    uint64_t w1_lo = w1 & 0xFFFFFFFFULL;
+    uint64_t w1_hi = w1 >> 32;
+    uint64_t w2_lo = w2 & 0xFFFFFFFFULL;
+    uint64_t w2_hi = w2 >> 32;
+
+    uint64_t low_part = w0 + (w1_lo << 32);
+    uint64_t carry = (low_part < w0);
+    uint64_t low = low_part + (w2_lo << 32);
+    carry += (low < low_part);
+
+    uint64_t high = w3 + w1_hi + w2_hi + carry;
+    return {low, high};
+}
+
+constexpr auto divmod128(msvc_uint128 dividend, msvc_uint128 divisor, msvc_uint128& remainder) noexcept -> msvc_uint128 {
+    if (divisor.low == 0 && divisor.high == 0) {
+        remainder = {0, 0};
+        return {0xFFFFFFFFFFFFFFFFULL, 0xFFFFFFFFFFFFFFFFULL};
+    }
+    if (dividend < divisor) {
+        remainder = dividend;
+        return {0, 0};
+    }
+    if (dividend == divisor) {
+        remainder = {0, 0};
+        return {1, 0};
+    }
+
+    msvc_uint128 quotient = {0, 0};
+    remainder = {0, 0};
+
+    for (int i = 127; i >= 0; --i) {
+        remainder = (remainder << 1) | ((dividend >> i) & 1ULL);
+        if (remainder >= divisor) {
+            remainder = remainder - divisor;
+            quotient = quotient | (msvc_uint128{1, 0} << i);
+        }
+    }
+    return quotient;
+}
+
+struct alignas(16) msvc_float128 {
+    double head{0.0};
+    double tail{0.0};
+
+    constexpr msvc_float128() noexcept = default;
+    constexpr msvc_float128(double h) noexcept : head(h), tail(0.0) {}
+    constexpr msvc_float128(double h, double t) noexcept : head(h), tail(t) {}
+    
+    constexpr explicit msvc_float128(float v) noexcept : head(v), tail(0.0) {}
+    constexpr explicit msvc_float128(long double v) noexcept : head(static_cast<double>(v)), tail(0.0) {}
+
+    constexpr explicit operator double() const noexcept { return head; }
+    constexpr explicit operator float() const noexcept { return static_cast<float>(head); }
+    constexpr explicit operator long double() const noexcept { return static_cast<long double>(head); }
+
+    constexpr auto operator+=(msvc_float128 other) noexcept -> msvc_float128&;
+    constexpr auto operator-=(msvc_float128 other) noexcept -> msvc_float128&;
+    constexpr auto operator*=(msvc_float128 other) noexcept -> msvc_float128&;
+    constexpr auto operator/=(msvc_float128 other) noexcept -> msvc_float128&;
+};
+
+constexpr auto msvc_two_sum(double a, double b, double& err) noexcept -> double {
+    double s = a + b;
+    double bb = s - a;
+    err = (a - (s - bb)) + (b - bb);
+    return s;
+}
+
+constexpr auto msvc_split(double a, double& hi, double& lo) noexcept -> void {
+    double c = 134217729.0 * a;
+    double ab = c - a;
+    hi = c - ab;
+    lo = a - hi;
+}
+
+constexpr auto msvc_two_prod(double a, double b, double& err) noexcept -> double {
+    double p = a * b;
+    double a_hi, a_lo;
+    msvc_split(a, a_hi, a_lo);
+    double b_hi, b_lo;
+    msvc_split(b, b_hi, b_lo);
+    err = ((a_hi * b_hi - p) + a_hi * b_lo + a_lo * b_hi) + a_lo * b_lo;
+    return p;
+}
+
+constexpr auto operator+(msvc_float128 a, msvc_float128 b) noexcept -> msvc_float128 {
+    double s1, s2, t1, t2;
+    s1 = msvc_two_sum(a.head, b.head, t1);
+    s2 = msvc_two_sum(a.tail, b.tail, t2);
+    s2 += t1;
+    s1 = msvc_two_sum(s1, s2, t1);
+    s2 = t1 + t2;
+    double head, tail;
+    head = msvc_two_sum(s1, s2, tail);
+    return {head, tail};
+}
+
+constexpr auto operator-(msvc_float128 a) noexcept -> msvc_float128 {
+    return {-a.head, -a.tail};
+}
+
+constexpr auto operator-(msvc_float128 a, msvc_float128 b) noexcept -> msvc_float128 {
+    return a + (-b);
+}
+
+constexpr auto operator*(msvc_float128 a, msvc_float128 b) noexcept -> msvc_float128 {
+    double p1, p2;
+    p1 = msvc_two_prod(a.head, b.head, p2);
+    p2 += a.head * b.tail + a.tail * b.head;
+    double head, tail;
+    head = msvc_two_sum(p1, p2, tail);
+    return {head, tail};
+}
+
+constexpr auto operator/(msvc_float128 a, msvc_float128 b) noexcept -> msvc_float128 {
+    double q1 = a.head / b.head;
+    msvc_float128 q1_b = msvc_float128(q1) * b;
+    msvc_float128 r = a - q1_b;
+    double q2 = r.head / b.head;
+    double head, tail;
+    head = msvc_two_sum(q1, q2, tail);
+    return {head, tail};
+}
+
+constexpr auto operator==(msvc_float128 a, msvc_float128 b) noexcept -> bool {
+    return a.head == b.head && a.tail == b.tail;
+}
+constexpr auto operator!=(msvc_float128 a, msvc_float128 b) noexcept -> bool {
+    return !(a == b);
+}
+constexpr auto operator<(msvc_float128 a, msvc_float128 b) noexcept -> bool {
+    if (a.head != b.head) return a.head < b.head;
+    return a.tail < b.tail;
+}
+constexpr auto operator>(msvc_float128 a, msvc_float128 b) noexcept -> bool { return b < a; }
+constexpr auto operator<=(msvc_float128 a, msvc_float128 b) noexcept -> bool { return !(b < a); }
+constexpr auto operator>=(msvc_float128 a, msvc_float128 b) noexcept -> bool { return !(a < b); }
+
+constexpr auto msvc_float128::operator+=(msvc_float128 other) noexcept -> msvc_float128& { *this = *this + other; return *this; }
+constexpr auto msvc_float128::operator-=(msvc_float128 other) noexcept -> msvc_float128& { *this = *this - other; return *this; }
+constexpr auto msvc_float128::operator*=(msvc_float128 other) noexcept -> msvc_float128& { *this = *this * other; return *this; }
+constexpr auto msvc_float128::operator/=(msvc_float128 other) noexcept -> msvc_float128& { *this = *this / other; return *this; }
+
+using float128_compat = msvc_float128;
+using int128_compat = msvc_int128;
+using uint128_compat = msvc_uint128;
+#elif defined(_WIN32)
+struct alignas(16) msvc_float128 {
+    double head{0.0};
+    double tail{0.0};
+
+    constexpr msvc_float128() noexcept = default;
+    constexpr msvc_float128(double h) noexcept : head(h), tail(0.0) {}
+    constexpr msvc_float128(double h, double t) noexcept : head(h), tail(t) {}
+    
+    constexpr explicit msvc_float128(float v) noexcept : head(v), tail(0.0) {}
+    constexpr explicit msvc_float128(long double v) noexcept : head(static_cast<double>(v)), tail(0.0) {}
+
+    constexpr explicit operator double() const noexcept { return head; }
+    constexpr explicit operator float() const noexcept { return static_cast<float>(head); }
+    constexpr explicit operator long double() const noexcept { return static_cast<long double>(head); }
+
+    constexpr auto operator+=(msvc_float128 other) noexcept -> msvc_float128&;
+    constexpr auto operator-=(msvc_float128 other) noexcept -> msvc_float128&;
+    constexpr auto operator*=(msvc_float128 other) noexcept -> msvc_float128&;
+    constexpr auto operator/=(msvc_float128 other) noexcept -> msvc_float128&;
+};
+
+constexpr auto msvc_two_sum(double a, double b, double& err) noexcept -> double {
+    double s = a + b;
+    double bb = s - a;
+    err = (a - (s - bb)) + (b - bb);
+    return s;
+}
+
+constexpr auto msvc_split(double a, double& hi, double& lo) noexcept -> void {
+    double c = 134217729.0 * a;
+    double ab = c - a;
+    hi = c - ab;
+    lo = a - hi;
+}
+
+constexpr auto msvc_two_prod(double a, double b, double& err) noexcept -> double {
+    double p = a * b;
+    double a_hi, a_lo;
+    msvc_split(a, a_hi, a_lo);
+    double b_hi, b_lo;
+    msvc_split(b, b_hi, b_lo);
+    err = ((a_hi * b_hi - p) + a_hi * b_lo + a_lo * b_hi) + a_lo * b_lo;
+    return p;
+}
+
+constexpr auto operator+(msvc_float128 a, msvc_float128 b) noexcept -> msvc_float128 {
+    double s1, s2, t1, t2;
+    s1 = msvc_two_sum(a.head, b.head, t1);
+    s2 = msvc_two_sum(a.tail, b.tail, t2);
+    s2 += t1;
+    s1 = msvc_two_sum(s1, s2, t1);
+    s2 = t1 + t2;
+    double head, tail;
+    head = msvc_two_sum(s1, s2, tail);
+    return {head, tail};
+}
+
+constexpr auto operator-(msvc_float128 a) noexcept -> msvc_float128 {
+    return {-a.head, -a.tail};
+}
+
+constexpr auto operator-(msvc_float128 a, msvc_float128 b) noexcept -> msvc_float128 {
+    return a + (-b);
+}
+
+constexpr auto operator*(msvc_float128 a, msvc_float128 b) noexcept -> msvc_float128 {
+    double p1, p2;
+    p1 = msvc_two_prod(a.head, b.head, p2);
+    p2 += a.head * b.tail + a.tail * b.head;
+    double head, tail;
+    head = msvc_two_sum(p1, p2, tail);
+    return {head, tail};
+}
+
+constexpr auto operator/(msvc_float128 a, msvc_float128 b) noexcept -> msvc_float128 {
+    double q1 = a.head / b.head;
+    msvc_float128 q1_b = msvc_float128(q1) * b;
+    msvc_float128 r = a - q1_b;
+    double q2 = r.head / b.head;
+    double head, tail;
+    head = msvc_two_sum(q1, q2, tail);
+    return {head, tail};
+}
+
+constexpr auto operator==(msvc_float128 a, msvc_float128 b) noexcept -> bool {
+    return a.head == b.head && a.tail == b.tail;
+}
+constexpr auto operator!=(msvc_float128 a, msvc_float128 b) noexcept -> bool {
+    return !(a == b);
+}
+constexpr auto operator<(msvc_float128 a, msvc_float128 b) noexcept -> bool {
+    if (a.head != b.head) return a.head < b.head;
+    return a.tail < b.tail;
+}
+constexpr auto operator>(msvc_float128 a, msvc_float128 b) noexcept -> bool { return b < a; }
+constexpr auto operator<=(msvc_float128 a, msvc_float128 b) noexcept -> bool { return !(b < a); }
+constexpr auto operator>=(msvc_float128 a, msvc_float128 b) noexcept -> bool { return !(a < b); }
+
+constexpr auto msvc_float128::operator+=(msvc_float128 other) noexcept -> msvc_float128& { *this = *this + other; return *this; }
+constexpr auto msvc_float128::operator-=(msvc_float128 other) noexcept -> msvc_float128& { *this = *this - other; return *this; }
+constexpr auto msvc_float128::operator*=(msvc_float128 other) noexcept -> msvc_float128& { *this = *this * other; return *this; }
+constexpr auto msvc_float128::operator/=(msvc_float128 other) noexcept -> msvc_float128& { *this = *this / other; return *this; }
+
+using float128_compat = msvc_float128;
+using int128_compat = __int128;
+using uint128_compat = unsigned __int128;
+#else
+using float128_compat = __float128;
+using int128_compat = __int128;
+using uint128_compat = unsigned __int128;
+#endif
+
+
 // SIMD intrinsics MUST be in global module fragment to avoid declaration conflicts
 #include <cstdlib>
 #include <cstdint>
 #include <cstring>
 #include <atomic>
 #include <array>
+#include <type_traits>
 #if defined(__x86_64__) || defined(_M_X64)
     #include <cpuid.h>
     #include <immintrin.h>
@@ -801,9 +1363,9 @@ public:
 // JSON container type aliases using standard containers
 using json_string = json_string_data;
 using json_number = double;               // Default 64-bit float
-using json_number_128 = __float128;       // Extended 128-bit float
-using json_int_128 = __int128;            // 128-bit signed integer
-using json_uint_128 = unsigned __int128;  // 128-bit unsigned integer
+using json_number_128 = float128_compat;       // Extended 128-bit float
+using json_int_128 = int128_compat;            // 128-bit signed integer
+using json_uint_128 = uint128_compat;  // 128-bit unsigned integer
 using json_boolean = bool;
 using json_null = std::nullptr_t;            // Use nullptr_t for direct equivalence with nullptr
 using json_array = std::vector<json_value>;  // Array as std::vector
@@ -859,19 +1421,19 @@ public:
 
     json_value(bool value) : data_(value) {}
 
-    json_value(int value) : data_(static_cast<__int128>(value)) {}
+    json_value(int value) : data_(static_cast<int128_compat>(value)) {}
 
-    json_value(int64_t value) : data_(static_cast<__int128>(value)) {}
+    json_value(int64_t value) : data_(static_cast<int128_compat>(value)) {}
 
-    json_value(uint64_t value) : data_(static_cast<unsigned __int128>(value)) {}
+    json_value(uint64_t value) : data_(static_cast<uint128_compat>(value)) {}
 
     json_value(double value) : data_(value) {}
 
-    json_value(__float128 value) : data_(value) {}
+    json_value(float128_compat value) : data_(value) {}
 
-    json_value(__int128 value) : data_(value) {}
+    json_value(int128_compat value) : data_(value) {}
 
-    json_value(unsigned __int128 value) : data_(value) {}
+    json_value(uint128_compat value) : data_(value) {}
 
     json_value(const char* value) : data_(json_string_data(std::string_view(value))) {}
 
@@ -915,9 +1477,9 @@ public:
     // Value accessor methods (declared here, implemented below)
     auto as_boolean() const -> bool;
     auto as_number() const -> double;
-    auto as_number_128() const -> __float128;
-    auto as_int_128() const -> __int128;
-    auto as_uint_128() const -> unsigned __int128;
+    auto as_number_128() const -> float128_compat;
+    auto as_int_128() const -> int128_compat;
+    auto as_uint_128() const -> uint128_compat;
     auto as_string() const -> std::string_view;
     auto as_std_string() const -> std::string;
     auto as_string_data() const -> const json_string_data&;
@@ -929,9 +1491,9 @@ public:
     auto as_int64() const -> int64_t;
     auto as_uint64() const -> uint64_t;
     auto as_float64() const -> double;
-    auto as_int128() const -> __int128;
-    auto as_uint128() const -> unsigned __int128;
-    auto as_float128() const -> __float128;
+    auto as_int128() const -> int128_compat;
+    auto as_uint128() const -> uint128_compat;
+    auto as_float128() const -> float128_compat;
 
     // Mutable accessor methods
     auto as_array() -> json_array&;
@@ -984,15 +1546,15 @@ auto json_value::is_number() const noexcept -> bool {
 }
 
 auto json_value::is_number_128() const noexcept -> bool {
-    return std::holds_alternative<__float128>(data_);
+    return std::holds_alternative<float128_compat>(data_);
 }
 
 auto json_value::is_int_128() const noexcept -> bool {
-    return std::holds_alternative<__int128>(data_);
+    return std::holds_alternative<int128_compat>(data_);
 }
 
 auto json_value::is_uint_128() const noexcept -> bool {
-    return std::holds_alternative<unsigned __int128>(data_);
+    return std::holds_alternative<uint128_compat>(data_);
 }
 
 auto json_value::is_string() const noexcept -> bool {
@@ -1023,79 +1585,79 @@ auto json_value::as_number() const -> double {
 
     // Fallback: Convert from 128-bit types (with potential precision loss)
     if (is_number_128()) {
-        return static_cast<double>(std::get<__float128>(data_));
+        return static_cast<double>(std::get<float128_compat>(data_));
     }
     if (is_int_128()) {
-        return static_cast<double>(std::get<__int128>(data_));
+        return static_cast<double>(std::get<int128_compat>(data_));
     }
     if (is_uint_128()) {
-        return static_cast<double>(std::get<unsigned __int128>(data_));
+        return static_cast<double>(std::get<uint128_compat>(data_));
     }
 
     // Not a numeric type at all
     return std::numeric_limits<double>::quiet_NaN();
 }
 
-auto json_value::as_number_128() const -> __float128 {
+auto json_value::as_number_128() const -> float128_compat {
     // Try 128-bit float first
     if (is_number_128()) {
-        return std::get<__float128>(data_);
+        return std::get<float128_compat>(data_);
     }
 
     // Fallback: Convert from other numeric types (upcast or precision loss)
     if (is_number()) {
-        return static_cast<__float128>(std::get<double>(data_));
+        return static_cast<float128_compat>(std::get<double>(data_));
     }
     if (is_int_128()) {
-        return static_cast<__float128>(std::get<__int128>(data_));
+        return static_cast<float128_compat>(std::get<int128_compat>(data_));
     }
     if (is_uint_128()) {
-        return static_cast<__float128>(std::get<unsigned __int128>(data_));
+        return static_cast<float128_compat>(std::get<uint128_compat>(data_));
     }
 
     // Not a numeric type at all
-    return static_cast<__float128>(std::numeric_limits<double>::quiet_NaN());
+    return static_cast<float128_compat>(std::numeric_limits<double>::quiet_NaN());
 }
 
-auto json_value::as_int_128() const -> __int128 {
+auto json_value::as_int_128() const -> int128_compat {
     // Try signed 128-bit first
     if (is_int_128()) {
-        return std::get<__int128>(data_);
+        return std::get<int128_compat>(data_);
     }
     // Fallback: Convert from other numeric types
     if (is_uint_128()) {
-        return static_cast<__int128>(std::get<unsigned __int128>(data_));
+        return static_cast<int128_compat>(std::get<uint128_compat>(data_));
     }
     if (is_number()) {
         const double val = std::get<double>(data_);
         if (std::isnan(val)) {
             return 0;
         }
-        return static_cast<__int128>(val);
+        return static_cast<int128_compat>(val);
     }
     if (is_number_128()) {
-        return static_cast<__int128>(std::get<__float128>(data_));
+        return static_cast<int128_compat>(std::get<float128_compat>(data_));
     }
     return 0;
 }
 
-auto json_value::as_uint_128() const -> unsigned __int128 {
+auto json_value::as_uint_128() const -> uint128_compat {
     // Try unsigned 128-bit first
     if (is_uint_128()) {
-        return std::get<unsigned __int128>(data_);
+        return std::get<uint128_compat>(data_);
     }
     // Fallback: Convert from other numeric types
     if (is_int_128()) {
-        return static_cast<unsigned __int128>(std::get<__int128>(data_));
+        return static_cast<uint128_compat>(std::get<int128_compat>(data_));
     }
     if (is_number()) {
         double val = std::get<double>(data_);
         if (std::isnan(val))
             return 0;
-        return static_cast<unsigned __int128>(val);
+        return static_cast<uint128_compat>(val);
     }
     if (is_number_128()) {
-        return static_cast<unsigned __int128>(std::get<__float128>(data_));
+        return static_cast<uint128_compat>(std::get<float128_compat>(data_));
     }
     return 0;
 }
@@ -1127,11 +1689,11 @@ auto json_value::as_int64() const -> int64_t {
             return 0;
         return static_cast<int64_t>(val);
     } else if (is_int_128()) {
-        return static_cast<int64_t>(std::get<__int128>(data_));
+        return static_cast<int64_t>(std::get<int128_compat>(data_));
     } else if (is_uint_128()) {
-        return static_cast<int64_t>(std::get<unsigned __int128>(data_));
+        return static_cast<int64_t>(std::get<uint128_compat>(data_));
     } else if (is_number_128()) {
-        return static_cast<int64_t>(std::get<__float128>(data_));
+        return static_cast<int64_t>(std::get<float128_compat>(data_));
     }
     return 0;  // Non-numeric type returns 0
 }
@@ -1143,11 +1705,11 @@ auto json_value::as_uint64() const -> uint64_t {
             return 0;
         return static_cast<uint64_t>(val);
     } else if (is_uint_128()) {
-        return static_cast<uint64_t>(std::get<unsigned __int128>(data_));
+        return static_cast<uint64_t>(std::get<uint128_compat>(data_));
     } else if (is_int_128()) {
-        return static_cast<uint64_t>(std::get<__int128>(data_));
+        return static_cast<uint64_t>(std::get<int128_compat>(data_));
     } else if (is_number_128()) {
-        return static_cast<uint64_t>(std::get<__float128>(data_));
+        return static_cast<uint64_t>(std::get<float128_compat>(data_));
     }
     return 0;  // Non-numeric type returns 0
 }
@@ -1156,65 +1718,65 @@ auto json_value::as_float64() const -> double {
     if (is_number()) {
         return std::get<double>(data_);
     } else if (is_int_128()) {
-        return static_cast<double>(std::get<__int128>(data_));
+        return static_cast<double>(std::get<int128_compat>(data_));
     } else if (is_uint_128()) {
-        return static_cast<double>(std::get<unsigned __int128>(data_));
+        return static_cast<double>(std::get<uint128_compat>(data_));
     } else if (is_number_128()) {
-        return static_cast<double>(std::get<__float128>(data_));
+        return static_cast<double>(std::get<float128_compat>(data_));
     }
     return std::numeric_limits<double>::quiet_NaN();
 }
 
-auto json_value::as_int128() const -> __int128 {
+auto json_value::as_int128() const -> int128_compat {
     if (is_int_128()) {
-        return std::get<__int128>(data_);
+        return std::get<int128_compat>(data_);
     } else if (is_uint_128()) {
-        return static_cast<__int128>(std::get<unsigned __int128>(data_));
+        return static_cast<int128_compat>(std::get<uint128_compat>(data_));
     }
     if (is_number()) {
         const double val = std::get<double>(data_);
         if (std::isnan(val)) {
             return 0;
         }
-        return static_cast<__int128>(val);
+        return static_cast<int128_compat>(val);
     }
     if (is_number_128()) {
-        return static_cast<__int128>(std::get<__float128>(data_));
+        return static_cast<int128_compat>(std::get<float128_compat>(data_));
     }
     return 0;  // Non-numeric type returns 0
 }
 
-auto json_value::as_uint128() const -> unsigned __int128 {
+auto json_value::as_uint128() const -> uint128_compat {
     if (is_uint_128()) {
-        return std::get<unsigned __int128>(data_);
+        return std::get<uint128_compat>(data_);
     }
     if (is_int_128()) {
-        return static_cast<unsigned __int128>(std::get<__int128>(data_));
+        return static_cast<uint128_compat>(std::get<int128_compat>(data_));
     }
     if (is_number()) {
         const double val = std::get<double>(data_);
         if (std::isnan(val)) {
             return 0;
         }
-        return static_cast<unsigned __int128>(val);
+        return static_cast<uint128_compat>(val);
     }
     if (is_number_128()) {
-        return static_cast<unsigned __int128>(std::get<__float128>(data_));
+        return static_cast<uint128_compat>(std::get<float128_compat>(data_));
     }
     return 0;  // Non-numeric type returns 0
 }
 
-auto json_value::as_float128() const -> __float128 {
+auto json_value::as_float128() const -> float128_compat {
     if (is_number_128()) {
-        return std::get<__float128>(data_);
+        return std::get<float128_compat>(data_);
     } else if (is_number()) {
-        return static_cast<__float128>(std::get<double>(data_));
+        return static_cast<float128_compat>(std::get<double>(data_));
     } else if (is_int_128()) {
-        return static_cast<__float128>(std::get<__int128>(data_));
+        return static_cast<float128_compat>(std::get<int128_compat>(data_));
     } else if (is_uint_128()) {
-        return static_cast<__float128>(std::get<unsigned __int128>(data_));
+        return static_cast<float128_compat>(std::get<uint128_compat>(data_));
     }
-    return static_cast<__float128>(std::numeric_limits<double>::quiet_NaN());
+    return static_cast<float128_compat>(std::numeric_limits<double>::quiet_NaN());
 }
 
 auto json_value::as_array() const -> const json_array& {
@@ -1398,8 +1960,8 @@ auto json_value::serialize_to_buffer(std::string& buffer, int indent) const -> v
                 } else {
                     buffer += std::to_string(v);
                 }
-            } else if constexpr (std::is_same_v<T, __float128>) {
-                // Convert __float128 to long double for string conversion
+            } else if constexpr (std::is_same_v<T, float128_compat>) {
+                // Convert float128_compat to long double for string conversion
                 // This preserves most precision while using standard library
                 long double ld_value = static_cast<long double>(v);
                 thread_local std::array<char, 128> num_buffer;
@@ -1408,11 +1970,11 @@ auto json_value::serialize_to_buffer(std::string& buffer, int indent) const -> v
                 if (ec == std::errc{}) {
                     buffer.append(num_buffer.data(), ptr);
                 }
-            } else if constexpr (std::is_same_v<T, __int128>) {
-                // Convert __int128 to string manually
+            } else if constexpr (std::is_same_v<T, int128_compat>) {
+                // Convert int128_compat to string manually
                 bool is_negative = v < 0;
-                unsigned __int128 abs_val = is_negative ? -static_cast<unsigned __int128>(v)
-                                                        : static_cast<unsigned __int128>(v);
+                uint128_compat abs_val = is_negative ? -static_cast<uint128_compat>(v)
+                                                        : static_cast<uint128_compat>(v);
                 thread_local std::array<char, 64> num_buffer;
                 char* ptr = num_buffer.data() + num_buffer.size();
                 *--ptr = '\0';
@@ -1424,9 +1986,9 @@ auto json_value::serialize_to_buffer(std::string& buffer, int indent) const -> v
                     *--ptr = '-';
                 }
                 buffer += ptr;
-            } else if constexpr (std::is_same_v<T, unsigned __int128>) {
-                // Convert unsigned __int128 to string manually
-                unsigned __int128 val = v;
+            } else if constexpr (std::is_same_v<T, uint128_compat>) {
+                // Convert uint128_compat to string manually
+                uint128_compat val = v;
                 thread_local std::array<char, 64> num_buffer;
                 char* ptr = num_buffer.data() + num_buffer.size();
                 *--ptr = '\0';
@@ -1700,13 +2262,13 @@ inline auto analyze_number_precision(const char* start, const char* end) -> numb
     return info;
 }
 
-// Parse __float128 from string using Clang's native support
-inline auto parse_float128(const char* str, size_t length) -> std::optional<__float128> {
+// Parse float128_compat from string using Clang's native support
+inline auto parse_float128(const char* str, size_t length) -> std::optional<float128_compat> {
     if (length == 0 || length > 100) {
         return std::nullopt;
     }
 
-    // Use strtold for parsing and convert to __float128
+    // Use strtold for parsing and convert to float128_compat
     // This preserves more precision than double
     thread_local std::array<char, 128> buffer;
     std::memcpy(buffer.data(), str, length);
@@ -1719,17 +2281,17 @@ inline auto parse_float128(const char* str, size_t length) -> std::optional<__fl
         return std::nullopt;
     }
 
-    return static_cast<__float128>(value);
+    return static_cast<float128_compat>(value);
 }
 
-// Parse __int128 from string manually
+// Parse int128_compat from string manually
 inline auto parse_int128(const char* str, size_t length, bool is_negative)
-    -> std::optional<__int128> {
-    if (length == 0 || length > 40) {  // Max 39 digits for __int128
+    -> std::optional<int128_compat> {
+    if (length == 0 || length > 40) {  // Max 39 digits for int128_compat
         return std::nullopt;
     }
 
-    unsigned __int128 value = 0;
+    uint128_compat value = 0;
     const char* ptr = str;
     const char* end = str + length;
 
@@ -1744,10 +2306,10 @@ inline auto parse_int128(const char* str, size_t length, bool is_negative)
             return std::nullopt;
         }
 
-        unsigned __int128 digit = *ptr - '0';
+        uint128_compat digit = *ptr - '0';
 
         // Check for overflow
-        unsigned __int128 old_value = value;
+        uint128_compat old_value = value;
         value = value * 10 + digit;
 
         if (value < old_value) {
@@ -1758,29 +2320,29 @@ inline auto parse_int128(const char* str, size_t length, bool is_negative)
     }
 
     if (is_negative) {
-        // Check if value fits in signed __int128
-        constexpr unsigned __int128 max_neg = static_cast<unsigned __int128>(1) << 127;
+        // Check if value fits in signed int128_compat
+        constexpr uint128_compat max_neg = static_cast<uint128_compat>(1) << 127;
         if (value > max_neg) {
             return std::nullopt;
         }
-        return -static_cast<__int128>(value);
+        return -static_cast<int128_compat>(value);
     } else {
-        // Check if value fits in signed __int128
-        constexpr unsigned __int128 max_pos = (static_cast<unsigned __int128>(1) << 127) - 1;
+        // Check if value fits in signed int128_compat
+        constexpr uint128_compat max_pos = (static_cast<uint128_compat>(1) << 127) - 1;
         if (value > max_pos) {
             return std::nullopt;
         }
-        return static_cast<__int128>(value);
+        return static_cast<int128_compat>(value);
     }
 }
 
-// Parse unsigned __int128 from string manually
-inline auto parse_uint128(const char* str, size_t length) -> std::optional<unsigned __int128> {
-    if (length == 0 || length > 40) {  // Max 39 digits for unsigned __int128
+// Parse uint128_compat from string manually
+inline auto parse_uint128(const char* str, size_t length) -> std::optional<uint128_compat> {
+    if (length == 0 || length > 40) {  // Max 39 digits for uint128_compat
         return std::nullopt;
     }
 
-    unsigned __int128 value = 0;
+    uint128_compat value = 0;
     const char* ptr = str;
     const char* end = str + length;
 
@@ -1795,10 +2357,10 @@ inline auto parse_uint128(const char* str, size_t length) -> std::optional<unsig
             return std::nullopt;
         }
 
-        unsigned __int128 digit = *ptr - '0';
+        uint128_compat digit = *ptr - '0';
 
         // Check for overflow
-        unsigned __int128 old_value = value;
+        uint128_compat old_value = value;
         value = value * 10 + digit;
 
         if (value < old_value) {
