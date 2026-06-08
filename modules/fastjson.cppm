@@ -81,6 +81,9 @@ namespace std::pmr {
 #endif
 
 #if defined(_MSC_VER) && !defined(__clang__)
+/* uint64_t is needed in the global module fragment before import std; runs */
+#include <cstdint>
+#include <type_traits>
 struct alignas(16) msvc_uint128;
 struct alignas(16) msvc_int128;
 struct alignas(16) msvc_float128;
