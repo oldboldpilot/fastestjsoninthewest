@@ -4,6 +4,33 @@
 
 module;
 
+#if defined(SENSEN_NO_IMPORT_STD)
+#include <vector>
+#include <string>
+#include <string_view>
+#include <iostream>
+#include <algorithm>
+#include <memory>
+#include <type_traits>
+#include <concepts>
+#include <cstdint>
+#include <cstddef>
+#include <cstring>
+#include <utility>
+#include <optional>
+#include <variant>
+#include <format>
+#include <source_location>
+#include <execution>
+#include <mutex>
+#include <shared_mutex>
+#include <thread>
+#include <future>
+#include <exception>
+#include <stdexcept>
+#include <chrono>
+#endif
+
 #if defined(_MSC_VER) && !defined(__clang__)
 struct alignas(16) msvc_uint128;
 struct alignas(16) msvc_int128;
@@ -1223,7 +1250,9 @@ inline auto find_escape_position_simd_impl(const char* ptr, const char* end) -> 
 
 export module fastjson;
 
+#if !defined(SENSEN_NO_IMPORT_STD)
 import std;
+#endif
 
 export namespace fastjson {
 
