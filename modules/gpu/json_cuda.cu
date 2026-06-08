@@ -3,12 +3,15 @@
 // ============================================================================
 
 #ifdef __CUDACC__
+#include "json_gpu.h"
 #include <cuda_runtime.h>
 #include <device_launch_parameters.h>
 #include <cublas_v2.h>
 #include <cuda.h>
 #include <cstdint>
 #include <cstddef>
+#include <cstdio>
+#include <chrono>
 
 namespace fastjson {
 namespace gpu {
