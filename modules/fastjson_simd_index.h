@@ -46,9 +46,20 @@ struct structural_index {
 // ============================================================================
 
 #if defined(_MSC_VER) && !defined(__clang__)
+#include <intrin.h>
 #define FASTJSON_SIMD_ATTR_AVX2
+#define FASTJSON_SIMD_ATTR_SSE42
+namespace fastjson_msvc_compat {
+    inline int builtin_ctz(unsigned int x) noexcept {
+        unsigned long idx = 0;
+        _BitScanForward(&idx, x);
+        return static_cast<int>(idx);
+    }
+}
+#define __builtin_ctz(x) fastjson_msvc_compat::builtin_ctz(static_cast<unsigned int>(x))
 #else
 #define FASTJSON_SIMD_ATTR_AVX2 __attribute__((target("avx2")))
+#define FASTJSON_SIMD_ATTR_SSE42 __attribute__((target("sse4.2")))
 #endif
 
 #if defined(__AVX2__)
@@ -190,7 +201,7 @@ find_structural_chars_avx2(std::span<const char> input, std::vector<structural_i
 // ============================================================================
 
 #if defined(__SSE4_2__)
-__attribute__((target("sse4.2"))) inline auto
+FASTJSON_SIMD_ATTR_SSE42 inline auto
 find_structural_chars_sse42(std::span<const char> input, std::vector<structural_index>& indices)
     -> void {
     const size_t len = input.size();
