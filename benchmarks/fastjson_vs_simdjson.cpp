@@ -23,7 +23,7 @@
  * Date: 2026-02-22
  */
 
-#include <benchmark/benchmark.h>
+#include "benchmark.h"
 #include <simdjson.h>
 
 #include <cstdint>

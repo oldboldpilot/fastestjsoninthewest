@@ -27,7 +27,8 @@
 #include <thread>
 #include <vector>
 
-#include <omp.h>
+#include <tbb/parallel_reduce.h>
+#include <tbb/blocked_range.h>
 
 // Simulated simdjson operations (since we need portable code)
 // In real scenario, would include: #include "simdjson.h"
@@ -266,19 +267,22 @@ public:
         }
 
 // Second pass: parallel filter
-#pragma omp parallel
-        {
-            std::vector<int> local_results;
-#pragma omp for
-            for (size_t i = 0; i < temp_values.size(); ++i) {
-                if (temp_values[i] > threshold) {
-                    local_results.push_back(temp_values[i]);
+        results = tbb::parallel_reduce(
+            tbb::blocked_range<size_t>(0, temp_values.size()),
+            std::vector<int>(),
+            [&](const tbb::blocked_range<size_t>& r, std::vector<int> local_results) -> std::vector<int> {
+                for (size_t i = r.begin(); i < r.end(); ++i) {
+                    if (temp_values[i] > threshold) {
+                        local_results.push_back(temp_values[i]);
+                    }
                 }
+                return local_results;
+            },
+            [](std::vector<int> a, const std::vector<int>& b) {
+                a.insert(a.end(), b.begin(), b.end());
+                return a;
             }
-
-#pragma omp critical
-            { results.insert(results.end(), local_results.begin(), local_results.end()); }
-        }
+        );
 
         return QueryResult{results, (long long)results.size()};
     }

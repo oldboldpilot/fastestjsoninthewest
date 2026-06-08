@@ -214,3 +214,6 @@ _install/
 
 # FetchContent
 _deps/
+
+# Python Bindings build
+python_bindings/build/

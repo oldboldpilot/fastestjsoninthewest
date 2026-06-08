@@ -21,26 +21,48 @@ find_package(Python COMPONENTS Interpreter Development.Module REQUIRED)
 find_package(nanobind CONFIG REQUIRED)
 find_package(Threads REQUIRED)
 
-# OpenMP for parallel support
-find_package(OpenMP)
-if(OpenMP_CXX_FOUND)
-    add_compile_options(${OpenMP_CXX_FLAGS})
-else()
-    message(WARNING "OpenMP not found, parallel features may be limited")
-endif()
+# TBB for parallel support
+find_package(TBB REQUIRED)
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    add_compile_options(-stdlib=libc++)
-    add_link_options(-stdlib=libc++)
+    add_compile_options(-stdlib=libc++ -fexperimental-library)
+    add_link_options(-stdlib=libc++ -fexperimental-library)
 endif()
 
 # ============================================================================
 # Standard Library Module
 # ============================================================================
+# Dynamically locate libc++ headers and library paths based on CMAKE_CXX_COMPILER
+get_filename_component(COMPILER_REAL_PATH "${CMAKE_CXX_COMPILER}" REALPATH)
+get_filename_component(COMPILER_DIR "${COMPILER_REAL_PATH}" DIRECTORY)
+get_filename_component(LLVM_PREFIX "${COMPILER_DIR}" DIRECTORY)
+
+set(LIBCXX_INC "${LLVM_PREFIX}/include/c++/v1")
+set(LIBCXX_SHARE "${LLVM_PREFIX}/share/libc++/v1")
+set(LIBCXX_TARGET_INC "${LLVM_PREFIX}/include/x86_64-unknown-linux-gnu/c++/v1")
+set(LIBCXX_LIB_DIR "${LLVM_PREFIX}/lib")
+
+# Fallbacks if compiler is in standard bin path or something else
+if(NOT EXISTS "${LIBCXX_SHARE}/std/algorithm.inc")
+    # Try typical paths
+    if(EXISTS "/opt/clang-21/share/libc++/v1/std/algorithm.inc")
+        set(LIBCXX_INC "/opt/clang-21/include/c++/v1")
+        set(LIBCXX_SHARE "/opt/clang-21/share/libc++/v1")
+        set(LIBCXX_TARGET_INC "/opt/clang-21/include/x86_64-unknown-linux-gnu/c++/v1")
+        set(LIBCXX_LIB_DIR "/opt/clang-21/lib")
+    elseif(EXISTS "/home/linuxbrew/.linuxbrew/Cellar/llvm/22.1.5/share/libc++/v1/std/algorithm.inc")
+        set(LIBCXX_INC "/home/linuxbrew/.linuxbrew/Cellar/llvm/22.1.5/include/c++/v1")
+        set(LIBCXX_SHARE "/home/linuxbrew/.linuxbrew/Cellar/llvm/22.1.5/share/libc++/v1")
+        set(LIBCXX_TARGET_INC "/home/linuxbrew/.linuxbrew/Cellar/llvm/22.1.5/include/x86_64-unknown-linux-gnu/c++/v1")
+        set(LIBCXX_LIB_DIR "/home/linuxbrew/.linuxbrew/Cellar/llvm/22.1.5/lib")
+    endif()
+endif()
+
 add_library(std_module STATIC)
 target_include_directories(std_module PUBLIC 
-    /opt/clang-21/include/c++/v1
-    /opt/clang-21/share/libc++/v1
+    ${LIBCXX_INC}
+    ${LIBCXX_TARGET_INC}
+    ${LIBCXX_SHARE}
 )
 target_sources(std_module PUBLIC
     FILE_SET CXX_MODULES 
@@ -98,7 +120,6 @@ target_compile_options(fastjson PRIVATE
     -funroll-loops
     -fvectorize
     -Wall -Wextra
-    ${OpenMP_CXX_FLAGS}
 )
 
 # Embed RPATH so libomp.so is found without LD_LIBRARY_PATH
@@ -112,11 +133,8 @@ set_target_properties(fastjson PROPERTIES
 target_link_libraries(fastjson PRIVATE 
     Threads::Threads
     std_module
+    TBB::tbb
 )
-
-if(OpenMP_CXX_FOUND)
-    target_link_libraries(fastjson PRIVATE OpenMP::OpenMP_CXX)
-endif()
 
 # Install rule
 install(TARGETS fastjson LIBRARY DESTINATION .)
