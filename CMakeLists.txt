@@ -66,8 +66,8 @@ else()
     endif()
 
     if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-        add_compile_options(-fexperimental-library)
-        add_link_options(-fexperimental-library)
+        add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-fexperimental-library>)
+        add_link_options($<$<COMPILE_LANGUAGE:CXX>:-fexperimental-library>)
         if(WIN32)
             set(CMAKE_CXX_MODULE_STD OFF)
             add_compile_definitions(SENSEN_NO_IMPORT_STD)
@@ -277,9 +277,13 @@ if(ENABLE_CUDA)
         CUDA_ARCHITECTURES "75;80;86;89;90;120"
         CUDA_STANDARD 20
         CUDA_STANDARD_REQUIRED ON
-        COMPILE_OPTIONS ""
-        POSITION_INDEPENDENT_CODE ON
     )
+    if(NOT WIN32)
+        set_target_properties(fastjson_cuda PROPERTIES 
+            POSITION_INDEPENDENT_CODE ON
+            COMPILE_OPTIONS ""
+        )
+    endif()
     
     if(CMAKE_CUDA_COMPILER_ID MATCHES "Clang")
         target_compile_options(fastjson_cuda PRIVATE
