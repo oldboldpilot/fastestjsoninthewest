@@ -11,7 +11,11 @@ module;
 #include <optional>
 #include <unordered_set>
 #include <vector>
-#include <omp.h>
+#include <tbb/parallel_for.h>
+#include <tbb/parallel_reduce.h>
+#include <tbb/blocked_range.h>
+#include <execution>
+#include <atomic>
 
 export module json_linq;
 
@@ -489,10 +493,11 @@ public:
         std::vector<T> result(data_.size());
         std::vector<bool> keep(data_.size());
 
-#pragma omp parallel for schedule(static)
-        for (size_t i = 0; i < data_.size(); ++i) {
-            keep[i] = pred(data_[i]);
-        }
+        tbb::parallel_for(tbb::blocked_range<size_t>(0, data_.size()), [&](const tbb::blocked_range<size_t>& r) {
+            for (size_t i = r.begin(); i < r.end(); ++i) {
+                keep[i] = pred(data_[i]);
+            }
+        });
 
         // Sequential compaction
         std::vector<T> compacted;
@@ -517,10 +522,11 @@ public:
         using R = decltype(func(std::declval<T>()));
         std::vector<R> result(data_.size());
 
-#pragma omp parallel for schedule(static)
-        for (size_t i = 0; i < data_.size(); ++i) {
-            result[i] = func(data_[i]);
-        }
+        tbb::parallel_for(tbb::blocked_range<size_t>(0, data_.size()), [&](const tbb::blocked_range<size_t>& r) {
+            for (size_t i = r.begin(); i < r.end(); ++i) {
+                result[i] = func(data_[i]);
+            }
+        });
 
         return parallel_query_result<R>(std::move(result));
     }
@@ -533,14 +539,20 @@ public:
 
     // Parallel AGGREGATE
     template <typename Acc, typename Func> Acc aggregate(Acc seed, Func func) const {
-        Acc result = seed;
-
-#pragma omp parallel for reduction(+ : result)
-        for (size_t i = 0; i < data_.size(); ++i) {
-            result = func(result, data_[i]);
-        }
-
-        return result;
+        if (data_.empty()) return seed;
+        return tbb::parallel_reduce(
+            tbb::blocked_range<size_t>(0, data_.size()),
+            seed,
+            [&](const tbb::blocked_range<size_t>& r, Acc local_acc) -> Acc {
+                for (size_t i = r.begin(); i != r.end(); ++i) {
+                    local_acc = func(local_acc, data_[i]);
+                }
+                return local_acc;
+            },
+            [&](Acc a, Acc b) -> Acc {
+                return func(a, b);
+            }
+        );
     }
 
     // Alias: reduce (functional programming style)
@@ -550,10 +562,11 @@ public:
 
     // Parallel FOREACH - Execute action for each element
     template <typename Action> void for_each(Action action) const {
-#pragma omp parallel for schedule(static)
-        for (size_t i = 0; i < data_.size(); ++i) {
-            action(data_[i]);
-        }
+        tbb::parallel_for(tbb::blocked_range<size_t>(0, data_.size()), [&](const tbb::blocked_range<size_t>& r) {
+            for (size_t i = r.begin(); i < r.end(); ++i) {
+                action(data_[i]);
+            }
+        });
     }
 
     // Alias: forEach (JavaScript style)
@@ -567,67 +580,7 @@ public:
             return parallel_query_result<T>(std::vector<T>(data_));
 
         std::vector<T> result(data_.size());
-        result[0] = data_[0];
-
-        // Parallel prefix sum using OpenMP
-        // Phase 1: Compute block-wise prefix sums
-        int num_threads = omp_get_max_threads();
-        size_t block_size = (data_.size() + num_threads - 1) / num_threads;
-        std::vector<T> block_sums(num_threads);
-
-#pragma omp parallel
-        {
-            int tid = omp_get_thread_num();
-            size_t start = tid * block_size;
-            size_t end = std::min(start + block_size, data_.size());
-
-            if (start < end) {
-                T local_sum = (start == 0) ? data_[0] : data_[start];
-                result[start] = local_sum;
-
-                for (size_t i = start + 1; i < end; ++i) {
-                    local_sum = func(local_sum, data_[i]);
-                    result[i] = local_sum;
-                }
-
-                block_sums[tid] = local_sum;
-            }
-        }
-
-        // Phase 2: Compute prefix of block sums (sequential)
-        // block_offsets[i] contains the cumulative value up to (but not including) block i
-        std::vector<T> block_offsets(num_threads);
-        if (num_threads > 0 && !data_.empty()) {
-            // First block has no offset (starts from beginning)
-            // For subsequent blocks, offset is cumulative of all previous blocks
-            for (int i = 0; i < num_threads; ++i) {
-                if (i == 0) {
-                    block_offsets[0] = T{};  // Not used, first block needs no adjustment
-                } else {
-                    // Cumulative value is result of applying func to all previous block sums
-                    if (i == 1) {
-                        block_offsets[1] = block_sums[0];
-                    } else {
-                        block_offsets[i] = func(block_offsets[i - 1], block_sums[i - 1]);
-                    }
-                }
-            }
-        }
-
-// Phase 3: Apply block offsets to results (skip first block)
-#pragma omp parallel
-        {
-            int tid = omp_get_thread_num();
-            if (tid > 0) {
-                size_t start = tid * block_size;
-                size_t end = std::min(start + block_size, data_.size());
-
-                for (size_t i = start; i < end; ++i) {
-                    result[i] = func(block_offsets[tid], result[i]);
-                }
-            }
-        }
-
+        std::inclusive_scan(std::execution::par, data_.begin(), data_.end(), result.begin(), func);
         return parallel_query_result<T>(std::move(result));
     }
 
@@ -648,13 +601,19 @@ public:
     auto sum(Selector selector) const -> decltype(selector(std::declval<T>())) {
         using R = decltype(selector(std::declval<T>()));
         R result = R{};
+        if (data_.empty()) return result;
 
-#pragma omp parallel for reduction(+ : result)
-        for (size_t i = 0; i < data_.size(); ++i) {
-            result += selector(data_[i]);
-        }
-
-        return result;
+        return tbb::parallel_reduce(
+            tbb::blocked_range<size_t>(0, data_.size()),
+            result,
+            [&](const tbb::blocked_range<size_t>& r, R local_val) -> R {
+                for (size_t i = r.begin(); i != r.end(); ++i) {
+                    local_val += selector(data_[i]);
+                }
+                return local_val;
+            },
+            std::plus<R>()
+        );
     }
 
     // Parallel MIN
@@ -666,24 +625,19 @@ public:
         using R = decltype(selector(std::declval<T>()));
         R min_val = selector(data_[0]);
 
-#pragma omp parallel
-        {
-            R local_min = min_val;
-#pragma omp for nowait
-            for (size_t i = 0; i < data_.size(); ++i) {
-                R val = selector(data_[i]);
-                if (val < local_min)
-                    local_min = val;
-            }
-
-#pragma omp critical
-            {
-                if (local_min < min_val)
-                    min_val = local_min;
-            }
-        }
-
-        return min_val;
+        return tbb::parallel_reduce(
+            tbb::blocked_range<size_t>(0, data_.size()),
+            min_val,
+            [&](const tbb::blocked_range<size_t>& r, R local_min) -> R {
+                for (size_t i = r.begin(); i != r.end(); ++i) {
+                    R val = selector(data_[i]);
+                    if (val < local_min)
+                        local_min = val;
+                }
+                return local_min;
+            },
+            [](R a, R b) { return std::min(a, b); }
+        );
     }
 
     // Parallel MAX
@@ -695,90 +649,84 @@ public:
         using R = decltype(selector(std::declval<T>()));
         R max_val = selector(data_[0]);
 
-#pragma omp parallel
-        {
-            R local_max = max_val;
-#pragma omp for nowait
-            for (size_t i = 0; i < data_.size(); ++i) {
-                R val = selector(data_[i]);
-                if (val > local_max)
-                    local_max = val;
-            }
-
-#pragma omp critical
-            {
-                if (local_max > max_val)
-                    max_val = local_max;
-            }
-        }
-
-        return max_val;
+        return tbb::parallel_reduce(
+            tbb::blocked_range<size_t>(0, data_.size()),
+            max_val,
+            [&](const tbb::blocked_range<size_t>& r, R local_max) -> R {
+                for (size_t i = r.begin(); i != r.end(); ++i) {
+                    R val = selector(data_[i]);
+                    if (val > local_max)
+                        local_max = val;
+                }
+                return local_max;
+            },
+            [](R a, R b) { return std::max(a, b); }
+        );
     }
 
     // Parallel COUNT
     template <typename Predicate> size_t count(Predicate pred) const {
-        size_t result = 0;
-
-#pragma omp parallel for reduction(+ : result)
-        for (size_t i = 0; i < data_.size(); ++i) {
-            if (pred(data_[i])) {
-                result++;
-            }
-        }
-
-        return result;
+        if (data_.empty()) return 0;
+        return tbb::parallel_reduce(
+            tbb::blocked_range<size_t>(0, data_.size()),
+            size_t{0},
+            [&](const tbb::blocked_range<size_t>& r, size_t local_count) -> size_t {
+                for (size_t i = r.begin(); i != r.end(); ++i) {
+                    if (pred(data_[i])) {
+                        local_count++;
+                    }
+                }
+                return local_count;
+            },
+            std::plus<size_t>()
+        );
     }
 
     // Parallel ANY
     template <typename Predicate> bool any(Predicate pred) const {
-        bool found = false;
+        if (data_.empty()) return false;
+        std::atomic<bool> found{false};
 
-#pragma omp parallel for shared(found)
-        for (size_t i = 0; i < data_.size(); ++i) {
-            if (found)
-                continue;
-            if (pred(data_[i])) {
-#pragma omp critical
-                { found = true; }
+        tbb::parallel_for(tbb::blocked_range<size_t>(0, data_.size()), [&](const tbb::blocked_range<size_t>& r) {
+            for (size_t i = r.begin(); i != r.end(); ++i) {
+                if (found.load(std::memory_order_relaxed))
+                    break;
+                if (pred(data_[i])) {
+                    found.store(true, std::memory_order_relaxed);
+                    break;
+                }
             }
-        }
+        });
 
-        return found;
+        return found.load();
     }
 
     // Parallel ALL
     template <typename Predicate> bool all(Predicate pred) const {
-        bool all_true = true;
+        if (data_.empty()) return true;
+        std::atomic<bool> all_true{true};
 
-#pragma omp parallel for shared(all_true)
-        for (size_t i = 0; i < data_.size(); ++i) {
-            if (!all_true)
-                continue;
-            if (!pred(data_[i])) {
-#pragma omp critical
-                { all_true = false; }
+        tbb::parallel_for(tbb::blocked_range<size_t>(0, data_.size()), [&](const tbb::blocked_range<size_t>& r) {
+            for (size_t i = r.begin(); i != r.end(); ++i) {
+                if (!all_true.load(std::memory_order_relaxed))
+                    break;
+                if (!pred(data_[i])) {
+                    all_true.store(false, std::memory_order_relaxed);
+                    break;
+                }
             }
-        }
+        });
 
-        return all_true;
+        return all_true.load();
     }
 
     // Parallel ORDER BY (parallel sort)
     template <typename KeySelector>
     parallel_query_result<T> order_by(KeySelector key_selector) const {
         std::vector<T> result = data_;
-
-// Use parallel sort with OpenMP tasks
-#pragma omp parallel
-        {
-#pragma omp single
-            {
-                std::sort(result.begin(), result.end(), [&key_selector](const T& a, const T& b) {
-                    return key_selector(a) < key_selector(b);
-                });
-            }
-        }
-
+        std::sort(std::execution::par, result.begin(), result.end(), [&key_selector](const T& a, const T& b) {
+            return key_selector(a) < key_selector(b);
+        });
         return parallel_query_result<T>(std::move(result));
     }
 

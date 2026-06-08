@@ -68,6 +68,11 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    add_compile_options(-fexperimental-library)
+    add_link_options(-fexperimental-library)
+endif()
+
 # Find required libraries
 find_package(Threads REQUIRED)
 
@@ -919,18 +924,6 @@ set_target_properties(fastjson PROPERTIES
 # )
 
 
-# Fetch Google Benchmark
-include(FetchContent)
-FetchContent_Declare(
-  googlebenchmark
-  GIT_REPOSITORY https://github.com/google/benchmark.git
-  GIT_TAG v1.8.3
-)
-set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
-set(BENCHMARK_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
-FetchContent_MakeAvailable(googlebenchmark)
-
 # Comparative benchmark: FastestJSONInTheWest vs simdjson
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/fastjson_vs_simdjson.cpp")
     add_executable(fastjson_vs_simdjson_benchmark benchmarks/fastjson_vs_simdjson.cpp)
@@ -938,7 +931,6 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/fastjson_vs_simdjson.cpp")
     if(OpenMP_CXX_FOUND)
         target_link_libraries(fastjson_vs_simdjson_benchmark PRIVATE OpenMP::OpenMP_CXX)
     endif()
-    target_link_libraries(fastjson_vs_simdjson_benchmark PRIVATE benchmark::benchmark benchmark::benchmark_main)
     
     # Find simdjson
     find_package(simdjson QUIET)
@@ -979,7 +971,6 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/turbo_benchmark.cpp")
     if(OpenMP_CXX_FOUND)
         target_link_libraries(turbo_benchmark PRIVATE OpenMP::OpenMP_CXX)
     endif()
-    target_link_libraries(turbo_benchmark PRIVATE benchmark::benchmark benchmark::benchmark_main)
     
     # Find simdjson
     find_package(simdjson QUIET)

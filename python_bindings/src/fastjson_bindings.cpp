@@ -15,7 +15,8 @@
 #include <fstream>
 #include <sstream>
 #include <algorithm>
-#include <omp.h>
+#include <tbb/parallel_for.h>
+#include <tbb/blocked_range.h>
 
 #if defined(__x86_64__) || defined(_M_X64)
 #include <cpuid.h>
@@ -271,11 +272,12 @@ nb::object to_python_parallel(const json_value& v, int threads, SIMDLevel simd_l
         // Release GIL before entering parallel region to avoid deadlock
         {
             nb::gil_scoped_release release;
-            #pragma omp parallel for num_threads(threads)
-            for (size_t i = 0; i < n; ++i) {
-                nb::gil_scoped_acquire acquire;
-                items[i] = to_python_optimized<false>(arr[i], config);
-            }
+            tbb::parallel_for(tbb::blocked_range<size_t>(0, n), [&](const tbb::blocked_range<size_t>& r) {
+                for (size_t i = r.begin(); i < r.end(); ++i) {
+                    nb::gil_scoped_acquire acquire;
+                    items[i] = to_python_optimized<false>(arr[i], config);
+                }
+            });
         }
         
         nb::list py_list;
@@ -293,11 +295,12 @@ nb::object to_python_parallel(const json_value& v, int threads, SIMDLevel simd_l
         // Release GIL before entering parallel region to avoid deadlock
         {
             nb::gil_scoped_release release;
-            #pragma omp parallel for num_threads(threads)
-            for (size_t i = 0; i < n; ++i) {
-                nb::gil_scoped_acquire acquire;
-                values[i] = to_python_optimized<false>(obj.at(keys[i]), config);
-            }
+            tbb::parallel_for(tbb::blocked_range<size_t>(0, n), [&](const tbb::blocked_range<size_t>& r) {
+                for (size_t i = r.begin(); i < r.end(); ++i) {
+                    nb::gil_scoped_acquire acquire;
+                    values[i] = to_python_optimized<false>(obj.at(keys[i]), config);
+                }
+            });
         }
         
         nb::dict py_dict;
@@ -310,6 +313,7 @@ nb::object to_python_parallel(const json_value& v, int threads, SIMDLevel simd_l
 
 NB_MODULE(fastjson, m) {
     m.doc() = "FastestJSONInTheWest Python Bindings (SIMD, COW, Parallel)";
+    m.attr("__version__") = "1.0.0";
 
     nb::class_<json_value>(m, "JSONValue")
         .def(nb::init<>())

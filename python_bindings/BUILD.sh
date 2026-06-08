@@ -18,8 +18,8 @@ INSTALL_DIR="${PROJECT_DIR}/install"
 PYTHON_VERSION="${PYTHON_VERSION:-3.14}"
 
 # Tool paths (customize as needed)
-CMAKE_BIN="${CMAKE_BIN:-/home/muyiwa/toolchain-build/cmake-4.1.2/bin/cmake}"
-CLANG_BIN="${CLANG_BIN:-/home/muyiwa/toolchain/clang-21/bin/clang++}"
+CMAKE_BIN="${CMAKE_BIN:-$(which cmake 2>/dev/null || echo "/home/muyiwa/toolchain-build/cmake-4.1.2/bin/cmake")}"
+CLANG_BIN="${CLANG_BIN:-$(which clang++ 2>/dev/null || echo "/home/muyiwa/toolchain/clang-21/bin/clang++")}"
 CLANG_C_BIN="${CLANG_BIN%/*}/clang"
 
 echo -e "${BLUE}╔════════════════════════════════════════════════════════╗${NC}"
@@ -75,11 +75,11 @@ print_status "Build directory ready: $BUILD_DIR"
 
 # Configure with CMake
 print_info "Configuring CMake..."
-$CMAKE_BIN \
+$CMAKE_BIN -G Ninja \
     -DCMAKE_C_COMPILER="$CLANG_C_BIN" \
     -DCMAKE_CXX_COMPILER="$CLANG_BIN" \
     -DCMAKE_BUILD_TYPE=Release \
-    -DPython3_EXECUTABLE="$PYTHON_BIN" \
+    -DPython_EXECUTABLE="$PYTHON_BIN" \
     "-Dnanobind_ROOT=$NANOBIND_DIR" \
     .. || print_error "CMake configuration failed"
 
@@ -87,17 +87,17 @@ print_status "CMake configuration successful"
 
 # Build
 print_info "Compiling Python extension..."
-make -j$(nproc) || print_error "Build failed"
-print_status "Build successful: $BUILD_DIR/lib/fastjson*.so"
+$CMAKE_BIN --build . -j$(nproc) || print_error "Build failed"
+print_status "Build successful"
 
 # Set up environment
 cd "$PROJECT_DIR"
-export LD_LIBRARY_PATH="/opt/clang-21/lib/x86_64-unknown-linux-gnu:${LD_LIBRARY_PATH}"
-export PYTHONPATH="${BUILD_DIR}/lib:${PYTHONPATH}"
+export LD_LIBRARY_PATH="/home/linuxbrew/.linuxbrew/lib:${LD_LIBRARY_PATH}"
+export PYTHONPATH="${BUILD_DIR}:${BUILD_DIR}/lib:${PYTHONPATH}"
 
 # Verify import
 print_info "Verifying module..."
-if $PYTHON_BIN -c "import sys; sys.path.insert(0, '${BUILD_DIR}/lib'); import fastjson; print(f'Version: {fastjson.__version__}')" 2>/dev/null; then
+if $PYTHON_BIN -c "import sys; sys.path.insert(0, '${BUILD_DIR}'); sys.path.insert(0, '${BUILD_DIR}/lib'); import fastjson; print(f'Version: {fastjson.__version__}')" 2>/dev/null; then
     print_status "Module verification successful"
 else
     print_error "Module verification failed"
@@ -106,7 +106,7 @@ fi
 # Optional: Run tests
 if command -v pytest &> /dev/null; then
     print_info "Running test suite..."
-    PYTHONPATH="${BUILD_DIR}/lib" pytest tests/ -v --tb=short -x || print_error "Tests failed"
+    PYTHONPATH="${BUILD_DIR}:${BUILD_DIR}/lib" pytest tests/ -v --tb=short -x || print_error "Tests failed"
     print_status "All tests passed"
 else
     print_info "pytest not found (optional). Skipping tests."

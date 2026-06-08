@@ -108,9 +108,9 @@ using uint128_compat = unsigned __int128;
 #include "fastjson_simd_index.h"
 #include "numa_allocator.h"
 
-#ifdef _OPENMP
-    #include <omp.h>
-#endif
+#include <tbb/parallel_for.h>
+#include <tbb/task_arena.h>
+#include <tbb/blocked_range.h>
 
 // SIMD intrinsics
 #if defined(__x86_64__) || defined(_M_X64)
@@ -186,28 +186,19 @@ export auto get_parse_config() -> const parse_config& {
 
 export inline auto set_num_threads(int threads) -> void {
     g_config.num_threads = threads;
-#ifdef _OPENMP
-    if (threads > 0) {
-        omp_set_num_threads(threads);
-    }
-#endif
 }
 
 export inline auto get_num_threads() -> int {
-#ifdef _OPENMP
     if (g_config.num_threads == 0) {
         return 1;  // Parallelism disabled
     } else if (g_config.num_threads > 0) {
         return g_config.num_threads;
     } else {
         // Use 30% of available threads as per requirement
-        int max_threads = omp_get_max_threads();
+        int max_threads = tbb::this_task_arena::max_concurrency();
         int target = static_cast<int>(max_threads * 0.3);
         return std::max(1, target);
     }
-#else
-    return 1;
-#endif
 }
 
 inline auto get_effective_num_threads(size_t data_size) -> int {
@@ -2026,26 +2017,9 @@ parallel_parse:
         }
     }
 
-#pragma omp parallel for schedule(dynamic) if (element_spans.size() >= 4)
-    for (size_t i = 0; i < element_spans.size(); ++i) {
-        // Bind thread to NUMA node on first iteration
-        if (g_config.enable_numa && g_config.bind_threads_to_numa
-            && g_numa_topo.is_numa_available) {
-#ifdef _OPENMP
-            static thread_local bool thread_bound = false;
-            if (!thread_bound) {
-                int thread_id = omp_get_thread_num();
-                int num_threads = omp_get_num_threads();
-                int node = numa::get_optimal_node_for_thread(thread_id, num_threads,
-                                                             g_numa_topo.num_nodes);
-                numa::bind_thread_to_numa_node(node);
-                thread_bound = true;
-            }
-#endif
-        }
-
+    auto parse_elements = [&](size_t i) {
         if (has_error.load(std::memory_order_relaxed)) {
-            continue;  // Skip if another thread hit an error
+            return;  // Skip if another thread hit an error
         }
 
         // Prefetch next element's data (3-4 cache lines ahead)
@@ -2081,6 +2055,33 @@ parallel_parse:
             }
         } else {
             array[i] = std::move(*result);
+        }
+    };
+
+    if (element_spans.size() >= 4) {
+        tbb::parallel_for(tbb::blocked_range<size_t>(0, element_spans.size()), [&](const tbb::blocked_range<size_t>& r) {
+            for (size_t i = r.begin(); i < r.end(); ++i) {
+                // Bind thread to NUMA node on first iteration
+                if (g_config.enable_numa && g_config.bind_threads_to_numa
+                    && g_numa_topo.is_numa_available) {
+                    static thread_local bool thread_bound = false;
+                    if (!thread_bound) {
+                        int thread_id = tbb::this_task_arena::current_thread_index();
+                        if (thread_id >= 0) {
+                            int num_threads = tbb::this_task_arena::max_concurrency();
+                            int node = numa::get_optimal_node_for_thread(thread_id, num_threads,
+                                                                         g_numa_topo.num_nodes);
+                            numa::bind_thread_to_numa_node(node);
+                            thread_bound = true;
+                        }
+                    }
+                }
+                parse_elements(i);
+            }
+        });
+    } else {
+        for (size_t i = 0; i < element_spans.size(); ++i) {
+            parse_elements(i);
         }
     }
 
@@ -2480,26 +2481,9 @@ auto parser::parse_object_parallel(size_t estimated_size) -> json_result<json_va
     std::atomic<bool> has_error{false};
     json_error first_error{};
 
-#pragma omp parallel for schedule(dynamic) if (kv_spans.size() >= 4)
-    for (size_t i = 0; i < kv_spans.size(); ++i) {
-        // Bind thread to NUMA node on first iteration
-        if (g_config.enable_numa && g_config.bind_threads_to_numa
-            && g_numa_topo.is_numa_available) {
-#ifdef _OPENMP
-            static thread_local bool thread_bound = false;
-            if (!thread_bound) {
-                int thread_id = omp_get_thread_num();
-                int num_threads = omp_get_num_threads();
-                int node = numa::get_optimal_node_for_thread(thread_id, num_threads,
-                                                             g_numa_topo.num_nodes);
-                numa::bind_thread_to_numa_node(node);
-                thread_bound = true;
-            }
-#endif
-        }
-
+    auto parse_kv = [&](size_t i) {
         if (has_error.load(std::memory_order_relaxed)) {
-            continue;
+            return;
         }
 
         // Prefetch next key-value pair's data (3-4 items ahead)
@@ -2542,6 +2526,33 @@ auto parser::parse_object_parallel(size_t estimated_size) -> json_result<json_va
             }
         } else {
             pairs[i] = {std::move(key), std::move(*result)};
+        }
+    };
+
+    if (kv_spans.size() >= 4) {
+        tbb::parallel_for(tbb::blocked_range<size_t>(0, kv_spans.size()), [&](const tbb::blocked_range<size_t>& r) {
+            for (size_t i = r.begin(); i < r.end(); ++i) {
+                // Bind thread to NUMA node on first iteration
+                if (g_config.enable_numa && g_config.bind_threads_to_numa
+                    && g_numa_topo.is_numa_available) {
+                    static thread_local bool thread_bound = false;
+                    if (!thread_bound) {
+                        int thread_id = tbb::this_task_arena::current_thread_index();
+                        if (thread_id >= 0) {
+                            int num_threads = tbb::this_task_arena::max_concurrency();
+                            int node = numa::get_optimal_node_for_thread(thread_id, num_threads,
+                                                                         g_numa_topo.num_nodes);
+                            numa::bind_thread_to_numa_node(node);
+                            thread_bound = true;
+                        }
+                    }
+                }
+                parse_kv(i);
+            }
+        });
+    } else {
+        for (size_t i = 0; i < kv_spans.size(); ++i) {
+            parse_kv(i);
         }
     }
 
