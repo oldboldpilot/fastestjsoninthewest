@@ -2119,7 +2119,7 @@ auto json_value::serialize_to_buffer(std::string& buffer, int indent) const -> v
                 char* ptr = num_buffer.data() + num_buffer.size();
                 *--ptr = '\0';
                 do {
-                    *--ptr = '0' + (abs_val % 10);
+                    *--ptr = static_cast<char>('0' + static_cast<char>(static_cast<uint64_t>(abs_val % 10)));
                     abs_val /= 10;
                 } while (abs_val > 0);
                 if (is_negative) {
@@ -2133,7 +2133,7 @@ auto json_value::serialize_to_buffer(std::string& buffer, int indent) const -> v
                 char* ptr = num_buffer.data() + num_buffer.size();
                 *--ptr = '\0';
                 do {
-                    *--ptr = '0' + (val % 10);
+                    *--ptr = static_cast<char>('0' + static_cast<char>(static_cast<uint64_t>(val % 10)));
                     val /= 10;
                 } while (val > 0);
                 buffer += ptr;
