@@ -18,9 +18,13 @@ namespace gpu {
 
 enum class gpu_backend {
     none,
-    cuda,  // NVIDIA CUDA
-    rocm,  // AMD ROCm/HIP
-    sycl,  // Intel oneAPI/SYCL
+    cuda,         // NVIDIA CUDA (Eager)
+    cuda_graph,   // NVIDIA CUDA Graph
+    cublas,       // cuBLAS Matrix operations
+    cutile,       // cuTile Matrix operations
+    triton,       // Triton JIT Compiler backend
+    rocm,         // AMD ROCm/HIP
+    sycl,         // Intel oneAPI/SYCL
     auto_detect
 };
 
@@ -91,6 +95,7 @@ struct gpu_parse_config {
     int grid_size = 0;                // GPU grid size (0 = auto)
     bool async_execution = true;      // Use asynchronous GPU execution
     bool pin_host_memory = true;      // Pin host memory for faster transfers
+    bool use_cuda_graph = false;      // Use CUDA Graphs for structural scanning
 };
 
 // Parse JSON on GPU (returns parsed structure indices and values)
@@ -132,6 +137,14 @@ auto gpu_find_numbers(const char* input, size_t size, uint32_t* positions, size_
 // Structural character scanning ({}[]:,)
 auto gpu_find_structural_chars(const char* input, size_t size, uint32_t* positions,
                                uint8_t* char_types, size_t* count, gpu_backend backend) -> bool;
+
+// Matrix multiplication on GPU using cuBLAS or cuTile
+auto gpu_matrix_multiply(const float* A, const float* B, float* C, int M, int N, int K,
+                         gpu_backend backend = gpu_backend::cublas) -> bool;
+
+// Launch Triton JIT PTX code dynamically using CUDA Driver API
+auto gpu_launch_triton_ptx(const char* ptx_code, const char* kernel_name, void** args,
+                           int grid_size, int block_size) -> bool;
 
 // ============================================================================
 // GPU Performance Utilities

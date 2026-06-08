@@ -1,15 +1,29 @@
-// FastestJSONInTheWest - NUMA-Aware Memory Allocation Implementation
-// Author: Olumuyiwa Oluwasanmi
-// ============================================================================
-
 #include "numa_allocator.h"
-
-#include <algorithm>
-#include <cstring>
+#include <string>
 #include <fstream>
 #include <sstream>
 
+#ifndef _WIN32
 #include <dlfcn.h>
+#endif
+
+#ifdef _MSC_VER
+#include <malloc.h>
+inline auto portable_aligned_alloc(size_t alignment, size_t size) -> void* {
+    return _aligned_malloc(size, alignment);
+}
+inline auto portable_aligned_free(void* ptr) -> void {
+    _aligned_free(ptr);
+}
+#else
+#include <cstdlib>
+inline auto portable_aligned_alloc(size_t alignment, size_t size) -> void* {
+    return std::aligned_alloc(alignment, size);
+}
+inline auto portable_aligned_free(void* ptr) -> void {
+    std::free(ptr);
+}
+#endif
 
 #ifdef __linux__
     #include <pthread.h>
@@ -194,7 +208,7 @@ numa_allocator::~numa_allocator() {
 auto numa_allocator::allocate(size_t size, int preferred_node) -> void* {
     if (!numa_lib_available_ || !topology_.is_numa_available) {
         // Fallback to regular allocation
-        return std::aligned_alloc(64, size);  // 64-byte alignment for cache lines
+        return portable_aligned_alloc(64, size);  // 64-byte alignment for cache lines
     }
 
     if (preferred_node < 0) {
@@ -217,7 +231,7 @@ auto numa_allocator::allocate(size_t size, int preferred_node) -> void* {
 
 auto numa_allocator::allocate_interleaved(size_t size) -> void* {
     if (!numa_lib_available_ || !topology_.is_numa_available) {
-        return std::aligned_alloc(64, size);
+        return portable_aligned_alloc(64, size);
     }
 
     void* ptr = g_numa_funcs.numa_alloc_interleaved(size);
@@ -233,7 +247,7 @@ auto numa_allocator::allocate_interleaved(size_t size) -> void* {
 
 auto numa_allocator::allocate_local(size_t size) -> void* {
     if (!numa_lib_available_ || !topology_.is_numa_available) {
-        return std::aligned_alloc(64, size);
+        return portable_aligned_alloc(64, size);
     }
 
     int node = get_current_numa_node();
@@ -252,7 +266,7 @@ auto numa_allocator::deallocate(void* ptr, size_t size) -> void {
         return;
 
     if (!numa_lib_available_ || !topology_.is_numa_available) {
-        std::free(ptr);
+        portable_aligned_free(ptr);
         return;
     }
 

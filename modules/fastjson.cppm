@@ -586,6 +586,12 @@ using uint128_compat = unsigned __int128;
     #include <omp.h>
 #endif
 
+#ifdef FASTJSON_USE_PARALLEL_STL
+    #include <tbb/scalable_allocator.h>
+#endif
+
+#include "gpu/json_gpu.h"
+
 // C++ headers needed for module purview
 #include <sstream>
 
@@ -1221,6 +1227,24 @@ import std;
 
 export namespace fastjson {
 
+namespace gpu {
+    using fastjson::gpu::gpu_backend;
+    using fastjson::gpu::gpu_info;
+    using fastjson::gpu::gpu_parse_config;
+    using fastjson::gpu::gpu_parse_result;
+    using fastjson::gpu::gpu_buffer;
+    using fastjson::gpu::detect_gpu_backend;
+    using fastjson::gpu::get_gpu_info;
+    using fastjson::gpu::is_gpu_available;
+    using fastjson::gpu::parse_on_gpu;
+    using fastjson::gpu::gpu_find_whitespace;
+    using fastjson::gpu::gpu_find_strings;
+    using fastjson::gpu::gpu_find_numbers;
+    using fastjson::gpu::gpu_find_structural_chars;
+    using fastjson::gpu::gpu_matrix_multiply;
+    using fastjson::gpu::gpu_launch_triton_ptx;
+}
+
 // SIMD Wrappers — delegate to detail:: implementations in global module fragment
 // All actual SIMD intrinsic usage lives in the GMF to avoid Clang 21 module BMI segfault.
 // ============================================================================
@@ -1368,9 +1392,14 @@ using json_int_128 = int128_compat;            // 128-bit signed integer
 using json_uint_128 = uint128_compat;  // 128-bit unsigned integer
 using json_boolean = bool;
 using json_null = std::nullptr_t;            // Use nullptr_t for direct equivalence with nullptr
+#ifdef FASTJSON_USE_PARALLEL_STL
+using json_array = std::vector<json_value, tbb::scalable_allocator<json_value>>;
+using json_object = std::unordered_map<std::string, json_value, std::hash<std::string>, std::equal_to<std::string>, tbb::scalable_allocator<std::pair<const std::string, json_value>>>;
+#else
 using json_array = std::vector<json_value>;  // Array as std::vector
 using json_object =
     std::unordered_map<std::string, json_value>;  // Object as unordered_map with string keys
+#endif
 
 // Precision information for adaptive number parsing
 struct number_precision_info {

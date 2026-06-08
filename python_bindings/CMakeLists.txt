@@ -136,5 +136,51 @@ target_link_libraries(fastjson PRIVATE
     TBB::tbb
 )
 
+# Conditionally enable CUDA and compile GPU files
+# Conditionally enable CUDA and compile GPU files
+option(ENABLE_CUDA "Enable CUDA GPU acceleration" ON)
+if(ENABLE_CUDA)
+    enable_language(CUDA)
+    find_package(CUDAToolkit REQUIRED)
+    
+    add_library(fastjson_cuda STATIC ${FASTJSON_MODULES_DIR}/gpu/json_cuda.cu)
+    
+    set_target_properties(fastjson_cuda PROPERTIES
+        CUDA_ARCHITECTURES "75;80;86;89;90;120"
+        CUDA_STANDARD 20
+        CUDA_STANDARD_REQUIRED ON
+        COMPILE_OPTIONS ""
+        POSITION_INDEPENDENT_CODE ON
+    )
+    
+    set_property(TARGET fastjson_cuda PROPERTY CUDA_HOST_COMPILER "/usr/bin/g++")
+    
+    target_include_directories(fastjson_cuda PRIVATE
+        ${FASTJSON_MODULES_DIR}
+    )
+    
+    target_link_libraries(fastjson_cuda PRIVATE
+        CUDA::cudart
+        CUDA::cublas
+        CUDA::cuda_driver
+    )
+    
+    target_sources(fastjson PRIVATE
+        ${FASTJSON_MODULES_DIR}/gpu/json_gpu.cpp
+    )
+    
+    target_compile_definitions(fastjson PRIVATE FASTJSON_ENABLE_CUDA)
+    target_link_libraries(fastjson PRIVATE 
+        fastjson_cuda
+        CUDA::cudart 
+        CUDA::cublas 
+        CUDA::cuda_driver
+    )
+    
+    set_source_files_properties(${FASTJSON_MODULES_DIR}/gpu/json_cuda.cu PROPERTIES
+        CXX_SCAN_FOR_MODULES OFF
+    )
+endif()
+
 # Install rule
 install(TARGETS fastjson LIBRARY DESTINATION .)
