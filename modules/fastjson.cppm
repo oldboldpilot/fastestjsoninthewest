@@ -33,6 +33,51 @@ module;
 #include <unordered_map>
 #include <array>
 #include <span>
+#include <memory_resource>
+#if defined(_LIBCPP_HAS_NO_MONOTONIC_BUFFER_RESOURCE) || defined(_LIBCPP_HAS_NO_INCOMPLETE_SHARED_LIBRARIES)
+namespace std::pmr {
+    class monotonic_buffer_resource : public std::pmr::memory_resource {
+        struct Block {
+            void* ptr;
+            size_t size;
+        };
+        std::vector<Block> blocks_;
+        size_t initial_size_;
+        
+    protected:
+        void* do_allocate(size_t bytes, size_t alignment) override {
+            #if defined(_MSC_VER) || defined(__MINGW32__)
+            void* ptr = _aligned_malloc(bytes, alignment);
+            #else
+            void* ptr = std::aligned_alloc(alignment, (bytes + alignment - 1) & ~(alignment - 1));
+            #endif
+            if (!ptr) throw std::bad_alloc();
+            blocks_.push_back({ptr, bytes});
+            return ptr;
+        }
+        
+        void do_deallocate(void* p, size_t bytes, size_t alignment) override {
+            (void)p; (void)bytes; (void)alignment;
+        }
+        
+        bool do_is_equal(const std::pmr::memory_resource& other) const noexcept override {
+            return this == &other;
+        }
+        
+    public:
+        explicit monotonic_buffer_resource(size_t initial_size = 0) : initial_size_(initial_size) {}
+        ~monotonic_buffer_resource() override {
+            for (auto& b : blocks_) {
+                #if defined(_MSC_VER) || defined(__MINGW32__)
+                _aligned_free(b.ptr);
+                #else
+                std::free(b.ptr);
+                #endif
+            }
+        }
+    };
+}
+#endif
 #endif
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -493,10 +538,24 @@ struct alignas(16) msvc_float128 {
     
     constexpr explicit msvc_float128(float v) noexcept : head(v), tail(0.0) {}
     constexpr explicit msvc_float128(long double v) noexcept : head(static_cast<double>(v)), tail(0.0) {}
+    
+    constexpr explicit msvc_float128(int64_t v) noexcept : head(static_cast<double>(v)), tail(0.0) {}
+    constexpr explicit msvc_float128(uint64_t v) noexcept : head(static_cast<double>(v)), tail(0.0) {}
+    #if defined(__SIZEOF_INT128__) || defined(__clang__)
+    constexpr explicit msvc_float128(__int128 v) noexcept : head(static_cast<double>(v)), tail(0.0) {}
+    constexpr explicit msvc_float128(unsigned __int128 v) noexcept : head(static_cast<double>(v)), tail(0.0) {}
+    #endif
 
     constexpr explicit operator double() const noexcept { return head; }
     constexpr explicit operator float() const noexcept { return static_cast<float>(head); }
     constexpr explicit operator long double() const noexcept { return static_cast<long double>(head); }
+    
+    constexpr explicit operator int64_t() const noexcept { return static_cast<int64_t>(head); }
+    constexpr explicit operator uint64_t() const noexcept { return static_cast<uint64_t>(head); }
+    #if defined(__SIZEOF_INT128__) || defined(__clang__)
+    constexpr explicit operator __int128() const noexcept { return static_cast<__int128>(head); }
+    constexpr explicit operator unsigned __int128() const noexcept { return static_cast<unsigned __int128>(head); }
+    #endif
 
     constexpr auto operator+=(msvc_float128 other) noexcept -> msvc_float128&;
     constexpr auto operator-=(msvc_float128 other) noexcept -> msvc_float128&;
