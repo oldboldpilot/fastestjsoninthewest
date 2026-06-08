@@ -1,4 +1,5 @@
 #include <nanobind/nanobind.h>
+#include <nanobind/ndarray.h>
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/vector.h>
 #include <nanobind/stl/unordered_map.h>
@@ -185,13 +186,13 @@ struct ConversionConfig {
     SIMDLevel simd_level = SIMDLevel::AUTO;
 };
 
-std::string int128_to_string(__int128 n) {
+std::string int128_to_string(fastjson_parallel::json_int_128 n) {
     if (n == 0) return "0";
     std::string s;
     bool neg = n < 0;
-    unsigned __int128 un = neg ? (unsigned __int128)-(unsigned __int128)n : (unsigned __int128)n;
+    fastjson_parallel::json_uint_128 un = neg ? -n : n;
     while (un > 0) {
-        s += (char)('0' + (un % 10));
+        s += (char)('0' + static_cast<int>(un % 10));
         un /= 10;
     }
     if (neg) s += '-';
@@ -199,12 +200,13 @@ std::string int128_to_string(__int128 n) {
     return s;
 }
 
-std::string uint128_to_string(unsigned __int128 n) {
+std::string uint128_to_string(fastjson_parallel::json_uint_128 n) {
     if (n == 0) return "0";
     std::string s;
-    while (n > 0) {
-        s += (char)('0' + (n % 10));
-        n /= 10;
+    fastjson_parallel::json_uint_128 un = n;
+    while (un > 0) {
+        s += (char)('0' + static_cast<int>(un % 10));
+        un /= 10;
     }
     std::reverse(s.begin(), s.end());
     return s;
@@ -567,4 +569,122 @@ NB_MODULE(fastjson, m) {
         "SSE2 (16 bytes/iter)",
         "SCALAR (1 byte/iter)"
     });
+
+    // ========================================================================
+    // GPU Acceleration API
+    // ========================================================================
+    nb::enum_<fastjson::gpu::gpu_backend>(m, "GPUBackend")
+        .value("NONE", fastjson::gpu::gpu_backend::none)
+        .value("CUDA", fastjson::gpu::gpu_backend::cuda)
+        .value("CUDA_GRAPH", fastjson::gpu::gpu_backend::cuda_graph)
+        .value("CUBLAS", fastjson::gpu::gpu_backend::cublas)
+        .value("CUTILE", fastjson::gpu::gpu_backend::cutile)
+        .value("TRITON", fastjson::gpu::gpu_backend::triton)
+        .value("ROCM", fastjson::gpu::gpu_backend::rocm)
+        .value("SYCL", fastjson::gpu::gpu_backend::sycl)
+        .value("AUTO_DETECT", fastjson::gpu::gpu_backend::auto_detect)
+        .export_values();
+
+    nb::class_<fastjson::gpu::gpu_info>(m, "GPUInfo")
+        .def_ro("backend", &fastjson::gpu::gpu_info::backend)
+        .def_ro("device_name", &fastjson::gpu::gpu_info::device_name)
+        .def_ro("total_memory", &fastjson::gpu::gpu_info::total_memory)
+        .def_ro("available_memory", &fastjson::gpu::gpu_info::available_memory)
+        .def_ro("compute_units", &fastjson::gpu::gpu_info::compute_units)
+        .def_ro("max_threads_per_block", &fastjson::gpu::gpu_info::max_threads_per_block)
+        .def_ro("supports_concurrent_kernels", &fastjson::gpu::gpu_info::supports_concurrent_kernels);
+
+    nb::class_<fastjson::gpu::gpu_parse_config>(m, "GPUParseConfig")
+        .def(nb::init<>())
+        .def_rw("backend", &fastjson::gpu::gpu_parse_config::backend)
+        .def_rw("min_size_for_gpu", &fastjson::gpu::gpu_parse_config::min_size_for_gpu)
+        .def_rw("block_size", &fastjson::gpu::gpu_parse_config::block_size)
+        .def_rw("grid_size", &fastjson::gpu::gpu_parse_config::grid_size)
+        .def_rw("async_execution", &fastjson::gpu::gpu_parse_config::async_execution)
+        .def_rw("pin_host_memory", &fastjson::gpu::gpu_parse_config::pin_host_memory)
+        .def_rw("use_cuda_graph", &fastjson::gpu::gpu_parse_config::use_cuda_graph);
+
+    nb::class_<fastjson::gpu::gpu_parse_result>(m, "GPUParseResult")
+        .def_ro("success", &fastjson::gpu::gpu_parse_result::success)
+        .def_ro("error_message", &fastjson::gpu::gpu_parse_result::error_message)
+        .def_ro("token_positions", &fastjson::gpu::gpu_parse_result::token_positions)
+        .def_ro("token_types", &fastjson::gpu::gpu_parse_result::token_types)
+        .def_ro("token_lengths", &fastjson::gpu::gpu_parse_result::token_lengths)
+        .def_ro("transfer_to_gpu_ms", &fastjson::gpu::gpu_parse_result::transfer_to_gpu_ms)
+        .def_ro("kernel_execution_ms", &fastjson::gpu::gpu_parse_result::kernel_execution_ms)
+        .def_ro("transfer_from_gpu_ms", &fastjson::gpu::gpu_parse_result::transfer_from_gpu_ms)
+        .def_ro("total_ms", &fastjson::gpu::gpu_parse_result::total_ms);
+
+    m.def("detect_gpu_backend", &fastjson::gpu::detect_gpu_backend, "Detect available GPU backend");
+    m.def("get_gpu_info", &fastjson::gpu::get_gpu_info, "backend"_a = fastjson::gpu::gpu_backend::auto_detect, "Get GPU device info");
+    m.def("is_gpu_available", &fastjson::gpu::is_gpu_available, "Check if GPU is available");
+    m.def("parse_on_gpu", &fastjson::gpu::parse_on_gpu, "input"_a, "config"_a = fastjson::gpu::gpu_parse_config{}, "Parse JSON on GPU");
+    m.def("gpu_matrix_multiply", [](nb::ndarray<float, nb::c_contig> A, nb::ndarray<float, nb::c_contig> B, int backend_val) {
+        if (A.ndim() != 2 || B.ndim() != 2) {
+            throw std::runtime_error("Matrices must be 2D");
+        }
+        int M = A.shape(0);
+        int K = A.shape(1);
+        int K2 = B.shape(0);
+        int N = B.shape(1);
+        if (K != K2) {
+            throw std::runtime_error("Inner dimensions must match");
+        }
+        
+        std::vector<float> C_vec(M * N);
+        fastjson::gpu::gpu_backend backend = static_cast<fastjson::gpu::gpu_backend>(backend_val);
+        
+        bool ok;
+        {
+            nb::gil_scoped_release release;
+            ok = fastjson::gpu::gpu_matrix_multiply(static_cast<const float*>(A.data()), static_cast<const float*>(B.data()), C_vec.data(), M, N, K, backend);
+        }
+        if (!ok) {
+            throw std::runtime_error("GPU matrix multiplication failed");
+        }
+        
+        nb::list result;
+        for (int i = 0; i < M; ++i) {
+            nb::list row;
+            for (int j = 0; j < N; ++j) {
+                row.append(C_vec[i * N + j]);
+            }
+            result.append(row);
+        }
+        return result;
+    }, "A"_a, "B"_a, "backend"_a = static_cast<int>(fastjson::gpu::gpu_backend::cublas), "Multiply matrices on GPU");
+
+    m.def("gpu_launch_triton_ptx", [](const std::string& ptx_code, const std::string& kernel_name, nb::list args_list, int grid_size, int block_size) -> bool {
+        std::vector<std::variant<uint64_t, int64_t, double, float, uint32_t, int32_t>> storage;
+        storage.reserve(args_list.size());
+
+        for (size_t i = 0; i < args_list.size(); ++i) {
+            nb::handle item = args_list[i];
+            if (nb::isinstance<nb::int_>(item)) {
+                int64_t val = nb::cast<int64_t>(item);
+                storage.push_back(val);
+            } else if (nb::isinstance<nb::float_>(item)) {
+                double val = nb::cast<double>(item);
+                storage.push_back(static_cast<float>(val));
+            } else if (nb::hasattr(item, "data_ptr")) {
+                uint64_t ptr = nb::cast<uint64_t>(item.attr("data_ptr")());
+                storage.push_back(ptr);
+            } else {
+                throw nb::type_error("Unsupported argument type in Triton kernel launch");
+            }
+        }
+
+        std::vector<void*> arg_ptrs;
+        arg_ptrs.reserve(storage.size());
+        for (size_t i = 0; i < storage.size(); ++i) {
+            arg_ptrs.push_back(std::visit([](auto& v) -> void* { return const_cast<void*>(static_cast<const void*>(&v)); }, storage[i]));
+        }
+
+        bool ok;
+        {
+            nb::gil_scoped_release release;
+            ok = fastjson::gpu::gpu_launch_triton_ptx(ptx_code.c_str(), kernel_name.c_str(), arg_ptrs.data(), grid_size, block_size);
+        }
+        return ok;
+    }, "ptx_code"_a, "kernel_name"_a, "args"_a, "grid_size"_a, "block_size"_a, "Launch Triton JIT PTX code dynamically");
 }

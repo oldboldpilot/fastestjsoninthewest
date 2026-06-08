@@ -9,13 +9,85 @@
 
 #include <dlfcn.h>
 
+#ifdef FASTJSON_ENABLE_CUDA
+#include <cuda_runtime.h>
+#endif
+
 // Forward declarations for backend-specific functions
-#ifdef __CUDACC__
+#ifdef FASTJSON_ENABLE_CUDA
+extern "C" {
+auto detect_cuda_c() -> bool;
+auto get_cuda_info_c(char* device_name, size_t* total_memory, size_t* available_memory, int* compute_units, int* max_threads_per_block, bool* supports_concurrent_kernels) -> bool;
+auto cuda_find_whitespace_c(const char* input, size_t size, uint32_t* positions, size_t* count) -> bool;
+auto cuda_find_structural_c(const char* input, size_t size, uint32_t* positions, uint8_t* types, size_t* count) -> bool;
+auto parse_on_cuda_c(const char* input, size_t size, uint32_t* positions, uint8_t* types, size_t* count, int grid_size, int block_size, bool use_cuda_graph, double* transfer_to_gpu_ms, double* kernel_execution_ms, double* transfer_from_gpu_ms) -> bool;
+auto gpu_matrix_multiply_c(const float* A, const float* B, float* C, int M, int N, int K, int backend_val) -> bool;
+auto gpu_launch_triton_ptx_c(const char* ptx_code, const char* kernel_name, void** args, int grid_size, int block_size) -> bool;
+}
+
 namespace fastjson::gpu::cuda {
-auto detect_cuda() -> bool;
-auto get_cuda_info() -> gpu_info;
-auto parse_on_cuda(std::string_view input, const gpu_parse_config& config) -> gpu_parse_result;
-}  // namespace fastjson::gpu::cuda
+
+auto detect_cuda() -> bool {
+    return detect_cuda_c();
+}
+
+auto get_cuda_info() -> gpu_info {
+    gpu_info info;
+    info.backend = gpu_backend::cuda;
+    char name_buf[256] = {0};
+    if (get_cuda_info_c(name_buf, &info.total_memory, &info.available_memory, &info.compute_units, &info.max_threads_per_block, &info.supports_concurrent_kernels)) {
+        info.device_name = name_buf;
+    }
+    return info;
+}
+
+auto parse_on_cuda(std::string_view input, const gpu_parse_config& config) -> gpu_parse_result {
+    gpu_parse_result result;
+    size_t size = input.size();
+    
+    int block_size = config.block_size;
+    int grid_size = config.grid_size;
+    
+    result.token_positions.resize(size);
+    result.token_types.resize(size);
+    size_t count = 0;
+    
+    bool ok = parse_on_cuda_c(
+        input.data(), size,
+        result.token_positions.data(), result.token_types.data(), &count,
+        grid_size, block_size,
+        config.use_cuda_graph || config.backend == gpu_backend::cuda_graph,
+        &result.transfer_to_gpu_ms, &result.kernel_execution_ms, &result.transfer_from_gpu_ms
+    );
+    
+    if (ok) {
+        result.token_positions.resize(count);
+        result.token_types.resize(count);
+        result.success = true;
+    } else {
+        result.success = false;
+        result.error_message = "CUDA parsing kernel execution failed";
+    }
+    return result;
+}
+
+auto gpu_matrix_multiply(const float* A, const float* B, float* C, int M, int N, int K, gpu_backend backend) -> bool {
+    return gpu_matrix_multiply_c(A, B, C, M, N, K, static_cast<int>(backend));
+}
+
+auto gpu_launch_triton_ptx(const char* ptx_code, const char* kernel_name, void** args, int grid_size, int block_size) -> bool {
+    return gpu_launch_triton_ptx_c(ptx_code, kernel_name, args, grid_size, block_size);
+}
+
+auto cuda_find_whitespace(const char* input, size_t size, uint32_t* positions, size_t* count) -> bool {
+    return cuda_find_whitespace_c(input, size, positions, count);
+}
+
+auto cuda_find_structural(const char* input, size_t size, uint32_t* positions, uint8_t* types, size_t* count) -> bool {
+    return cuda_find_structural_c(input, size, positions, types, count);
+}
+
+} // namespace fastjson::gpu::cuda
 #endif
 
 #ifdef __HIP__
@@ -104,7 +176,7 @@ static auto detect_sycl_runtime() -> bool {
 auto detect_gpu_backend() -> gpu_backend {
     // Try detecting in order of preference: CUDA -> ROCm -> SYCL
 
-#ifdef __CUDACC__
+#ifdef FASTJSON_ENABLE_CUDA
     if (detect_cuda_runtime() && cuda::detect_cuda()) {
         return gpu_backend::cuda;
     }
@@ -147,7 +219,7 @@ auto get_gpu_info(gpu_backend backend) -> gpu_info {
     info.backend = backend;
 
     switch (backend) {
-#ifdef __CUDACC__
+#ifdef FASTJSON_ENABLE_CUDA
         case gpu_backend::cuda:
             if (detect_cuda_runtime()) {
                 return cuda::get_cuda_info();
@@ -197,7 +269,7 @@ gpu_buffer::gpu_buffer(size_t size, gpu_backend backend)
     // Allocate device memory based on backend
     switch (backend_) {
         case gpu_backend::cuda:
-#ifdef __CUDACC__
+#ifdef FASTJSON_ENABLE_CUDA
             if (detect_cuda_runtime()) {
                 cudaMalloc(&device_ptr_, size_);
             }
@@ -232,7 +304,7 @@ gpu_buffer::~gpu_buffer() {
 
     switch (backend_) {
         case gpu_backend::cuda:
-#ifdef __CUDACC__
+#ifdef FASTJSON_ENABLE_CUDA
             if (detect_cuda_runtime()) {
                 cudaFree(device_ptr_);
             }
@@ -295,7 +367,7 @@ auto gpu_buffer::copy_to_device(const void* host_ptr, size_t size, size_t offset
 
     switch (backend_) {
         case gpu_backend::cuda:
-#ifdef __CUDACC__
+#ifdef FASTJSON_ENABLE_CUDA
             if (detect_cuda_runtime()) {
                 return cudaMemcpy(dest, host_ptr, size, cudaMemcpyHostToDevice) == cudaSuccess;
             }
@@ -330,7 +402,7 @@ auto gpu_buffer::copy_from_device(void* host_ptr, size_t size, size_t offset) ->
 
     switch (backend_) {
         case gpu_backend::cuda:
-#ifdef __CUDACC__
+#ifdef FASTJSON_ENABLE_CUDA
             if (detect_cuda_runtime()) {
                 return cudaMemcpy(host_ptr, src, size, cudaMemcpyDeviceToHost) == cudaSuccess;
             }
@@ -401,7 +473,7 @@ auto parse_on_gpu(std::string_view input, const gpu_parse_config& config) -> gpu
                 result.error_message = "CUDA runtime not available";
                 return result;
             }
-#ifdef __CUDACC__
+#ifdef FASTJSON_ENABLE_CUDA
             return cuda::parse_on_cuda(input, config);
 #else
             result.success = false;
@@ -455,7 +527,7 @@ auto gpu_find_whitespace(const char* input, size_t size, uint32_t* positions, si
     }
 
     switch (backend) {
-#ifdef __CUDACC__
+#ifdef FASTJSON_ENABLE_CUDA
         case gpu_backend::cuda:
             if (detect_cuda_runtime()) {
                 return cuda::cuda_find_whitespace(input, size, positions, count);
@@ -488,7 +560,7 @@ auto gpu_find_structural_chars(const char* input, size_t size, uint32_t* positio
     }
 
     switch (backend) {
-#ifdef __CUDACC__
+#ifdef FASTJSON_ENABLE_CUDA
         case gpu_backend::cuda:
             if (detect_cuda_runtime()) {
                 return cuda::cuda_find_structural(input, size, positions, char_types, count);
@@ -553,6 +625,26 @@ auto get_optimal_gpu_config(size_t input_size, gpu_backend backend) -> gpu_parse
     }
 
     return config;
+}
+
+auto gpu_matrix_multiply(const float* A, const float* B, float* C, int M, int N, int K,
+                         gpu_backend backend) -> bool {
+#ifdef FASTJSON_ENABLE_CUDA
+    return cuda::gpu_matrix_multiply(A, B, C, M, N, K, backend);
+#else
+    (void)A; (void)B; (void)C; (void)M; (void)N; (void)K; (void)backend;
+    return false;
+#endif
+}
+
+auto gpu_launch_triton_ptx(const char* ptx_code, const char* kernel_name, void** args,
+                           int grid_size, int block_size) -> bool {
+#ifdef FASTJSON_ENABLE_CUDA
+    return cuda::gpu_launch_triton_ptx(ptx_code, kernel_name, args, grid_size, block_size);
+#else
+    (void)ptx_code; (void)kernel_name; (void)args; (void)grid_size; (void)block_size;
+    return false;
+#endif
 }
 
 }  // namespace gpu

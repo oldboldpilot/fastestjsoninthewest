@@ -111,6 +111,9 @@ using uint128_compat = unsigned __int128;
 #include <tbb/parallel_for.h>
 #include <tbb/task_arena.h>
 #include <tbb/blocked_range.h>
+#ifdef FASTJSON_USE_PARALLEL_STL
+#include <tbb/scalable_allocator.h>
+#endif
 
 // SIMD intrinsics
 #if defined(__x86_64__) || defined(_M_X64)
@@ -485,8 +488,13 @@ export using json_null = std::nullptr_t;
 export class json_value;
 
 // Container types - optimized for parallel processing with Copy-On-Write (COW)
+#ifdef FASTJSON_USE_PARALLEL_STL
+export using json_array = std::vector<json_value, tbb::scalable_allocator<json_value>>;
+export using json_object = std::unordered_map<std::string, json_value, std::hash<std::string>, std::equal_to<std::string>, tbb::scalable_allocator<std::pair<const std::string, json_value>>>;
+#else
 export using json_array = std::vector<json_value>;
 export using json_object = std::unordered_map<std::string, json_value>;
+#endif
 
 // Pointer types for COW implementation
 using json_array_ptr = std::shared_ptr<json_array>;

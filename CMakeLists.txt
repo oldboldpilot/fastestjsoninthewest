@@ -240,6 +240,52 @@ target_link_options(fastjson PRIVATE
     -pthread
 )
 
+# Conditionally enable CUDA and compile GPU files
+# Conditionally enable CUDA and compile GPU files
+option(ENABLE_CUDA "Enable CUDA GPU acceleration" ON)
+if(ENABLE_CUDA)
+    enable_language(CUDA)
+    find_package(CUDAToolkit REQUIRED)
+    
+    add_library(fastjson_cuda STATIC modules/gpu/json_cuda.cu)
+    
+    set_target_properties(fastjson_cuda PROPERTIES
+        CUDA_ARCHITECTURES "75;80;86;89;90;120"
+        CUDA_STANDARD 20
+        CUDA_STANDARD_REQUIRED ON
+        COMPILE_OPTIONS ""
+        POSITION_INDEPENDENT_CODE ON
+    )
+    
+    set_property(TARGET fastjson_cuda PROPERTY CUDA_HOST_COMPILER "/usr/bin/g++")
+    
+    target_include_directories(fastjson_cuda PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/modules
+    )
+    
+    target_link_libraries(fastjson_cuda PRIVATE
+        CUDA::cudart
+        CUDA::cublas
+        CUDA::cuda_driver
+    )
+    
+    target_sources(fastjson PRIVATE
+        modules/gpu/json_gpu.cpp
+    )
+    
+    target_compile_definitions(fastjson PRIVATE FASTJSON_ENABLE_CUDA)
+    target_link_libraries(fastjson PRIVATE 
+        fastjson_cuda
+        CUDA::cudart 
+        CUDA::cublas 
+        CUDA::cuda_driver
+    )
+    
+    set_source_files_properties(modules/gpu/json_cuda.cu PROPERTIES
+        CXX_SCAN_FOR_MODULES OFF
+    )
+endif()
+
 # Set compile features and properties
 target_compile_features(fastjson PUBLIC cxx_std_23)
 set_target_properties(fastjson PROPERTIES

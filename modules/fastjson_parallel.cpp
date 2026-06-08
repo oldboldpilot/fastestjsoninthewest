@@ -111,6 +111,9 @@ using uint128_compat = unsigned __int128;
 #include <tbb/parallel_for.h>
 #include <tbb/task_arena.h>
 #include <tbb/blocked_range.h>
+#ifdef FASTJSON_USE_PARALLEL_STL
+#include <tbb/scalable_allocator.h>
+#endif
 
 // SIMD intrinsics
 #if defined(__x86_64__) || defined(_M_X64)
@@ -248,9 +251,13 @@ using json_uint_128 = uint128_compat;  // 128-bit unsigned integer
 using json_boolean = bool;
 using json_null = std::nullptr_t;
 
-export class json_value;
+#ifdef FASTJSON_USE_PARALLEL_STL
+using json_array = std::vector<json_value, tbb::scalable_allocator<json_value>>;
+using json_object = std::unordered_map<std::string, json_value, std::hash<std::string>, std::equal_to<std::string>, tbb::scalable_allocator<std::pair<const std::string, json_value>>>;
+#else
 using json_array = std::vector<json_value>;
 using json_object = std::unordered_map<std::string, json_value>;
+#endif
 
 export class json_value {
 public:
