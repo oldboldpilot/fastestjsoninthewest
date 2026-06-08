@@ -153,7 +153,6 @@ if(ENABLE_CUDA)
         POSITION_INDEPENDENT_CODE ON
     )
     
-    set_property(TARGET fastjson_cuda PROPERTY CUDA_HOST_COMPILER "/usr/bin/g++")
     
     target_include_directories(fastjson_cuda PRIVATE
         ${FASTJSON_MODULES_DIR}

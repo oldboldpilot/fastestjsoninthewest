@@ -3,13 +3,12 @@
 // ============================================================================
 
 #ifdef __CUDACC__
-#include "json_gpu.h"
 #include <cuda_runtime.h>
 #include <device_launch_parameters.h>
 #include <cublas_v2.h>
 #include <cuda.h>
-#include <cstdio>
-#include <chrono>
+#include <cstdint>
+#include <cstddef>
 
 namespace fastjson {
 namespace gpu {
@@ -465,23 +464,30 @@ auto parse_on_cuda_c(
     double* kernel_execution_ms,
     double* transfer_from_gpu_ms
 ) -> bool {
-    auto start_total = std::chrono::high_resolution_clock::now();
-    
     if (grid_size <= 0) {
         grid_size = (size + block_size - 1) / block_size;
     }
     grid_size = grid_size > 65535 ? 65535 : grid_size;
 
     if (use_cuda_graph) {
-        auto start_kernel = std::chrono::high_resolution_clock::now();
-        if (capture_and_execute_graph_c(input, size, positions, types, count, grid_size, block_size)) {
-            auto end_kernel = std::chrono::high_resolution_clock::now();
-            *transfer_to_gpu_ms = 0.0;
-            *kernel_execution_ms = std::chrono::duration<double, std::milli>(end_kernel - start_kernel).count();
-            *transfer_from_gpu_ms = 0.0;
-            return true;
-        }
-        return false;
+        cudaEvent_t start_event, stop_event;
+        cudaEventCreate(&start_event);
+        cudaEventCreate(&stop_event);
+        
+        cudaEventRecord(start_event, 0);
+        bool ok = capture_and_execute_graph_c(input, size, positions, types, count, grid_size, block_size);
+        cudaEventRecord(stop_event, 0);
+        cudaEventSynchronize(stop_event);
+        
+        float ms = 0;
+        cudaEventElapsedTime(&ms, start_event, stop_event);
+        *transfer_to_gpu_ms = 0.0;
+        *kernel_execution_ms = ms;
+        *transfer_from_gpu_ms = 0.0;
+        
+        cudaEventDestroy(start_event);
+        cudaEventDestroy(stop_event);
+        return ok;
     }
     
     char* d_input = nullptr;
@@ -489,7 +495,6 @@ auto parse_on_cuda_c(
     uint8_t* d_types = nullptr;
     uint32_t* d_count = nullptr;
     
-    auto start_alloc = std::chrono::high_resolution_clock::now();
     cudaError_t err1 = cudaMalloc(&d_input, size);
     cudaError_t err2 = cudaMalloc(&d_positions, size * sizeof(uint32_t));
     cudaError_t err3 = cudaMalloc(&d_types, size * sizeof(uint8_t));
@@ -501,17 +506,21 @@ auto parse_on_cuda_c(
         if (d_count) cudaFree(d_count);
         return false;
     }
-    
-    auto start_h2d = std::chrono::high_resolution_clock::now();
+
+    cudaEvent_t start_h2d, start_kernel, start_d2h, end_d2h;
+    cudaEventCreate(&start_h2d);
+    cudaEventCreate(&start_kernel);
+    cudaEventCreate(&start_d2h);
+    cudaEventCreate(&end_d2h);
+
+    cudaEventRecord(start_h2d, 0);
     cudaMemcpy(d_input, input, size, cudaMemcpyHostToDevice);
     cudaMemset(d_count, 0, sizeof(uint32_t));
     
-    auto start_kernel = std::chrono::high_resolution_clock::now();
+    cudaEventRecord(start_kernel, 0);
     find_structural_kernel<<<grid_size, block_size>>>(d_input, size, d_positions, d_types, d_count);
-    cudaDeviceSynchronize();
-    auto end_kernel = std::chrono::high_resolution_clock::now();
     
-    auto start_d2h = std::chrono::high_resolution_clock::now();
+    cudaEventRecord(start_d2h, 0);
     uint32_t h_count = 0;
     cudaMemcpy(&h_count, d_count, sizeof(uint32_t), cudaMemcpyDeviceToHost);
     *count = h_count;
@@ -520,16 +529,32 @@ auto parse_on_cuda_c(
         cudaMemcpy(positions, d_positions, h_count * sizeof(uint32_t), cudaMemcpyDeviceToHost);
         cudaMemcpy(types, d_types, h_count * sizeof(uint8_t), cudaMemcpyDeviceToHost);
     }
-    auto end_d2h = std::chrono::high_resolution_clock::now();
+    cudaEventRecord(end_d2h, 0);
+    cudaDeviceSynchronize();
+    cudaEventRecord(end_d2h, 0); // record end
+    cudaEventSynchronize(end_d2h);
     
     cudaFree(d_input);
     cudaFree(d_positions);
     cudaFree(d_types);
     cudaFree(d_count);
     
-    *transfer_to_gpu_ms = std::chrono::duration<double, std::milli>(start_kernel - start_h2d).count();
-    *kernel_execution_ms = std::chrono::duration<double, std::milli>(end_kernel - start_kernel).count();
-    *transfer_from_gpu_ms = std::chrono::duration<double, std::milli>(end_d2h - start_d2h).count();
+    float h2d_ms = 0;
+    cudaEventElapsedTime(&h2d_ms, start_h2d, start_kernel);
+    *transfer_to_gpu_ms = h2d_ms;
+
+    float kernel_ms = 0;
+    cudaEventElapsedTime(&kernel_ms, start_kernel, start_d2h);
+    *kernel_execution_ms = kernel_ms;
+
+    float d2h_ms = 0;
+    cudaEventElapsedTime(&d2h_ms, start_d2h, end_d2h);
+    *transfer_from_gpu_ms = d2h_ms;
+
+    cudaEventDestroy(start_h2d);
+    cudaEventDestroy(start_kernel);
+    cudaEventDestroy(start_d2h);
+    cudaEventDestroy(end_d2h);
     
     return true;
 }

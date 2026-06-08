@@ -257,7 +257,6 @@ if(ENABLE_CUDA)
         POSITION_INDEPENDENT_CODE ON
     )
     
-    set_property(TARGET fastjson_cuda PROPERTY CUDA_HOST_COMPILER "/usr/bin/g++")
     
     target_include_directories(fastjson_cuda PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/modules
