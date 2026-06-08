@@ -81,7 +81,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 # Define portable compile and link options for all targets
-if(NOT MSVC)
+if(NOT MSVC OR CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "GNU")
     set(FASTJSON_BASE_COMPILE_FLAGS
         -fPIC                   # Position Independent Code for shared libraries
         -fstack-protector-strong # Stack protection
@@ -395,7 +395,7 @@ target_link_options(fastjson_parallel PRIVATE
 )
 
 # Aggressive optimization for SIMD multi-register library
-if(NOT MSVC)
+if(NOT MSVC OR CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "GNU")
     target_compile_options(fastjson_simd_multiregister PRIVATE
         -O3                     # Maximum optimization
         -fPIC                   # Position Independent Code
@@ -467,7 +467,7 @@ target_compile_features(fastjson_multiregister_parser PUBLIC cxx_std_23)
 # IMPORTANT: Use explicit SIMD flags to avoid C++23 module configuration mismatch
 # The flags MUST match exactly between the parser module and any consuming modules
 # Using AVX2 only - this CPU doesn't support AVX-512 in hardware
-if(NOT MSVC)
+if(NOT MSVC OR CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "GNU")
     set(MULTIREGISTER_SIMD_FLAGS 
         -stdlib=libc++
         -march=native 
