@@ -7,7 +7,17 @@
 #include <algorithm>
 #include <cstring>
 
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#else
 #include <dlfcn.h>
+#endif
 
 #ifdef FASTJSON_ENABLE_CUDA
 #include <cuda_runtime.h>
@@ -114,6 +124,18 @@ namespace gpu {
 // ============================================================================
 
 static auto check_library_exists(const char* lib_name) -> bool {
+#ifdef _WIN32
+    HMODULE handle = GetModuleHandleA(lib_name);
+    if (handle) {
+        return true;
+    }
+    handle = LoadLibraryA(lib_name);
+    if (handle) {
+        FreeLibrary(handle);
+        return true;
+    }
+    return false;
+#else
     void* handle = dlopen(lib_name, RTLD_NOW | RTLD_NOLOAD);
     if (handle) {
         dlclose(handle);
@@ -128,11 +150,16 @@ static auto check_library_exists(const char* lib_name) -> bool {
     }
 
     return false;
+#endif
 }
 
 static auto detect_cuda_runtime() -> bool {
     // Check for CUDA runtime library
+#ifdef _WIN32
+    const char* cuda_libs[] = {"cudart64_12.dll", "cudart64_110.dll", "cudart64_102.dll", "cudart.dll", nullptr};
+#else
     const char* cuda_libs[] = {"libcudart.so", "libcudart.so.12", "libcudart.so.11", nullptr};
+#endif
 
     for (int i = 0; cuda_libs[i]; ++i) {
         if (check_library_exists(cuda_libs[i])) {
@@ -621,7 +648,7 @@ auto get_optimal_gpu_config(size_t input_size, gpu_backend backend) -> gpu_parse
 
     // Adjust thresholds based on device memory
     if (info.total_memory > 0) {
-        config.min_size_for_gpu = std::max(10000ul, info.total_memory / 10000);
+        config.min_size_for_gpu = std::max(static_cast<size_t>(10000), info.total_memory / 10000);
     }
 
     return config;

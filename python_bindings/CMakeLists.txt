@@ -145,6 +145,25 @@ target_link_libraries(fastjson PRIVATE
 option(ENABLE_CUDA "Enable CUDA GPU acceleration" ON)
 if(ENABLE_CUDA)
     enable_language(CUDA)
+    if(WIN32)
+        foreach(_var CMAKE_CUDA_COMPILE_OBJECT CMAKE_CUDA_DEVICE_LINK_LIBRARY CMAKE_CUDA_DEVICE_LINK_EXECUTABLE)
+            if(DEFINED ${_var})
+                string(REPLACE "-Xcompiler=-Fd<TARGET_COMPILE_PDB>,-FS" "-Xcompiler=-FS" ${_var}_NEW "${${_var}}")
+                set(${_var} "${${_var}_NEW}")
+            endif()
+        endforeach()
+        
+        # Workaround for CMake 4.3+ bug where it groups host compiler options with spaces under -Xcompiler="..."
+        # which NVCC splits on spaces under Windows/Ninja, causing compilation failures.
+        foreach(_config RELEASE RELWITHDEBINFO MINSIZEREL DEBUG)
+            if(CMAKE_CUDA_FLAGS_${_config})
+                string(REPLACE "-Xcompiler=\"-O2 -Ob2\"" "-Xcompiler=-O2 -Xcompiler=-Ob2" CMAKE_CUDA_FLAGS_${_config} "${CMAKE_CUDA_FLAGS_${_config}}")
+                string(REPLACE "-Xcompiler=\"-MD -O2 -Ob2\"" "-Xcompiler=-MD -Xcompiler=-O2 -Xcompiler=-Ob2" CMAKE_CUDA_FLAGS_${_config} "${CMAKE_CUDA_FLAGS_${_config}}")
+                string(REPLACE "-Xcompiler=\"-MDd  -Ob0 -Od\"" "-Xcompiler=-MDd -Xcompiler=-Ob0 -Xcompiler=-Od" CMAKE_CUDA_FLAGS_${_config} "${CMAKE_CUDA_FLAGS_${_config}}")
+                string(REPLACE "-Xcompiler=\"-MDd -Zi -Ob0 -Od\"" "-Xcompiler=-MDd -Xcompiler=-Zi -Xcompiler=-Ob0 -Xcompiler=-Od" CMAKE_CUDA_FLAGS_${_config} "${CMAKE_CUDA_FLAGS_${_config}}")
+            endif()
+        endforeach()
+    endif()
     find_package(CUDAToolkit REQUIRED)
     
     add_library(fastjson_cuda STATIC ${FASTJSON_MODULES_DIR}/gpu/json_cuda.cu)
