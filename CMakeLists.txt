@@ -282,6 +282,11 @@ if(ENABLE_CUDA)
         POSITION_INDEPENDENT_CODE ON
         COMPILE_OPTIONS ""
     )
+    if(MSVC OR WIN32)
+        set_target_properties(fastjson_cuda PROPERTIES
+            MSVC_DEBUG_INFORMATION_FORMAT Embedded
+        )
+    endif()
     
     if(CMAKE_CUDA_COMPILER_ID MATCHES "Clang")
         target_compile_options(fastjson_cuda PRIVATE
