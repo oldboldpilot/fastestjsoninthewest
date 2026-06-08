@@ -29,6 +29,10 @@ module;
 #include <exception>
 #include <stdexcept>
 #include <chrono>
+#include <expected>
+#include <unordered_map>
+#include <array>
+#include <span>
 #endif
 
 #if defined(_MSC_VER) && !defined(__clang__)
