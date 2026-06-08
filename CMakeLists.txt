@@ -71,6 +71,10 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     add_compile_options(-fexperimental-library)
     add_link_options(-fexperimental-library)
+    if(WIN32)
+        set(CMAKE_CXX_MODULE_STD OFF)
+        add_compile_definitions(SENSEN_NO_IMPORT_STD)
+    endif()
 endif()
 
 # Find required libraries

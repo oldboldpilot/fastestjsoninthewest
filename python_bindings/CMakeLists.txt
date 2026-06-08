@@ -27,6 +27,10 @@ find_package(TBB REQUIRED)
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     add_compile_options(-stdlib=libc++ -fexperimental-library)
     add_link_options(-stdlib=libc++ -fexperimental-library)
+    if(WIN32)
+        set(CMAKE_CXX_MODULE_STD OFF)
+        add_compile_definitions(SENSEN_NO_IMPORT_STD)
+    endif()
 endif()
 
 # ============================================================================
