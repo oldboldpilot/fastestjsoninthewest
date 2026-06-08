@@ -242,8 +242,6 @@ target_sources(fastjson
     PUBLIC
         FILE_SET CXX_MODULES FILES
         modules/fastjson.cppm
-    PRIVATE
-        modules/fastjson.cpp
 )
 
 # Link with std_module for import std; support
