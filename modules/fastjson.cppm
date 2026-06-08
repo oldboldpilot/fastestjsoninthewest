@@ -118,6 +118,9 @@ struct alignas(16) msvc_uint128 {
     constexpr explicit operator double() const noexcept {
         return static_cast<double>(high) * 18446744073709551616.0 + static_cast<double>(low);
     }
+    constexpr explicit msvc_uint128(double val) noexcept : low(val >= 1.0 ? static_cast<uint64_t>(val) : 0ULL), high(0ULL) {}
+    constexpr explicit msvc_uint128(msvc_float128 v) noexcept;
+    constexpr explicit operator msvc_float128() const noexcept;
 
     // Inline Friend Operators
     friend constexpr auto operator+(msvc_uint128 lhs, msvc_uint128 rhs) noexcept -> msvc_uint128 {
@@ -245,6 +248,9 @@ struct alignas(16) msvc_int128 {
     constexpr explicit operator double() const noexcept {
         return static_cast<double>(high) * 18446744073709551616.0 + static_cast<double>(low);
     }
+    constexpr explicit msvc_int128(double val) noexcept : low(static_cast<uint64_t>(static_cast<int64_t>(val))), high(val < 0.0 ? int64_t{-1} : int64_t{0}) {}
+    constexpr explicit msvc_int128(msvc_float128 v) noexcept;
+    constexpr explicit operator msvc_float128() const noexcept;
 
     // Inline Friend Operators
     friend constexpr auto operator+(msvc_int128 lhs, msvc_int128 rhs) noexcept -> msvc_int128 {
@@ -438,6 +444,10 @@ struct alignas(16) msvc_float128 {
     constexpr explicit operator double() const noexcept { return head; }
     constexpr explicit operator float() const noexcept { return static_cast<float>(head); }
     constexpr explicit operator long double() const noexcept { return static_cast<long double>(head); }
+    constexpr explicit operator int64_t() const noexcept { return static_cast<int64_t>(head); }
+    constexpr explicit operator uint64_t() const noexcept { return static_cast<uint64_t>(head); }
+    constexpr explicit msvc_float128(msvc_int128 v) noexcept : head(static_cast<double>(v)), tail(0.0) {}
+    constexpr explicit msvc_float128(msvc_uint128 v) noexcept : head(static_cast<double>(v)), tail(0.0) {}
 
     constexpr auto operator+=(msvc_float128 other) noexcept -> msvc_float128&;
     constexpr auto operator-=(msvc_float128 other) noexcept -> msvc_float128&;
@@ -526,6 +536,12 @@ constexpr auto msvc_float128::operator+=(msvc_float128 other) noexcept -> msvc_f
 constexpr auto msvc_float128::operator-=(msvc_float128 other) noexcept -> msvc_float128& { *this = *this - other; return *this; }
 constexpr auto msvc_float128::operator*=(msvc_float128 other) noexcept -> msvc_float128& { *this = *this * other; return *this; }
 constexpr auto msvc_float128::operator/=(msvc_float128 other) noexcept -> msvc_float128& { *this = *this / other; return *this; }
+
+// Out-of-line cross-conversion definitions (msvc_float128 now complete)
+constexpr msvc_uint128::msvc_uint128(msvc_float128 v) noexcept : low(v.head >= 1.0 ? static_cast<uint64_t>(v.head) : 0ULL), high(0ULL) {}
+constexpr msvc_int128::msvc_int128(msvc_float128 v) noexcept : low(static_cast<uint64_t>(static_cast<int64_t>(v.head))), high(v.head < 0.0 ? int64_t{-1} : int64_t{0}) {}
+constexpr msvc_uint128::operator msvc_float128() const noexcept { return msvc_float128{static_cast<double>(*this)}; }
+constexpr msvc_int128::operator msvc_float128() const noexcept { return msvc_float128{static_cast<double>(*this)}; }
 
 using float128_compat = msvc_float128;
 using int128_compat = msvc_int128;

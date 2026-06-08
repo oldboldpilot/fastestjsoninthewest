@@ -45,8 +45,14 @@ struct structural_index {
 // SIMD Structural Scanner - AVX2 Version
 // ============================================================================
 
+#if defined(_MSC_VER) && !defined(__clang__)
+#define FASTJSON_SIMD_ATTR_AVX2
+#else
+#define FASTJSON_SIMD_ATTR_AVX2 __attribute__((target("avx2")))
+#endif
+
 #if defined(__AVX2__)
-__attribute__((target("avx2"))) inline auto
+FASTJSON_SIMD_ATTR_AVX2 inline auto
 find_structural_chars_avx2(std::span<const char> input, std::vector<structural_index>& indices)
     -> void {
     const size_t len = input.size();
