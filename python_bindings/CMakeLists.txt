@@ -153,6 +153,14 @@ if(ENABLE_CUDA)
         POSITION_INDEPENDENT_CODE ON
     )
     
+    if(CMAKE_CUDA_COMPILER_ID MATCHES "Clang")
+        target_compile_options(fastjson_cuda PRIVATE
+            $<$<COMPILE_LANGUAGE:CUDA>:
+                -D_ALLOW_UNSUPPORTED_LIBCPP
+            >
+        )
+    endif()
+    
     
     target_include_directories(fastjson_cuda PRIVATE
         ${FASTJSON_MODULES_DIR}
