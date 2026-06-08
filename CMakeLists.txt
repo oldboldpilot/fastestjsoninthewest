@@ -278,12 +278,10 @@ if(ENABLE_CUDA)
         CUDA_STANDARD 20
         CUDA_STANDARD_REQUIRED ON
     )
-    if(NOT WIN32)
-        set_target_properties(fastjson_cuda PROPERTIES 
-            POSITION_INDEPENDENT_CODE ON
-            COMPILE_OPTIONS ""
-        )
-    endif()
+    set_target_properties(fastjson_cuda PROPERTIES 
+        POSITION_INDEPENDENT_CODE ON
+        COMPILE_OPTIONS ""
+    )
     
     if(CMAKE_CUDA_COMPILER_ID MATCHES "Clang")
         target_compile_options(fastjson_cuda PRIVATE
