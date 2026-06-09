@@ -5,6 +5,12 @@
 
 module;
 
+// <cstdint> for int64_t / uint64_t used by the msvc_* 128-bit emulation structs below.
+// They live in the global module fragment; on MSVC int64_t is not a builtin, and the
+// `import std;` further down runs AFTER this GMF, so without this include the structs
+// fail to parse (C3646/C4430/C2061 'int64_t').
+#include <cstdint>
+
 #if defined(_MSC_VER) && !defined(__clang__)
 struct msvc_float128 {
     double val;
