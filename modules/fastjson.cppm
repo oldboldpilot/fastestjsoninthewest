@@ -682,9 +682,16 @@ using uint128_compat = unsigned __int128;
 #include <array>
 #include <type_traits>
 #if defined(__x86_64__) || defined(_M_X64)
-    #include <cpuid.h>
-    #include <immintrin.h>
-    #include <x86intrin.h>
+    #if defined(_MSC_VER) && !defined(__clang__)
+        // Native MSVC (cl.exe) has no <cpuid.h>/<x86intrin.h>; the CPUID
+        // intrinsic and the SSE/AVX intrinsics live in <intrin.h>/<immintrin.h>.
+        #include <intrin.h>
+        #include <immintrin.h>
+    #else
+        #include <cpuid.h>
+        #include <immintrin.h>
+        #include <x86intrin.h>
+    #endif
 #endif
 
 #ifdef __ARM_NEON
