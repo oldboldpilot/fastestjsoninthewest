@@ -326,6 +326,7 @@ __attribute__((target("pclmul")))
 inline void process_group64(
         scan_state& st,
         uint64_t qm, uint64_t bm, uint64_t stm, uint64_t wsm,
+        uint64_t open_m, uint64_t close_m,
         uint32_t base,
         const char* __restrict__ data,
         tape_entry* __restrict__ te, size_t& si,
@@ -352,19 +353,25 @@ inline void process_group64(
 
     const uint64_t combined = uq | (stm & ~sm) | (sc_start & ~sm);
 
-    // Emit tape entries.
+    // Emit tape entries. Bracket classification uses precomputed open/close
+    // bitmasks (one set of cmpeq per 64-byte block in the caller) instead of a
+    // per-structural data[p] char comparison — replaces the data-dependent
+    // ch=='{'||'[' / '}'||']' branches with single bit-tests on isolated bits,
+    // which the branch predictor handles far better. The char is still loaded
+    // for the tape token's high byte.
     uint64_t mask = combined;
     while (mask) {
-        const uint32_t bit = static_cast<uint32_t>(__builtin_ctzll(mask));
+        const uint64_t bbit = mask & (~mask + 1ULL);  // lowest set bit, isolated
+        const uint32_t bit  = static_cast<uint32_t>(__builtin_ctzll(mask));
         mask &= mask - 1ULL;
         const uint32_t  p   = base + bit;
         const uint8_t   ch  = static_cast<uint8_t>(data[p]);
         const uint32_t  tok = (static_cast<uint32_t>(ch) << 24) | p;
 
-        if (ch == '{' || ch == '[') {
+        if (open_m & bbit) {
             te[si] = {tok, 0u};
             bkt_stk[++bkt_top] = static_cast<uint32_t>(si);
-        } else if ((ch == '}' || ch == ']') & (bkt_top >= 0)) {
+        } else if ((close_m & bbit) && (bkt_top >= 0)) {
             const uint32_t open = bkt_stk[bkt_top--];
             te[open].partner    = static_cast<uint32_t>(si);
             te[si]              = {tok, open};
@@ -520,6 +527,10 @@ inline size_t build_structural_index_avx2(
 
     const __m256i vquote    = _mm256_set1_epi8('"');
     const __m256i vbs       = _mm256_set1_epi8('\\');
+    const __m256i vlbrace   = _mm256_set1_epi8('{');
+    const __m256i vlbracket = _mm256_set1_epi8('[');
+    const __m256i vrbrace   = _mm256_set1_epi8('}');
+    const __m256i vrbracket = _mm256_set1_epi8(']');
     const __m256i lower_tbl = _mm256_setr_epi8(
         16,0,0,0,0,0,0,0,0,32,36,1,8,34,0,0,
         16,0,0,0,0,0,0,0,0,32,36,1,8,34,0,0);
@@ -548,10 +559,12 @@ inline size_t build_structural_index_avx2(
 #define PG64_AVX2(c0, c1, OFF) do { \
     const uint64_t _qm  = qm64(c0, c1, vquote); \
     const uint64_t _bm  = qm64(c0, c1, vbs); \
+    const uint64_t _om  = qm64(c0, c1, vlbrace) | qm64(c0, c1, vlbracket); \
+    const uint64_t _cm  = qm64(c0, c1, vrbrace) | qm64(c0, c1, vrbracket); \
     const auto [_s0,_w0] = cl32(c0); const auto [_s1,_w1] = cl32(c1); \
     const uint64_t _stm = static_cast<uint64_t>(_s0) | (static_cast<uint64_t>(_s1) << 32); \
     const uint64_t _wsm = static_cast<uint64_t>(_w0) | (static_cast<uint64_t>(_w1) << 32); \
-    process_group64(st, _qm, _bm, _stm, _wsm, static_cast<uint32_t>(pos + (OFF)), data, te, si, bkt_stk, bkt_top); \
+    process_group64(st, _qm, _bm, _stm, _wsm, _om, _cm, static_cast<uint32_t>(pos + (OFF)), data, te, si, bkt_stk, bkt_top); \
 } while(0)
 
     // Main loop: 8× ymm = 256 bytes.
@@ -677,6 +690,10 @@ inline size_t build_structural_index_avx512(
 
     const __m512i vquote512 = _mm512_set1_epi8('"');
     const __m512i vbs512    = _mm512_set1_epi8('\\');
+    const __m512i vlbrace   = _mm512_set1_epi8('{');
+    const __m512i vlbracket = _mm512_set1_epi8('[');
+    const __m512i vrbrace   = _mm512_set1_epi8('}');
+    const __m512i vrbracket = _mm512_set1_epi8(']');
 
     // Broadcast 16-byte lookup tables into all 4 zmm lanes.
     const __m512i lower_tbl = _mm512_broadcast_i32x4(
@@ -705,9 +722,13 @@ inline size_t build_structural_index_avx512(
 #define PG64_AVX512(zmm, OFF) do { \
     const uint64_t _qm = static_cast<uint64_t>(_mm512_cmpeq_epi8_mask(zmm, vquote512)); \
     const uint64_t _bm = static_cast<uint64_t>(_mm512_cmpeq_epi8_mask(zmm, vbs512)); \
+    const uint64_t _om = static_cast<uint64_t>(_mm512_cmpeq_epi8_mask(zmm, vlbrace)) \
+                       | static_cast<uint64_t>(_mm512_cmpeq_epi8_mask(zmm, vlbracket)); \
+    const uint64_t _cm = static_cast<uint64_t>(_mm512_cmpeq_epi8_mask(zmm, vrbrace)) \
+                       | static_cast<uint64_t>(_mm512_cmpeq_epi8_mask(zmm, vrbracket)); \
     uint64_t _stm = 0, _wsm = 0; \
     CL64_AVX512(zmm, _stm, _wsm); \
-    process_group64(st, _qm, _bm, _stm, _wsm, \
+    process_group64(st, _qm, _bm, _stm, _wsm, _om, _cm, \
                     static_cast<uint32_t>(pos + (OFF)), \
                     data, te, si, bkt_stk, bkt_top); \
 } while(0)
