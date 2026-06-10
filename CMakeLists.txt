@@ -41,8 +41,23 @@ option(ENABLE_PARALLEL_STL "Enable Parallel STL with Intel TBB (recommended for 
 
 # Parent project CPU feature overrides (for WSL2/VM compatibility)
 # These allow parent projects to override auto-detection
-option(FASTJSON_FORCE_AVX512 "Force AVX-512 on/off (overrides detection)" "")
-option(FASTJSON_FORCE_AMX "Force AMX on/off (overrides detection)" "")
+# Global-flag AVX-512/AMX gate. Default OFF *by design*, NOT because of WSL2/VM:
+# the parent project's policy bans whole-binary -mavx512 (it makes the binary
+# SIGILL on any non-AVX-512 host and breaks portability), so the global-flag
+# AVX-512 paths (#ifdef HAVE_AVX512* in fastjson.cpp / the multiregister parser)
+# are compiled out by default. A consumer that accepts the portability tradeoff
+# can opt in with -DFASTJSON_FORCE_AVX512=ON.
+#
+# This does NOT disable AVX-512 in the turbo structural indexer (the hot path):
+# that path is gated per-function via [[gnu::target("avx512f,avx512bw,pclmul")]]
+# and dispatched at runtime by cpu_has_avx512bw() (CPUID), so it is always
+# active on AVX-512 hardware regardless of this flag — the policy-compliant way
+# to ship AVX-512.
+#
+# STRING (not option()): a true tristate. Empty would mean "auto-detect", but we
+# default to OFF to honour the global-AVX-512 ban; set ON to force-enable.
+set(FASTJSON_FORCE_AVX512 "OFF" CACHE STRING "Global AVX-512: ON/OFF (default OFF per no-global-AVX-512 policy)")
+set(FASTJSON_FORCE_AMX "OFF" CACHE STRING "Global AMX: ON/OFF (default OFF per portability policy)")
 
 # ============================================================================
 # Compiler Verification
@@ -835,7 +850,7 @@ if(NOT "${FASTJSON_FORCE_AVX512}" STREQUAL "")
         set(CPU_SUPPORTS_AVX512VBMI FALSE)
         set(CPU_SUPPORTS_AVX512VBMI2 FALSE)
         set(CPU_SUPPORTS_AVX512VNNI FALSE)
-        message(STATUS "AVX-512 disabled (forced by parent project - likely WSL2/VM)")
+        message(STATUS "Global-flag AVX-512 OFF (no-global-AVX-512 policy). The turbo structural indexer's per-function AVX-512 (runtime CPUID dispatch) stays active on capable CPUs.")
     endif()
 endif()
 
@@ -844,7 +859,7 @@ if(NOT "${FASTJSON_FORCE_AMX}" STREQUAL "")
         message(STATUS "AMX enabled (forced by parent project)")
     else()
         set(CPU_SUPPORTS_AMX FALSE)
-        message(STATUS "AMX disabled (forced by parent project - likely WSL2/VM)")
+        message(STATUS "Global-flag AMX OFF (portability policy); enable with -DFASTJSON_FORCE_AMX=ON if the deployment host is guaranteed AMX-capable.")
     endif()
 endif()
 
