@@ -1,3 +1,0 @@
-[submodule "external/cpp23-logger"]
-	path = external/cpp23-logger
-        url = ../cpp23-logger.git
