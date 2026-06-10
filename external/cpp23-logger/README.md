@@ -27,16 +27,67 @@ A production-grade, thread-safe logging system with Mustache-style named templat
 include(FetchContent)
 
 FetchContent_Declare(
-    logger
-    GIT_REPOSITORY https://github.com/YOUR_USERNAME/cpp23-logger.git
-    GIT_TAG        v1.0.0
+    cpp23_logger
+    GIT_REPOSITORY https://github.com/oldboldpilot/cpp23-logger.git
+    GIT_TAG        master
 )
 
-FetchContent_MakeAvailable(logger)
+FetchContent_MakeAvailable(cpp23_logger)
 
 # Link to your target
 target_link_libraries(your_target PRIVATE logger)
 ```
+
+### Embedding in Large Projects (Avoiding Conflicts)
+
+When integrating cpp23-logger into a larger project that may have multiple dependencies using this library, you can customize the build to prevent target name collisions and control library placement:
+
+```cmake
+include(FetchContent)
+
+# Configure BEFORE FetchContent_MakeAvailable
+# 1. Add a prefix to the target name (e.g., "myproject_logger")
+set(CPP23_LOGGER_TARGET_PREFIX "myproject_" CACHE STRING "" FORCE)
+
+# 2. Build as shared or static library
+set(CPP23_LOGGER_BUILD_SHARED ON CACHE BOOL "" FORCE)  # or OFF for static
+
+# 3. Control output directory
+set(CPP23_LOGGER_OUTPUT_DIR "${CMAKE_BINARY_DIR}/lib/myproject" CACHE PATH "" FORCE)
+
+FetchContent_Declare(
+    cpp23_logger
+    GIT_REPOSITORY https://github.com/oldboldpilot/cpp23-logger.git
+    GIT_TAG        master
+)
+
+FetchContent_MakeAvailable(cpp23_logger)
+
+# Link using the configured target name
+target_link_libraries(your_target PRIVATE ${CPP23_LOGGER_LIBRARY_TARGET})
+
+# Or use the alias (always named 'logger')
+target_link_libraries(your_target PRIVATE logger)
+```
+
+#### Available Configuration Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `CPP23_LOGGER_TARGET_PREFIX` | `""` | Prefix for target name (e.g., `"sgee_"` → `sgee_logger`) |
+| `CPP23_LOGGER_BUILD_SHARED` | `OFF` | Build as shared library (`ON`) or static (`OFF`) |
+| `CPP23_LOGGER_OUTPUT_DIR` | `${CMAKE_BINARY_DIR}/lib` | Output directory for library files |
+
+#### Exported Variables
+
+After `FetchContent_MakeAvailable`, these variables are set:
+
+| Variable | Description |
+|----------|-------------|
+| `CPP23_LOGGER_TARGET_NAME` | Actual target name (e.g., `myproject_logger`) |
+| `CPP23_LOGGER_LIBRARY_TARGET` | Same as above, for linking |
+| `LOGGER_STD_PCM` | Path to prebuilt `std.pcm` (for module compatibility) |
+| `LOGGER_STD_PCM_DIR` | Directory containing PCM files |
 
 ### Installation via Bazel
 

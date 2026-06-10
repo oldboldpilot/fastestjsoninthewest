@@ -8,10 +8,13 @@
  * - Context-rich logging for complex systems
  */
 
-import logger;
-
+// Include textual stdlib headers before the module import (see fluent_codegen.cpp):
+// avoids the clang libc++ __promote_t alias-template redefinition across the
+// global-module-fragment / textual-include boundary.
 #include <iostream>
 #include <string>
+
+import logger;
 
 auto main() -> int {
     // Initialize logger

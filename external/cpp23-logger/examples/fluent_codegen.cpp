@@ -4,10 +4,15 @@
  * Demonstrates the powerful fluent API with method chaining for code generation
  */
 
-import logger.code_generator;
-
+// Textual stdlib includes MUST precede the module import: clang places the
+// module's global-module-fragment declarations in the global module, and a
+// libc++ header (#include <iostream>) included *after* the import fails to
+// merge alias templates such as std::__promote_t with the ones the BMI carries
+// ("type alias template redefinition"). Include first, then import.
 #include <iostream>
 #include <string>
+
+import logger.code_generator;
 
 using namespace logger::codegen;
 
