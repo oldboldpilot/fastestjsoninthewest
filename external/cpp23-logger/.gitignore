@@ -39,3 +39,6 @@ logs/
 # Test outputs
 Testing/
 test_results/
+
+# profiling / out-of-tree build directories
+build-*/

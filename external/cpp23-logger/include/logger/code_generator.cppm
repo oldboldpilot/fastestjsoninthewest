@@ -654,7 +654,7 @@ class CodeGenerator {
 
   private:
     /**
-     * Process template with full feature support
+     * Process template with full feature support including sections
      */
     [[nodiscard]] auto processTemplate(std::string_view template_str,
                                        TemplateObject const& data) const -> std::string {
@@ -672,23 +672,148 @@ class CodeGenerator {
             // Append text before placeholder
             result << remaining.substr(0, start_pos);
 
-            auto end_pos = remaining.find("}}", start_pos);
+            // Check for triple braces {{{variable}}}
+            bool is_triple_brace = false;
+            std::size_t expr_start = start_pos + 2;
+            if (start_pos + 2 < remaining.size() && remaining[start_pos + 2] == '{') {
+                is_triple_brace = true;
+                expr_start = start_pos + 3;
+            }
+
+            // Find matching end delimiter
+            std::string end_delim = is_triple_brace ? "}}}" : "}}";
+            auto end_pos = remaining.find(end_delim, expr_start);
             if (end_pos == std::string_view::npos) {
                 result << remaining.substr(start_pos);
                 break;
             }
 
-            // Extract expression between {{ and }}
-            auto expr_raw = remaining.substr(start_pos + 2, end_pos - start_pos - 2);
+            // Extract expression between delimiters
+            auto expr_raw = remaining.substr(expr_start, end_pos - expr_start);
             std::string expr = trim(expr_raw);
 
-            // Process expression
-            result << processExpression(expr, data);
+            // Check if this is a section start {{#name}} or {{#if name}}
+            if (!expr.empty() && expr[0] == '#') {
+                std::string section_expr = std::string(trim(expr.substr(1)));
+                std::string section_name;
+                std::string end_tag;
 
-            remaining = remaining.substr(end_pos + 2);
+                // Check for {{#if name}} syntax
+                if (section_expr.size() >= 3 && section_expr.substr(0, 3) == "if ") {
+                    section_name = std::string(trim(section_expr.substr(3)));
+                    end_tag = "{{/if}}";
+                } else {
+                    section_name = section_expr;
+                    end_tag = "{{/" + section_name + "}}";
+                }
+
+                // Strip ../ prefix if present (parent scope access)
+                // Since we merge parent data when iterating, the variable is already available
+                if (section_name.size() >= 3 && section_name.substr(0, 3) == "../") {
+                    section_name = section_name.substr(3);
+                }
+
+                // Find the matching end tag
+                auto section_end = remaining.find(end_tag, end_pos + end_delim.length());
+
+                if (section_end == std::string_view::npos) {
+                    // No matching end tag - treat as regular variable
+                    result << processExpression(expr, data);
+                    remaining = remaining.substr(end_pos + end_delim.length());
+                    continue;
+                }
+
+                // Extract section content
+                auto section_content = remaining.substr(end_pos + end_delim.length(), section_end - (end_pos + end_delim.length()));
+
+                // Process section
+                result << processSection(section_name, section_content, data);
+
+                remaining = remaining.substr(section_end + end_tag.length());
+            } else {
+                // Regular variable or expression
+                result << processExpression(expr, data);
+                remaining = remaining.substr(end_pos + end_delim.length());
+            }
         }
 
         return result.str();
+    }
+
+    /**
+     * Process a section {{#name}}...{{/name}}
+     */
+    [[nodiscard]] auto processSection(std::string const& name, std::string_view section_content,
+                                       TemplateObject const& data) const -> std::string {
+        // Split section content at {{else}} if present
+        std::string_view true_content = section_content;
+        std::string_view false_content = "";
+
+        auto else_pos = section_content.find("{{else}}");
+        if (else_pos != std::string_view::npos) {
+            true_content = section_content.substr(0, else_pos);
+            false_content = section_content.substr(else_pos + 8); // Skip "{{else}}"
+        }
+
+        // Get the value for this section
+        auto it = data.find(name);
+        if (it == data.end()) {
+            // Section variable not found - render false content if available
+            return std::string(processTemplate(false_content, data));
+        }
+
+        TemplateValue const& value = it->second;
+
+        // If it's an array, iterate over it
+        if (value.isArray()) {
+            auto const& array = value.asArray();
+
+            // Empty array - render false content
+            if (array.empty()) {
+                return std::string(processTemplate(false_content, data));
+            }
+
+            std::ostringstream result;
+
+            for (auto const& item : array) {
+                // If item is an object, merge it with parent data for nested lookups
+                if (item.isObject()) {
+                    TemplateObject merged_data = data;
+                    auto const& item_obj = item.asObject();
+                    for (auto const& [key, val] : item_obj) {
+                        merged_data[key] = val;
+                    }
+                    result << processTemplate(true_content, merged_data);
+                } else {
+                    // For non-object items, just pass through parent data
+                    result << processTemplate(true_content, data);
+                }
+            }
+
+            return result.str();
+        }
+
+        // For boolean values, check the actual bool value (not truthiness)
+        if (value.isBool()) {
+            // For booleans, we need to check the actual bool value, not truthiness
+            // asBool() will return the boolean value directly for bool types
+            bool bool_val = value.asBool();
+            if (bool_val) {
+                return std::string(processTemplate(true_content, data));
+            } else {
+                return std::string(processTemplate(false_content, data));
+            }
+        }
+
+        // For other types (string, int, double), use truthiness
+        // If it's a truthy value (non-empty string, non-zero number),
+        // render true content
+        if (value.asBool()) {
+            return std::string(processTemplate(true_content, data));
+        }
+
+        // Falsy value - render false content
+        return std::string(processTemplate(false_content, data));
     }
 
     /**
@@ -715,10 +840,16 @@ class CodeGenerator {
     }
 
     /**
-     * Get variable value from data (supports dot notation)
+     * Get variable value from data (supports dot notation and ../ parent scope)
      */
     [[nodiscard]] auto getVariable(std::string_view var_name, TemplateObject const& data) const
         -> std::string {
+        // Strip ../ prefix if present (parent scope access)
+        // Since we merge parent data when iterating, the variable is already available
+        if (var_name.size() >= 3 && var_name.substr(0, 3) == "../") {
+            var_name = var_name.substr(3);
+        }
+
         TemplateValue root{data};
         auto value = root.getProperty(var_name);
         return value.asString();

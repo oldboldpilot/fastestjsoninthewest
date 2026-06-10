@@ -118,6 +118,7 @@ module;
 
 #include <array>
 #include <atomic>
+#include <charconv>
 #include <chrono>
 #include <concepts>
 #include <cstdint>
@@ -630,10 +631,17 @@ class Logger {
          * - Compile-time error for unsafe or non-streamable types
          * - Prevents accidental logging of raw pointers
          *
+         * NON-EXPLICIT BY DESIGN: the documented brace-init API
+         * (`logger.info("{item}", {{"item", 5}})`) relies on an implicit
+         * scalar->TemplateValue conversion. Type safety is still enforced by the
+         * LoggableValue constraint; `explicit` here would only break that
+         * ergonomic API without adding any safety the concept does not already
+         * provide. The nested-map/array constructors below stay explicit.
+         *
          * @param value Value to store (must be LoggableValue, forwarded for efficiency)
          */
         template <LoggableValue T>
-        explicit TemplateValue(T&& value)
+        TemplateValue(T&& value)
             : value_{std::make_shared<std::string const>(to_string(std::forward<T>(value)))} {}
 
         /**
@@ -730,11 +738,19 @@ class Logger {
                 // Already a NestedArray - direct move
                 value_ = std::move(arr);
             } else {
-                // Convert from std::array or other container to NestedArray
+                // Convert from std::array, std::span, or other container to
+                // NestedArray. COPY the elements — never move: ArrayType may be a
+                // non-owning view (std::span) over caller-owned storage, and
+                // moving would leave the caller's TemplateValues with null
+                // shared_ptr state (a later read then dereferences null and
+                // crashes). Copying is cheap here because TemplateValue is
+                // shared_ptr-backed, and it matches the documented "Copied from
+                // span / std::array" semantics. The owning std::vector case takes
+                // the direct-move branch above.
                 NestedArray array;
                 array.reserve(arr.size());
-                for (auto& elem : arr) {
-                    array.push_back(std::move(elem));
+                for (auto const& elem : arr) {
+                    array.push_back(elem);
                 }
                 value_ = std::move(array);
             }
@@ -876,17 +892,90 @@ class Logger {
         }
 
       private:
-        /// Convert value to string using ostringstream (type-safe with concept check)
+        /// Convert a loggable value to its string form.
+        ///
+        /// Fast paths (no std::ostringstream, no locale, no FP via printf) cover
+        /// the common standard types and dominate real logging workloads; an
+        /// ostringstream fallback preserves support for user types that only
+        /// provide operator<<. Output is kept identical to the previous
+        /// ostringstream implementation: integers via std::to_chars are
+        /// bit-identical, and floating point uses chars_format::general with
+        /// precision 6, which reproduces iostream's defaultfloat / default
+        /// precision (the only observable difference is locale-independence — a
+        /// non-"C" global locale no longer alters the decimal separator, which is
+        /// the desired behaviour for machine-readable logs).
+        ///
+        /// Profiling (perf): the old path spent the bulk of processTemplate() in
+        /// num_put -> __do_put_floating_point -> snprintf -> __printf_fp; the
+        /// to_chars path removes that entirely.
         template <LoggableValue T>
         [[nodiscard]] static auto to_string(T&& val) -> std::string {
-            // Compile-time type safety check with helpful error message
-            static_assert(Streamable<T>,
-                          "Type must be streamable (support operator<<) to be logged. "
-                          "Consider providing operator<< for your custom type.");
-
-            std::ostringstream oss;
-            oss << std::forward<T>(val);
-            return oss.str();
+            using U = std::decay_t<T>;
+            if constexpr (std::is_same_v<U, std::string> ||
+                          std::is_same_v<U, std::string_view>) {
+                return std::string(val);
+            } else if constexpr (std::is_same_v<U, char const*> ||
+                                 std::is_same_v<U, char*>) {
+                return val ? std::string(val) : std::string{};
+            } else if constexpr (std::is_same_v<U, char> ||
+                                 std::is_same_v<U, signed char> ||
+                                 std::is_same_v<U, unsigned char>) {
+                // iostream prints the narrow character types as the character
+                // glyph, NOT a number (e.g. signed char 'A' -> "A"). Keep that.
+                return std::string(1, static_cast<char>(val));
+            } else if constexpr (std::is_same_v<U, bool>) {
+                // Matches iostream default (no boolalpha): "1" / "0".
+                return val ? std::string("1") : std::string("0");
+            } else if constexpr (std::is_integral_v<U> &&
+                                 !std::is_same_v<U, wchar_t> &&
+                                 !std::is_same_v<U, char8_t> &&
+                                 !std::is_same_v<U, char16_t> &&
+                                 !std::is_same_v<U, char32_t>) {
+                // Numeric integers only. The wide character types are excluded so
+                // they fall through to the ostringstream fallback, where the
+                // deleted char-ostream operator<< (re)produces the prior
+                // compile-time rejection rather than silently logging a code point.
+                // 40 bytes covers every integer type std::to_chars accepts,
+                // including the 128-bit extended integers on toolchains that
+                // support them (39 digits + sign), not just 64-bit.
+                std::array<char, 40> buf;
+                auto const [ptr, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), val);
+                if (ec == std::errc{}) {
+                    return std::string(buf.data(), ptr);
+                }
+                // Defensive: never silently drop a value on an unexpected
+                // to_chars failure — fall back to the stream formatter.
+                std::ostringstream oss;
+                oss << std::forward<T>(val);
+                return oss.str();
+            } else if constexpr (std::is_floating_point_v<U> &&
+                                 !std::is_same_v<U, long double>) {
+                // float / double only. long double is deliberately routed to the
+                // ostringstream fallback below: libc++ does not implement
+                // std::to_chars for long double (it returns errc::not_supported
+                // and leaves the buffer untouched), which would otherwise log an
+                // empty string. precision 6 + chars_format::general reproduces
+                // iostream defaultfloat output exactly (verified by parity test).
+                std::array<char, 32> buf;
+                auto const [ptr, ec] = std::to_chars(buf.data(), buf.data() + buf.size(),
+                                                     val, std::chars_format::general, 6);
+                if (ec == std::errc{}) {
+                    return std::string(buf.data(), ptr);
+                }
+                // Defensive: never emit a truncated number. Should not trigger at
+                // precision 6 for float/double, but fall back rather than guess.
+                std::ostringstream oss;
+                oss << val;
+                return oss.str();
+            } else {
+                // Fallback for user-defined types: requires operator<<.
+                static_assert(Streamable<T>,
+                              "Type must be streamable (support operator<<) to be logged. "
+                              "Consider providing operator<< for your custom type.");
+                std::ostringstream oss;
+                oss << std::forward<T>(val);
+                return oss.str();
+            }
         }
 
         /// Variant holding either a simple string value, nested map, or nested array
@@ -1036,37 +1125,55 @@ class Logger {
      */
     [[nodiscard]] static auto findMatchingClosingTag(std::string_view template_str,
                                                      std::string_view section_name) -> std::size_t {
+        // Match section tags as a properly-nested LIFO stack of section names.
+        // A plain depth counter is not enough: counting every {{/}} regardless
+        // of name accepts malformed input (e.g. {{#a}}…{{/wrong}}{{/a}} would
+        // close early at {{/wrong}}), while matching only section_name breaks
+        // valid nested sections with a different inner name
+        // ({{#users}}…{{#@value.skills}}…{{/@value.skills}}…{{/users}}). Tracking
+        // the open names gives both: each {{/x}} must close the innermost open
+        // section x, and the original section_name closing returns its position.
+        std::vector<std::string_view> open_sections;
+        open_sections.push_back(section_name);
         std::size_t pos = 0;
-        int depth = 1; // We're already inside one section
 
-        while (pos < template_str.size() && depth > 0) {
+        while (pos < template_str.size() && !open_sections.empty()) {
             auto const open_pos = template_str.find("{{#", pos);
             auto const close_pos = template_str.find("{{/", pos);
 
             if (close_pos == std::string_view::npos) {
-                // No closing tag found
+                // No closing tag for a still-open section: malformed/unterminated.
                 return std::string_view::npos;
             }
 
             if (open_pos != std::string_view::npos && open_pos < close_pos) {
-                // Found nested opening tag first
-                depth++;
-                pos = open_pos + 3;
-            } else {
-                // Found closing tag
-                // Verify it matches our section name
-                auto const tag_end = template_str.find("}}", close_pos + 3);
-                if (tag_end != std::string_view::npos) {
-                    auto const tag_name =
-                        template_str.substr(close_pos + 3, tag_end - close_pos - 3);
-                    if (tag_name == section_name) {
-                        depth--;
-                        if (depth == 0) {
-                            return close_pos;
-                        }
-                    }
+                // Nested opening tag: record its name on the stack.
+                auto const tag_end = template_str.find("}}", open_pos + 3);
+                if (tag_end == std::string_view::npos) {
+                    return std::string_view::npos;
                 }
-                pos = close_pos + 3;
+                open_sections.push_back(
+                    template_str.substr(open_pos + 3, tag_end - open_pos - 3));
+                pos = tag_end + 2;
+            } else {
+                // Closing tag: it must close the innermost currently-open section.
+                auto const tag_end = template_str.find("}}", close_pos + 3);
+                if (tag_end == std::string_view::npos) {
+                    return std::string_view::npos;  // malformed: no '}}'
+                }
+                auto const tag_name =
+                    template_str.substr(close_pos + 3, tag_end - close_pos - 3);
+                if (tag_name != open_sections.back()) {
+                    // Mismatched close (e.g. {{/b}} while {{#a}} is innermost):
+                    // treat as malformed, same as the previous name-strict logic.
+                    return std::string_view::npos;
+                }
+                open_sections.pop_back();
+                if (open_sections.empty()) {
+                    // Closed our original section.
+                    return close_pos;
+                }
+                pos = tag_end + 2;
             }
         }
 
@@ -1918,9 +2025,20 @@ class Logger::Impl {
         console_enabled = console;
         console_color = color;
 
-        // Create log directory if it doesn't exist
+        // Create log directory if it doesn't exist. Skip when the path has no
+        // directory component: parent_path() is "" for a bare filename like
+        // "app.log", and create_directories("") throws "No such file or
+        // directory". Use the error_code overload so a real failure is reported
+        // rather than thrown out of init().
         std::filesystem::path log_path(log_file_path);
-        std::filesystem::create_directories(log_path.parent_path());
+        if (auto const parent = log_path.parent_path(); !parent.empty()) {
+            std::error_code ec;
+            std::filesystem::create_directories(parent, ec);
+            if (ec) {
+                std::cerr << "Failed to create log directory '" << parent.string()
+                          << "': " << ec.message() << std::endl;
+            }
+        }
 
         // Open log file with UTF-8 encoding
         log_file.open(log_file_path, std::ios::app);

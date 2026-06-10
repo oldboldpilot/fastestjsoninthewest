@@ -10,10 +10,13 @@
  * - Code formatters and indentation
  */
 
-import logger.code_generator;
-
+// Include textual stdlib headers before the module import (see fluent_codegen.cpp):
+// avoids the clang libc++ __promote_t alias-template redefinition across the
+// global-module-fragment / textual-include boundary.
 #include <iostream>
 #include <string>
+
+import logger.code_generator;
 
 using namespace logger::codegen;
 

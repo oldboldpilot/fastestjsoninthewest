@@ -10,11 +10,14 @@
  * - Nested sections
  */
 
-import logger;
-
+// Include textual stdlib headers before the module import (see examples/fluent_codegen.cpp):
+// avoids the clang libc++ __promote_t alias-template redefinition across the
+// global-module-fragment / textual-include boundary.
 #include <cassert>
 #include <iostream>
 #include <string>
+
+import logger;
 
 using namespace logger;
 using TemplateValue = Logger::TemplateValue;
