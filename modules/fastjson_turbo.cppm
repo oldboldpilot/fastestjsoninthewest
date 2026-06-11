@@ -198,10 +198,17 @@ public:
 class turbo_object {
     const turbo_document* doc_;
     size_t                idx_;
+    // find_field resume cursor (simdjson-style "expected field order"): the
+    // next lookup starts where the last match ended, so accessing N fields in
+    // document order is O(N) total instead of O(N²) front-rescans. Out-of-order
+    // access wraps around and still finds the key. Per-instance state:
+    // concurrent find_field on the SAME instance needs external sync (or give
+    // each thread its own copy — the object is 3 words).
+    mutable size_t        cursor_;
 
 public:
     constexpr turbo_object(const turbo_document* doc, size_t idx) noexcept
-        : doc_(doc), idx_(idx) {}
+        : doc_(doc), idx_(idx), cursor_(idx + 1) {}
 
     [[nodiscard]] result<turbo_value> find_field(std::string_view key) const noexcept;
 
@@ -292,30 +299,48 @@ inline auto turbo_value::get_bool() const noexcept -> result<bool> {
     if (c == 'f') return false;
     return std::unexpected(parse_error{error_code::type_error, "Not a boolean"});
 }
-inline auto turbo_object::find_field(std::string_view key) const noexcept
+[[gnu::always_inline]] inline auto turbo_object::find_field(std::string_view key) const noexcept
     -> result<turbo_value>
 {
-    size_t curr  = idx_ + 1;
+    // Force-inlined (cross-module leaf rule): inlining lets the compiler fold
+    // a constant key into immediate compares — out-of-line this is a generic
+    // memcmp loop and the walk loses ~2×.
     auto   inp   = doc_->input();
     size_t total = doc_->structurals_count();
 
-    while (curr < total && doc_->get_structural_char(curr) != '}') {
-        if (doc_->get_structural_char(curr) == '"') {
-            uint32_t ks = doc_->get_structural(curr) + 1;
-            uint32_t ke = doc_->get_structural(curr + 1);
-            curr += 2; // past opening + closing quote for key
+    // Resume cursor (expected field order): start where the last match ended,
+    // wrap once to cover keys before it — N in-order field accesses cost one
+    // sweep total instead of N front-rescans. cursor_ is only ever set to a
+    // key position inside this object (or its '}'), so > idx_ validates it.
+    const size_t first_start = (cursor_ > idx_) ? cursor_ : idx_ + 1;
 
-            if (curr < total && doc_->get_structural_char(curr) == ':') ++curr;
+    size_t seg_begin = first_start, seg_end = total;
+    for (int seg = 0; seg < 2; ++seg) {
+        size_t curr = seg_begin;
+        while (curr < seg_end && doc_->get_structural_char(curr) != '}') {
+            if (doc_->get_structural_char(curr) == '"') {
+                uint32_t ks = doc_->get_structural(curr) + 1;
+                uint32_t ke = doc_->get_structural(curr + 1);
+                curr += 2; // past opening + closing quote for key
 
-            if (ke - ks == key.size() &&
-                __builtin_memcmp(inp.data() + ks, key.data(), key.size()) == 0)
-                return turbo_value(doc_, curr);
+                if (curr < total && doc_->get_structural_char(curr) == ':') ++curr;
 
-            curr = doc_->skip_value(curr);
-            if (curr < total && doc_->get_structural_char(curr) == ',') ++curr;
-        } else {
-            ++curr;
+                if (ke - ks == key.size() &&
+                    __builtin_memcmp(inp.data() + ks, key.data(), key.size()) == 0) {
+                    size_t nxt = doc_->skip_value(curr);   // next key (resume point)
+                    if (nxt < total && doc_->get_structural_char(nxt) == ',') ++nxt;
+                    cursor_ = nxt;
+                    return turbo_value(doc_, curr);
+                }
+
+                curr = doc_->skip_value(curr);
+                if (curr < total && doc_->get_structural_char(curr) == ',') ++curr;
+            } else {
+                ++curr;
+            }
         }
+        if (first_start == idx_ + 1) break;    // started at the front: no wrap
+        seg_begin = idx_ + 1; seg_end = first_start;
     }
     return std::unexpected(parse_error{error_code::key_not_found, "Key not found"});
 }

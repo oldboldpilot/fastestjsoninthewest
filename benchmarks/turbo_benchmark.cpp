@@ -86,6 +86,132 @@ static void BM_Fastjson_Turbo_Parse(benchmark::State& state) {
     state.SetBytesProcessed(int64_t(state.iterations()) * json.size());
 }
 
+// Walk-only: parse once, then time the DOM walk (find_field + get_string per
+// record) — isolates the Parse − ParseOnly gap for profiling.
+static void BM_Fastjson_Turbo_WalkOnly(benchmark::State& state) {
+    std::string json = generate_json();
+    fastjson::turbo::turbo_parser parser;
+    auto doc_res = fastjson::turbo::parse(json, parser);
+    if (!doc_res) {
+        state.SkipWithError("fastjson turbo parse failed");
+        return;
+    }
+
+    for (auto _ : state) {
+        auto root = doc_res->root();
+        auto arr = root.get_array();
+        if (!arr) continue;
+
+        int count = 0;
+        for (auto item : *arr) {
+            auto obj = item.get_object();
+            if (!obj) continue;
+            auto name_val = obj->find_field("name");
+            if (!name_val) continue;
+            auto name = name_val->get_string();
+            if (name) {
+                benchmark::DoNotOptimize(*name);
+            }
+            count++;
+        }
+        benchmark::DoNotOptimize(count);
+    }
+    state.SetBytesProcessed(int64_t(state.iterations()) * json.size());
+}
+
+// Multi-field walk: all 4 fields per record, in document order. With a
+// stateless find_field each access rescans from the object start (O(fields²)
+// key visits); an order-aware resume cursor makes this O(fields).
+static void BM_Fastjson_Turbo_WalkMultiField(benchmark::State& state) {
+    std::string json = generate_json();
+    fastjson::turbo::turbo_parser parser;
+    auto doc_res = fastjson::turbo::parse(json, parser);
+    if (!doc_res) {
+        state.SkipWithError("fastjson turbo parse failed");
+        return;
+    }
+
+    for (auto _ : state) {
+        auto root = doc_res->root();
+        auto arr = root.get_array();
+        if (!arr) continue;
+
+        int64_t id_sum = 0;
+        for (auto item : *arr) {
+            auto obj = item.get_object();
+            if (!obj) continue;
+            auto id     = obj->find_field("id");
+            auto name   = obj->find_field("name");
+            auto active = obj->find_field("active");
+            auto score  = obj->find_field("score");
+            if (id)     { auto v = id->get_int64();    if (v) id_sum += *v; }
+            if (name)   { auto v = name->get_string(); if (v) benchmark::DoNotOptimize(*v); }
+            if (active) { auto v = active->get_bool(); if (v) benchmark::DoNotOptimize(*v); }
+            if (score)  { auto v = score->get_double();if (v) benchmark::DoNotOptimize(*v); }
+        }
+        benchmark::DoNotOptimize(id_sum);
+    }
+    state.SetBytesProcessed(int64_t(state.iterations()) * json.size());
+}
+
+// Wide objects (24 fields), 6 in-order field accesses per record — the
+// workload where stateless find_field's O(fields²) front-rescans hurt.
+static std::string generate_wide_json() {
+    std::string json = "[";
+    for (int i = 0; i < 2000; i++) {
+        if (i > 0) json += ",";
+        json += "{";
+        for (int f = 0; f < 24; f++) {
+            if (f > 0) json += ",";
+            json += "\"field" + std::to_string(f) + "\":" + std::to_string(i * 24 + f);
+        }
+        json += "}";
+    }
+    json += "]";
+    return json;
+}
+
+template <bool kReuseObject>
+static void walk_wide(benchmark::State& state) {
+    std::string json = generate_wide_json();
+    fastjson::turbo::turbo_parser parser;
+    auto doc_res = fastjson::turbo::parse(json, parser);
+    if (!doc_res) {
+        state.SkipWithError("fastjson turbo parse failed");
+        return;
+    }
+    static constexpr const char* kKeys[] = {
+        "field3", "field7", "field11", "field15", "field19", "field23"};
+
+    for (auto _ : state) {
+        auto arr = doc_res->root().get_array();
+        if (!arr) continue;
+        int64_t sum = 0;
+        for (auto item : *arr) {
+            if constexpr (kReuseObject) {
+                auto obj = item.get_object();           // one object: resume cursor
+                if (!obj) continue;
+                for (const char* k : kKeys) {
+                    auto fv = obj->find_field(k);
+                    if (fv) { auto v = fv->get_int64(); if (v) sum += *v; }
+                }
+            } else {
+                for (const char* k : kKeys) {           // fresh object per access:
+                    auto obj = item.get_object();       // stateless (pre-cursor) behavior
+                    if (!obj) continue;
+                    auto fv = obj->find_field(k);
+                    if (fv) { auto v = fv->get_int64(); if (v) sum += *v; }
+                }
+            }
+        }
+        benchmark::DoNotOptimize(sum);
+    }
+    state.SetBytesProcessed(int64_t(state.iterations()) * json.size());
+}
+
+static void BM_Fastjson_Turbo_WalkWide_Stateless(benchmark::State& state) { walk_wide<false>(state); }
+static void BM_Fastjson_Turbo_WalkWide_Cursor(benchmark::State& state)    { walk_wide<true>(state); }
+
 static void BM_Fastjson_Turbo_IndexOnly(benchmark::State& state) {
     std::string json = generate_json();
     // scan-only: lean uint32_t[] path — no bracket stack, 1 DWORD store per token.
@@ -101,6 +227,10 @@ static void BM_Fastjson_Turbo_IndexOnly(benchmark::State& state) {
 BENCHMARK(BM_Simdjson_Parse);
 BENCHMARK(BM_Fastjson_Turbo_ParseOnly);
 BENCHMARK(BM_Fastjson_Turbo_Parse);
+BENCHMARK(BM_Fastjson_Turbo_WalkOnly);
+BENCHMARK(BM_Fastjson_Turbo_WalkMultiField);
+BENCHMARK(BM_Fastjson_Turbo_WalkWide_Stateless);
+BENCHMARK(BM_Fastjson_Turbo_WalkWide_Cursor);
 BENCHMARK(BM_Fastjson_Turbo_IndexOnly);
 
 BENCHMARK_MAIN();
