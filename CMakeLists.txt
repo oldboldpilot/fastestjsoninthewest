@@ -587,8 +587,17 @@ set_target_properties(fastjson_multiregister_parser PROPERTIES
 )
 
 # Link dependencies for fastjson_multiregister_parser
-add_dependencies(fastjson_multiregister_parser 
-    std_module 
+# Target-level ordering so std.pcm (built by std_module) exists before this
+# target's objects link. NOTE: on a COLD build this does NOT fully serialise the
+# C++23 module *dyndep scan* phase against std_module — Ninja/CMake schedule the
+# `import std` BMI scan of fastjson_turbo.cppm independently of add_dependencies,
+# so a from-scratch build can intermittently fail with "module 'std' not found".
+# This is a known CMake/Ninja cross-target C++23-modules limitation (the fix
+# would be to adopt CMake's native CMAKE_CXX_MODULE_STD instead of the hand-built
+# std_module target). Re-running `ninja` succeeds: std.pcm is present on the
+# second pass. Incremental builds are unaffected.
+add_dependencies(fastjson_multiregister_parser
+    std_module
 )
 
 # Link parallel processing libraries
