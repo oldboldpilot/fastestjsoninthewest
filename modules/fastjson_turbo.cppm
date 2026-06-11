@@ -80,24 +80,38 @@ struct tape_entry {
 };
 static_assert(sizeof(tape_entry) == 8, "tape_entry must be 8 bytes");
 
+// Input bytes per tile of the decoupled two-phase tape build. Multiple of 512
+// so the chunked scan's block pattern matches the monolithic scanner. 32 KB
+// measured fastest on Skylake-SP (16K equal, 64K/128K/256K worse): the tile's
+// tokens stay L2-resident between the scan and expand phases.
+inline constexpr size_t decoupled_chunk_size = 32 * 1024;
+
 // -------------------------------------------------------------------------
 // turbo_parser
 // -------------------------------------------------------------------------
 class turbo_parser {
     std::unique_ptr<tape_entry[]> tape_;
+    std::unique_ptr<uint32_t[]>   tokens_;   // phase-1 scratch for decoupled AVX-512 build
     size_t capacity_ = 0;
 
 public:
     turbo_parser() = default;
 
     void allocate(size_t capacity) {
-        if (capacity > capacity_) {
+        // `|| !tape_` : a fresh parser fed an empty input (allocate(0)) must
+        // still own a tape — the build writes a sentinel entry even for "".
+        if (capacity > capacity_ || !tape_) {
             tape_     = std::make_unique<tape_entry[]>(capacity + 32);
+            // Phase-1 scratch holds at most one tile's tokens (≤1/byte) plus
+            // the <64B scalar tail — fixed size, not O(input).
+            if (!tokens_)
+                tokens_ = std::make_unique<uint32_t[]>(decoupled_chunk_size + 64);
             capacity_ = capacity;
         }
     }
 
-    tape_entry* tape() noexcept { return tape_.get(); }
+    tape_entry* tape()   noexcept { return tape_.get(); }
+    uint32_t*   tokens() noexcept { return tokens_.get(); }
 };
 
 // -------------------------------------------------------------------------
@@ -835,6 +849,188 @@ inline size_t build_structural_index_avx512_index(
     return si;
 }
 
+// =========================================================================
+// Decoupled two-phase tape build (AVX-512 only), L2-tiled.
+//
+// Phase 1 (per 32 KB input tile): lean token scan → uint32_t tokens
+//          (ch<<24 | pos) in a small scratch buffer at full SIMD scan speed
+//          (no per-structural 8-byte store / bracket branch interleaved).
+// Phase 2 (same chunk, tokens still L1/L2-hot): expand tokens → tape entries
+//          {token, partner=0}. SIMD: one zmm load = 16 tokens, 2× vpmovzxdq
+//          (uint32 → uint64 zero-extend == little-endian {token, 0u}) =
+//          2 zmm stores.
+// Phase 3 (fused into the same 16-token iteration): bracket-partner patch.
+//          (tok>>24)|0x20 maps '{','[' → 0x7B and '}',']' → 0x7D (and no
+//          other byte to either), so two vpcmpeqd masks find all brackets;
+//          set bits replay the exact stack logic of the fused emit at
+//          process_group64[tape_entry*], including the unmatched-close case
+//          (close with empty stack → partner stays 0, nothing popped).
+//
+// The tiling is the fix for the v5.1 two-pass rejection: a full-input token
+// buffer (~0.9 MB for the 628 KB benchmark) is re-read at L3 latency, which
+// cost more than the fused emit saved. A 32 KB tile's tokens (≤128 KB worst
+// case, ~96 KB typical) stay L2-resident between the two phases.
+// =========================================================================
+
+// ── Phase 2+3 over one chunk of tokens. base = global tape index of
+//    tokens[0]; bracket stack persists across chunks. Returns base+count.
+__attribute__((target("avx512f,avx512bw")))
+inline size_t expand_tokens_avx512(
+        const uint32_t* __restrict__ tokens, size_t count, size_t base,
+        tape_entry* __restrict__ te,
+        uint32_t* __restrict__ bkt_stk, int32_t& bkt_top) noexcept
+{
+    const __m512i v20 = _mm512_set1_epi32(0x20);
+    const __m512i v7B = _mm512_set1_epi32(0x7B);   // '{' and '['|0x20
+    const __m512i v7D = _mm512_set1_epi32(0x7D);   // '}' and ']'|0x20
+
+    size_t i = 0;
+    for (; i + 16 <= count; i += 16) {
+        const __m512i t  = _mm512_loadu_si512(static_cast<const void*>(tokens + i));
+        const __m256i lo = _mm512_castsi512_si256(t);
+        const __m256i hi = _mm512_extracti64x4_epi64(t, 1);
+        _mm512_storeu_si512(static_cast<void*>(te + base + i),     _mm512_cvtepu32_epi64(lo));
+        _mm512_storeu_si512(static_cast<void*>(te + base + i + 8), _mm512_cvtepu32_epi64(hi));
+
+        const __m512i ch = _mm512_or_si512(_mm512_srli_epi32(t, 24), v20);
+        const uint32_t open_m  = _mm512_cmpeq_epi32_mask(ch, v7B);
+        const uint32_t close_m = _mm512_cmpeq_epi32_mask(ch, v7D);
+        uint32_t both = open_m | close_m;
+        while (both) {
+            const uint32_t j  = static_cast<uint32_t>(__builtin_ctz(both));
+            both &= both - 1u;
+            const uint32_t si = static_cast<uint32_t>(base + i) + j;
+            if (open_m & (1u << j)) {
+                bkt_stk[++bkt_top] = si;
+            } else if (bkt_top >= 0) {
+                const uint32_t open = bkt_stk[bkt_top--];
+                te[open].partner    = si;
+                te[si].partner      = open;
+            }
+        }
+    }
+    // Scalar tail (< 16 tokens).
+    for (; i < count; ++i) {
+        const uint32_t tok = tokens[i];
+        const size_t   si  = base + i;
+        te[si] = {tok, 0u};
+        const uint32_t ch = (tok >> 24) | 0x20u;
+        if (ch == 0x7Bu) {
+            bkt_stk[++bkt_top] = static_cast<uint32_t>(si);
+        } else if (ch == 0x7Du && bkt_top >= 0) {
+            const uint32_t open = bkt_stk[bkt_top--];
+            te[open].partner    = static_cast<uint32_t>(si);
+            te[si].partner      = open;
+        }
+    }
+    return base + count;
+}
+
+// ── Phase 1 over one chunk: scan whole 64-byte blocks in [pos, end) into the
+//    token scratch. end-pos must be a multiple of 64; scan_state carries.
+//    Same block order as build_structural_index_avx512_index (512B main loop,
+//    64B residual) → identical token stream.
+__attribute__((target("avx512f,avx512bw,pclmul")))
+inline size_t scan_tokens_avx512_chunk(
+        const char* __restrict__ data, size_t pos, size_t end,
+        scan_state& st, uint32_t* __restrict__ sp) noexcept
+{
+    size_t si = 0;
+
+    const __m512i vquote512 = _mm512_set1_epi8('"');
+    const __m512i vbs512    = _mm512_set1_epi8('\\');
+
+    const __m512i lower_tbl = _mm512_broadcast_i32x4(
+        _mm_setr_epi8(16,0,0,0,0,0,0,0,0,32,36,1,8,34,0,0));
+    const __m512i upper_tbl = _mm512_broadcast_i32x4(
+        _mm_setr_epi8(32,0,24,4,0,3,0,3,0,0,0,0,0,0,0,0));
+    const __m512i nibmask   = _mm512_set1_epi8(0x0F);
+    const __m512i sc_bit    = _mm512_set1_epi8(0x0F);
+    const __m512i ws_bit    = _mm512_set1_epi8(0x30);
+    const __m512i vzero     = _mm512_setzero_si512();
+
+#define CL64_AVX512_CHK(zmm, stm_out, wsm_out) do { \
+    __m512i _lo = _mm512_shuffle_epi8(lower_tbl, _mm512_and_si512(zmm, nibmask)); \
+    __m512i _hi = _mm512_shuffle_epi8(upper_tbl, \
+                      _mm512_and_si512(_mm512_srli_epi16(zmm, 4), nibmask)); \
+    __m512i _cl = _mm512_and_si512(_lo, _hi); \
+    stm_out = static_cast<uint64_t>(_mm512_cmpgt_epi8_mask( \
+                  _mm512_and_si512(_cl, sc_bit), vzero)); \
+    wsm_out = static_cast<uint64_t>(_mm512_cmpgt_epi8_mask( \
+                  _mm512_and_si512(_cl, ws_bit), vzero)); \
+} while(0)
+
+#define PG64_AVX512_CHK(zmm, OFF) do { \
+    const uint64_t _qm = static_cast<uint64_t>(_mm512_cmpeq_epi8_mask(zmm, vquote512)); \
+    const uint64_t _bm = static_cast<uint64_t>(_mm512_cmpeq_epi8_mask(zmm, vbs512)); \
+    uint64_t _stm = 0, _wsm = 0; \
+    CL64_AVX512_CHK(zmm, _stm, _wsm); \
+    process_group64(st, _qm, _bm, _stm, _wsm, \
+                    static_cast<uint32_t>(pos + (OFF)), \
+                    data, sp, si); \
+} while(0)
+
+    while (__builtin_expect(pos + 511 < end, 1)) {
+        const __m512i c0 = _mm512_loadu_si512(static_cast<const void*>(data + pos));
+        const __m512i c1 = _mm512_loadu_si512(static_cast<const void*>(data + pos +  64));
+        const __m512i c2 = _mm512_loadu_si512(static_cast<const void*>(data + pos + 128));
+        const __m512i c3 = _mm512_loadu_si512(static_cast<const void*>(data + pos + 192));
+        const __m512i c4 = _mm512_loadu_si512(static_cast<const void*>(data + pos + 256));
+        const __m512i c5 = _mm512_loadu_si512(static_cast<const void*>(data + pos + 320));
+        const __m512i c6 = _mm512_loadu_si512(static_cast<const void*>(data + pos + 384));
+        const __m512i c7 = _mm512_loadu_si512(static_cast<const void*>(data + pos + 448));
+        PG64_AVX512_CHK(c0,   0); PG64_AVX512_CHK(c1,  64);
+        PG64_AVX512_CHK(c2, 128); PG64_AVX512_CHK(c3, 192);
+        PG64_AVX512_CHK(c4, 256); PG64_AVX512_CHK(c5, 320);
+        PG64_AVX512_CHK(c6, 384); PG64_AVX512_CHK(c7, 448);
+        pos += 512;
+    }
+    while (pos + 63 < end) {
+        const __m512i c = _mm512_loadu_si512(static_cast<const void*>(data + pos));
+        PG64_AVX512_CHK(c, 0);
+        pos += 64;
+    }
+#undef CL64_AVX512_CHK
+#undef PG64_AVX512_CHK
+
+    return si;
+}
+
+// ── Decoupled driver: L2-tiled phase-1 scan / phase-2+3 expand ────────────
+inline size_t build_tape_decoupled_avx512(
+        std::string_view input,
+        uint32_t* __restrict__ tokens,
+        tape_entry* __restrict__ te) noexcept
+{
+    // Worst-case tokens per tile = chunk_size (one per byte) → the fixed
+    // (decoupled_chunk_size + 64) tokens scratch always suffices.
+    constexpr size_t chunk_size = decoupled_chunk_size;
+
+    const char*  data = input.data();
+    const size_t len  = input.size();
+    scan_state st{};
+    uint32_t bkt_stk[4096]; int32_t bkt_top = -1;
+
+    size_t si  = 0;                          // global tape index
+    size_t pos = 0;
+    const size_t blocks_end = len & ~static_cast<size_t>(63);  // whole 64B blocks
+    while (pos < blocks_end) {
+        const size_t chunk_end = (blocks_end - pos > chunk_size)
+                                     ? pos + chunk_size : blocks_end;
+        const size_t c = scan_tokens_avx512_chunk(data, pos, chunk_end, st, tokens);
+        si  = expand_tokens_avx512(tokens, c, si, te, bkt_stk, bkt_top);
+        pos = chunk_end;
+    }
+    // Scalar tail (< 64 bytes): lean token emit, then expand.
+    size_t c_tail = 0;
+    process_scalar_tail(st, pos, len, data, tokens, c_tail);
+    si = expand_tokens_avx512(tokens, c_tail, si, te, bkt_stk, bkt_top);
+
+    // Sentinel: position past end, no partner (matches fused tail emit).
+    te[si] = {static_cast<uint32_t>(len), 0u};
+    return si;
+}
+
 // ── CPUID: detect AVX-512F + AVX-512BW at runtime ─────────────────────────
 [[nodiscard]] inline bool cpu_has_avx512bw() noexcept {
 #if defined(__x86_64__) || defined(_M_X64)
@@ -879,6 +1075,22 @@ inline size_t build_structural_index(
     return build_structural_index_avx2(input, te);
 }
 
+// ── Runtime dispatch [tokens + tape_entry*]: decoupled two-phase build ────
+// AVX-512: L2-tiled lean token scan + SIMD expansion + bracket patch (see
+// build_tape_decoupled_avx512). The v5.1 two-pass rejection above applied to
+// bitmask/position intermediates that forced a second touch of the *input
+// data* — the token tile carries the char in bits[31:24] and stays L2-hot,
+// so phase 2/3 never re-reads the input.
+// AVX2/scalar machines keep the old fused single-pass build.
+inline size_t build_structural_index_decoupled(
+        std::string_view input, uint32_t* tokens, tape_entry* te) noexcept
+{
+    static const bool have_avx512bw = cpu_has_avx512bw();
+    if (__builtin_expect(have_avx512bw, 1))
+        return build_tape_decoupled_avx512(input, tokens, te);
+    return build_structural_index_avx2(input, te);
+}
+
 } // namespace detail
 
 // ── Exported: which SIMD tier will be used at runtime ─────────────────────
@@ -888,7 +1100,8 @@ inline size_t build_structural_index(
     -> result<turbo_document>
 {
     turbo_document doc(input, parser);
-    size_t count = detail::build_structural_index(input, parser.tape());
+    size_t count = detail::build_structural_index_decoupled(
+        input, parser.tokens(), parser.tape());
     doc.set_structurals_count(count);
     return doc;
 }
