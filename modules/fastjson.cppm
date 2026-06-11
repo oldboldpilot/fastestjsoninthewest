@@ -685,8 +685,39 @@ using uint128_compat = unsigned __int128;
     #if defined(_MSC_VER) && !defined(__clang__)
         // Native MSVC (cl.exe) has no <cpuid.h>/<x86intrin.h>; the CPUID
         // intrinsic and the SSE/AVX intrinsics live in <intrin.h>/<immintrin.h>.
+        // MSVC's __cpuid/__cpuidex are 2-/3-argument intrinsics writing into an
+        // int[4] array, NOT the GCC/clang 5-argument <cpuid.h> macros. Provide
+        // GCC-compatible __cpuid/__cpuid_count wrappers (defined here, before the
+        // shadowing macros) so detect_simd_capabilities() — written against the
+        // GCC signature — compiles unchanged under cl.exe (was C2660).
         #include <intrin.h>
         #include <immintrin.h>
+        namespace fastjson_detail_cpuid {
+            inline void cpuid_msvc(unsigned leaf, unsigned& a, unsigned& b,
+                                   unsigned& c, unsigned& d) noexcept {
+                int regs[4];
+                __cpuid(regs, static_cast<int>(leaf));  // real MSVC intrinsic (pre-macro)
+                a = static_cast<unsigned>(regs[0]);
+                b = static_cast<unsigned>(regs[1]);
+                c = static_cast<unsigned>(regs[2]);
+                d = static_cast<unsigned>(regs[3]);
+            }
+            inline void cpuidex_msvc(unsigned leaf, unsigned subleaf, unsigned& a,
+                                     unsigned& b, unsigned& c, unsigned& d) noexcept {
+                int regs[4];
+                __cpuidex(regs, static_cast<int>(leaf), static_cast<int>(subleaf));
+                a = static_cast<unsigned>(regs[0]);
+                b = static_cast<unsigned>(regs[1]);
+                c = static_cast<unsigned>(regs[2]);
+                d = static_cast<unsigned>(regs[3]);
+            }
+        }
+        // Shadow the GCC <cpuid.h> macro spellings with the wrapper calls. Defined
+        // AFTER the wrappers so their bodies bind the genuine cl.exe intrinsics.
+        #define __cpuid(leaf, a, b, c, d) \
+            ::fastjson_detail_cpuid::cpuid_msvc((leaf), (a), (b), (c), (d))
+        #define __cpuid_count(leaf, sub, a, b, c, d) \
+            ::fastjson_detail_cpuid::cpuidex_msvc((leaf), (sub), (a), (b), (c), (d))
     #else
         #include <cpuid.h>
         #include <immintrin.h>
