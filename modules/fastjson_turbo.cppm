@@ -117,18 +117,18 @@ public:
     }
 
     // Byte position of structural token i
-    [[nodiscard]] uint32_t get_structural(size_t idx) const noexcept {
+    [[nodiscard, gnu::always_inline]] inline uint32_t get_structural(size_t idx) const noexcept {
         return tape_[idx].token & 0x00FF'FFFFu;
     }
 
     // Character type of structural token i
-    [[nodiscard]] char get_structural_char(size_t idx) const noexcept {
+    [[nodiscard, gnu::always_inline]] inline char get_structural_char(size_t idx) const noexcept {
         if (idx >= count_) return '\0';
         return static_cast<char>(tape_[idx].token >> 24);
     }
 
     // O(1) skip: reads token+partner from the SAME 8-byte cache line slot.
-    [[nodiscard]] size_t skip_value(size_t idx) const noexcept {
+    [[nodiscard, gnu::always_inline]] inline size_t skip_value(size_t idx) const noexcept {
         const tape_entry& e = tape_[idx];
         const char c = static_cast<char>(e.token >> 24);
         if (c == '"') return idx + 2;
@@ -137,9 +137,9 @@ public:
     }
 
     [[nodiscard]] auto root()              const noexcept -> turbo_value;
-    [[nodiscard]] size_t structurals_count() const noexcept { return count_; }
+    [[nodiscard, gnu::always_inline]] inline size_t structurals_count() const noexcept { return count_; }
     void set_structurals_count(size_t n)   noexcept { count_ = n; }
-    [[nodiscard]] std::string_view input() const noexcept { return input_; }
+    [[nodiscard, gnu::always_inline]] inline std::string_view input() const noexcept { return input_; }
     const tape_entry* tape()               const noexcept { return tape_; }
     void set_tape(const tape_entry* t)     noexcept { tape_ = t; }
 };
@@ -155,9 +155,9 @@ public:
     constexpr turbo_value(const turbo_document* doc, size_t idx) noexcept
         : doc_(doc), idx_(idx) {}
 
-    [[nodiscard]] bool is_object() const noexcept { return doc_->get_structural_char(idx_) == '{'; }
-    [[nodiscard]] bool is_array()  const noexcept { return doc_->get_structural_char(idx_) == '['; }
-    [[nodiscard]] bool is_string() const noexcept { return doc_->get_structural_char(idx_) == '"'; }
+    [[nodiscard, gnu::always_inline]] inline bool is_object() const noexcept { return doc_->get_structural_char(idx_) == '{'; }
+    [[nodiscard, gnu::always_inline]] inline bool is_array()  const noexcept { return doc_->get_structural_char(idx_) == '['; }
+    [[nodiscard, gnu::always_inline]] inline bool is_string() const noexcept { return doc_->get_structural_char(idx_) == '"'; }
     [[nodiscard]] bool is_number() const noexcept {
         char c = doc_->get_structural_char(idx_);
         return c == '-' || (c >= '0' && c <= '9');
@@ -212,18 +212,18 @@ public:
         const turbo_document* doc_;
         size_t                idx_;
 
-        turbo_value operator*()  const noexcept { return turbo_value(doc_, idx_); }
-        iterator& operator++() noexcept {
+        [[gnu::always_inline]] inline turbo_value operator*()  const noexcept { return turbo_value(doc_, idx_); }
+        [[gnu::always_inline]] inline iterator& operator++() noexcept {
             idx_ = doc_->skip_value(idx_);
             if (idx_ < doc_->structurals_count() && doc_->get_structural_char(idx_) == ',')
                 ++idx_;
             return *this;
         }
-        bool operator!=(const iterator& o) const noexcept { return idx_ < o.idx_; }
+        [[gnu::always_inline]] inline bool operator!=(const iterator& o) const noexcept { return idx_ < o.idx_; }
     };
 
-    iterator begin() const noexcept { return {doc_, idx_ + 1}; }
-    iterator end()   const noexcept {
+    [[gnu::always_inline]] inline iterator begin() const noexcept { return {doc_, idx_ + 1}; }
+    [[gnu::always_inline]] inline iterator end()   const noexcept {
         size_t close = doc_->skip_value(idx_);
         return {doc_, close > 0 ? close - 1 : 0};
     }
@@ -232,10 +232,10 @@ public:
 // -------------------------------------------------------------------------
 // Deferred inline definitions
 // -------------------------------------------------------------------------
-inline auto turbo_document::root() const noexcept -> turbo_value {
+[[gnu::always_inline]] inline auto turbo_document::root() const noexcept -> turbo_value {
     return turbo_value(this, 0);
 }
-inline auto turbo_value::get_object() const noexcept -> result<turbo_object> {
+[[gnu::always_inline]] inline auto turbo_value::get_object() const noexcept -> result<turbo_object> {
     if (!is_object())
         return std::unexpected(parse_error{error_code::type_error, "Not an object"});
     return turbo_object(doc_, idx_);
@@ -245,7 +245,7 @@ inline auto turbo_value::get_array() const noexcept -> result<turbo_array> {
         return std::unexpected(parse_error{error_code::type_error, "Not an array"});
     return turbo_array(doc_, idx_);
 }
-inline auto turbo_value::get_string() const noexcept -> result<std::string_view> {
+[[gnu::always_inline]] inline auto turbo_value::get_string() const noexcept -> result<std::string_view> {
     if (!is_string())
         return std::unexpected(parse_error{error_code::type_error, "Not a string"});
     uint32_t start = doc_->get_structural(idx_) + 1;
@@ -677,7 +677,7 @@ inline size_t build_structural_index_avx2_index(
 //   • 2× more bytes per outer loop iteration
 //   • Residual 64-byte chunks handled by single zmm load
 // =========================================================================
-__attribute__((target("avx512f,avx512bw,pclmul")))
+__attribute__((target("avx512f,avx512bw,pclmul"), aligned(64)))
 inline size_t build_structural_index_avx512(
         std::string_view input,
         tape_entry* __restrict__ te) noexcept
