@@ -308,7 +308,7 @@ if(ENABLE_CUDA)
     add_library(fastjson_cuda STATIC modules/gpu/json_cuda.cu)
     
     set_target_properties(fastjson_cuda PROPERTIES
-        CUDA_ARCHITECTURES "75;80;86;89;90;120"
+        CUDA_ARCHITECTURES "89;90;120"
         CUDA_STANDARD 20
         CUDA_STANDARD_REQUIRED ON
     )
