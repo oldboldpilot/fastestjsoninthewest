@@ -26,7 +26,6 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND TARGET build_logger_std_modules)
     # CRITICAL: Must use the EXACT same flags as std.pcm was built with
     target_compile_options(test_std_module PRIVATE
         ${LOGGER_STD_PCM_FLAGS}
-        -fprebuilt-module-path=${LOGGER_STD_PCM_DIR}
         -UNDEBUG
     )
 

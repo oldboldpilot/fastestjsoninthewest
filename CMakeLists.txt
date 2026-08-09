@@ -100,15 +100,13 @@ if(NOT MSVC OR CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "GNU")
     set(FASTJSON_BASE_COMPILE_FLAGS
         -fPIC                   # Position Independent Code for shared libraries
         -fstack-protector-strong # Stack protection
-        -D_FORTIFY_SOURCE=2     # Buffer overflow detection
-        -stdlib=libc++          # Use custom libc++
         -pthread                # POSIX thread support
     )
+
     set(FASTJSON_BASE_LINK_FLAGS
-        -stdlib=libc++
-        -L/opt/clang-21/lib
         -pthread
     )
+
     set(FASTJSON_OPTIMIZATION_FLAGS
         -ffast-math             # Fast math for performance
         -funroll-loops          # Loop unrolling
@@ -265,7 +263,7 @@ target_link_libraries(fastjson PUBLIC $<TARGET_NAME_IF_EXISTS:std_module>)
 # Add std module support for import std;
 if(TARGET std_module)
     target_compile_options(fastjson PRIVATE
-        -fprebuilt-module-path=${CMAKE_BINARY_DIR}/external/std/CMakeFiles/std_module.dir
+
     )
 endif()
 
@@ -382,7 +380,7 @@ target_link_libraries(fastjson_parallel PUBLIC $<TARGET_NAME_IF_EXISTS:std_modul
 # Add std module support for import std;
 if(TARGET std_module)
     target_compile_options(fastjson_parallel PRIVATE
-        -fprebuilt-module-path=${CMAKE_BINARY_DIR}/external/std/CMakeFiles/std_module.dir
+
     )
 endif()
 
@@ -444,15 +442,12 @@ if(NOT MSVC OR CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "GNU")
         -funroll-loops          # Loop unrolling
         -fvectorize             # Auto-vectorization
         -fslp-vectorize         # SLP vectorization
-        -stdlib=libc++          # Use custom libc++
         -march=native           # Native CPU optimizations (if enabled)
         -mtune=native           # Tune for native CPU
         $<$<BOOL:${FASTJSON_FORCE_AVX512}>:-mavx512f -mavx512bw>
         $<$<BOOL:${ENABLE_NATIVE_OPTIMIZATIONS}>:-mavx2 -mfma>
     )
     target_link_options(fastjson_simd_multiregister PRIVATE 
-        -stdlib=libc++
-        -L/opt/clang-21/lib
     )
 else()
     target_compile_options(fastjson_simd_multiregister PRIVATE
@@ -510,7 +505,6 @@ target_compile_features(fastjson_multiregister_parser PUBLIC cxx_std_23)
 # Using AVX2 only - this CPU doesn't support AVX-512 in hardware
 if(NOT MSVC OR CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "GNU")
     set(MULTIREGISTER_SIMD_FLAGS 
-        -stdlib=libc++
         -march=native 
         -mtune=native 
         -mavx2 
@@ -528,36 +522,28 @@ if(NOT MSVC OR CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "GNU")
         -Wpedantic
         -Wno-unused-parameter
         -pthread
-        -stdlib=libc++
         -fstack-protector-strong
         -D_FORTIFY_SOURCE=2
         ${MULTIREGISTER_SIMD_FLAGS}
     )
     set(BENCHMARK_LINK_FLAGS
-        -stdlib=libc++
-        -L/opt/clang-21/lib
     )
     set(TEST_COMPILE_FLAGS
         -std=c++23
         -O2
-        -stdlib=libc++
         ${MULTIREGISTER_SIMD_FLAGS}
     )
     set(TEST_LINK_FLAGS
-        -stdlib=libc++
-        -L/opt/clang-21/lib
         -L/home/linuxbrew/.linuxbrew/lib
         -Wl,-rpath,/home/linuxbrew/.linuxbrew/lib
     )
     target_compile_options(fastjson_multiregister_parser PRIVATE
         -O3
         ${MULTIREGISTER_SIMD_FLAGS}
-        -fprebuilt-module-path=${CMAKE_CURRENT_BINARY_DIR}
-        -fprebuilt-module-path=${CMAKE_CURRENT_BINARY_DIR}/external/std/CMakeFiles/std_module.dir
+
+/external/std/CMakeFiles/std_module.dir
     )
     target_link_options(fastjson_multiregister_parser PRIVATE 
-        -stdlib=libc++
-        -L/opt/clang-21/lib
     )
 else()
     set(BENCHMARK_COMPILE_FLAGS
@@ -1118,8 +1104,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/fastjson_vs_simdjson.cpp")
 
     target_compile_options(fastjson_vs_simdjson_benchmark PRIVATE
         ${BENCHMARK_COMPILE_FLAGS}
-        -fprebuilt-module-path=${CMAKE_BINARY_DIR}/external/std/CMakeFiles/std_module.dir
-        -fprebuilt-module-path=${CMAKE_BINARY_DIR}/CMakeFiles/fastjson_multiregister_parser.dir
+
+
     )
     target_link_options(fastjson_vs_simdjson_benchmark PRIVATE 
         ${BENCHMARK_LINK_FLAGS}
@@ -1148,8 +1134,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/turbo_benchmark.cpp")
 
     target_compile_options(turbo_benchmark PRIVATE
         ${BENCHMARK_COMPILE_FLAGS}
-        -fprebuilt-module-path=${CMAKE_BINARY_DIR}/external/std/CMakeFiles/std_module.dir
-        -fprebuilt-module-path=${CMAKE_BINARY_DIR}/CMakeFiles/fastjson_multiregister_parser.dir
+
+
     )
     target_link_options(turbo_benchmark PRIVATE 
         ${BENCHMARK_LINK_FLAGS}
@@ -1160,8 +1146,6 @@ add_executable(test_turbo_correctness tests/test_turbo_correctness.cpp)
 target_link_libraries(test_turbo_correctness fastjson_multiregister_parser)
 target_compile_options(test_turbo_correctness PRIVATE
     ${TEST_COMPILE_FLAGS}
-    -fprebuilt-module-path=${CMAKE_BINARY_DIR}/external/std/CMakeFiles/std_module.dir
-    -fprebuilt-module-path=${CMAKE_BINARY_DIR}/CMakeFiles/fastjson_multiregister_parser.dir
 )
 target_link_options(test_turbo_correctness PRIVATE ${TEST_LINK_FLAGS})
 add_dependencies(test_turbo_correctness std_module fastjson_multiregister_parser)

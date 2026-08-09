@@ -34,6 +34,7 @@ module;
 #include <array>
 #include <span>
 #include <memory_resource>
+#include <cmath>
 #if defined(_LIBCPP_HAS_NO_MONOTONIC_BUFFER_RESOURCE) || defined(_LIBCPP_HAS_NO_INCOMPLETE_SHARED_LIBRARIES)
 namespace std::pmr {
     class monotonic_buffer_resource : public std::pmr::memory_resource {
@@ -1808,7 +1809,7 @@ auto json_value::as_int_128() const -> int128_compat {
     }
     if (is_number()) {
         const double val = std::get<double>(data_);
-        if (std::isnan(val)) {
+        if (__builtin_isnan(val)) {
             return 0;
         }
         return static_cast<int128_compat>(val);
@@ -1830,7 +1831,7 @@ auto json_value::as_uint_128() const -> uint128_compat {
     }
     if (is_number()) {
         double val = std::get<double>(data_);
-        if (std::isnan(val))
+        if (__builtin_isnan(val))
             return 0;
         return static_cast<uint128_compat>(val);
     }
@@ -1863,7 +1864,7 @@ auto json_value::as_string_data() const -> const json_string_data& {
 auto json_value::as_int64() const -> int64_t {
     if (is_number()) {
         double val = std::get<double>(data_);
-        if (std::isnan(val))
+        if (__builtin_isnan(val))
             return 0;
         return static_cast<int64_t>(val);
     } else if (is_int_128()) {
@@ -1879,7 +1880,7 @@ auto json_value::as_int64() const -> int64_t {
 auto json_value::as_uint64() const -> uint64_t {
     if (is_number()) {
         double val = std::get<double>(data_);
-        if (std::isnan(val))
+        if (__builtin_isnan(val))
             return 0;
         return static_cast<uint64_t>(val);
     } else if (is_uint_128()) {
@@ -1913,7 +1914,7 @@ auto json_value::as_int128() const -> int128_compat {
     }
     if (is_number()) {
         const double val = std::get<double>(data_);
-        if (std::isnan(val)) {
+        if (__builtin_isnan(val)) {
             return 0;
         }
         return static_cast<int128_compat>(val);
@@ -1933,7 +1934,7 @@ auto json_value::as_uint128() const -> uint128_compat {
     }
     if (is_number()) {
         const double val = std::get<double>(data_);
-        if (std::isnan(val)) {
+        if (__builtin_isnan(val)) {
             return 0;
         }
         return static_cast<uint128_compat>(val);
@@ -3230,7 +3231,7 @@ auto serializer::serialize_boolean(bool value) -> void {
 }
 
 auto serializer::serialize_number(double value) -> void {
-    if (std::isnan(value) || std::isinf(value)) {
+    if (__builtin_isnan(value) || __builtin_isinf(value)) {
         buffer_ += "null"; // JSON doesn't support NaN/Inf
     } else {
         // Use fast double-to-string conversion
@@ -3501,7 +3502,7 @@ auto parse_arena(std::string input) -> json_result<json_document> {
         return std::unexpected(result.error());
     }
     doc.root_ = std::move(*result);
-    return std::move(doc);
+    return doc;
 }
 
 // ============================================================================
@@ -3597,7 +3598,7 @@ auto ondemand_document::parse(std::string input) -> json_result<ondemand_documen
     if (doc.tape_.empty()) {
         return std::unexpected(json_error{json_error_code::empty_input, "Empty or whitespace-only input", 0, 0});
     }
-    return std::move(doc);
+    return doc;
 }
 
 auto ondemand_document::root() -> ondemand_value {
