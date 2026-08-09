@@ -108,8 +108,15 @@ elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     if(WIN32)
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++23")
     else()
-        # Removed -stdlib=libc++ so it inherits the parent project's standard library
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++23")
+        # -stdlib=libc++ is required here: this vendored copy is compiled as
+        # part of the fastestjsoninthewest STANDALONE build, which links a
+        # libc++-built std_module target and mixes badly with the system
+        # default (libstdc++) ABI if this TU is compiled without it -- see
+        # the "let the parent project's stdlib win" comment history; removing
+        # it broke the standalone build's link step (undefined libstdc++
+        # locale symbols pulled in by a plain-libstdc++-compiled logger.cppm.o
+        # linked into a libc++ executable).
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++23 -stdlib=libc++")
     endif()
 
     # Optional: Add portable CPU optimizations if requested by parent project.
@@ -228,6 +235,7 @@ if(NOT CMAKE_CXX_MODULE_STD AND CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND CMAKE_
     add_custom_command(
         OUTPUT ${STD_COMPAT_PCM}
         COMMAND ${CMAKE_CXX_COMPILER} ${STD_PCM_FLAGS}
+                -fprebuilt-module-path=${CMAKE_CURRENT_BINARY_DIR}/modules
                 --precompile ${STD_COMPAT_IXX} -o ${STD_COMPAT_PCM}
         DEPENDS ${STD_COMPAT_IXX} ${STD_PCM}
         COMMENT "Precompiling MSVC std.compat module for logger (clang-cl)"
@@ -331,6 +339,7 @@ elseif(NOT CMAKE_CXX_MODULE_STD AND CMAKE_CXX_COMPILER_ID MATCHES "Clang"
     add_custom_command(
         OUTPUT ${STD_COMPAT_PCM}
         COMMAND ${CMAKE_CXX_COMPILER} ${STD_PCM_FLAGS}
+                -fprebuilt-module-path=${CMAKE_CURRENT_BINARY_DIR}/modules
                 --precompile ${STD_COMPAT_CPPM} -o ${STD_COMPAT_PCM}
         DEPENDS ${STD_COMPAT_CPPM} ${STD_PCM}
         COMMENT "Precompiling libc++ std.compat module for logger (std.compat.pcm)"
