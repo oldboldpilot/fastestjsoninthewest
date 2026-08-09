@@ -916,7 +916,11 @@ class Logger {
                 return std::string(val);
             } else if constexpr (std::is_same_v<U, char const*> ||
                                  std::is_same_v<U, char*>) {
-                return val ? std::string(val) : std::string{};
+                if constexpr (std::is_pointer_v<std::remove_reference_t<T>>) {
+                    return val ? std::string(val) : std::string{};
+                } else {
+                    return std::string(val);
+                }
             } else if constexpr (std::is_same_v<U, char> ||
                                  std::is_same_v<U, signed char> ||
                                  std::is_same_v<U, unsigned char>) {
@@ -1854,7 +1858,7 @@ class Logger {
 // ============================================================================
 // 4. PRIVATE IMPLEMENTATION
 // ============================================================================
-module :private;
+// module :private;
 
 namespace logger {
 
@@ -2117,7 +2121,7 @@ class Logger::Impl {
         int offset_minutes = (std::abs(offset_seconds) % 3600) / 60;
 
         // Format timezone as +HH:MM or -HH:MM (ISO 8601)
-        std::array<char, 10> tz_offset{};
+        std::array<char, 16> tz_offset{};
         std::snprintf(tz_offset.data(), tz_offset.size(), "%+03d:%02d", offset_hours,
                       offset_minutes);
 
