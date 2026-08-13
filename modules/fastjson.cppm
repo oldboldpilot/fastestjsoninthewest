@@ -1398,21 +1398,28 @@ namespace gpu {
 // SIMD Wrappers — delegate to detail:: implementations in global module fragment
 // All actual SIMD intrinsic usage lives in the GMF to avoid Clang 21 module BMI segfault.
 // ============================================================================
-// Re-export SIMD capability constants from detail:: for public API
-constexpr uint32_t SIMD_SSE2        = detail::SIMD_SSE2;
-constexpr uint32_t SIMD_SSE3        = detail::SIMD_SSE3;
-constexpr uint32_t SIMD_SSSE3       = detail::SIMD_SSSE3;
-constexpr uint32_t SIMD_SSE41       = detail::SIMD_SSE41;
-constexpr uint32_t SIMD_SSE42       = detail::SIMD_SSE42;
-constexpr uint32_t SIMD_AVX         = detail::SIMD_AVX;
-constexpr uint32_t SIMD_AVX2        = detail::SIMD_AVX2;
-constexpr uint32_t SIMD_AVX512F     = detail::SIMD_AVX512F;
-constexpr uint32_t SIMD_AVX512BW    = detail::SIMD_AVX512BW;
-constexpr uint32_t SIMD_AVX512VBMI  = detail::SIMD_AVX512VBMI;
-constexpr uint32_t SIMD_AVX512VBMI2 = detail::SIMD_AVX512VBMI2;
-constexpr uint32_t SIMD_AVX512VNNI  = detail::SIMD_AVX512VNNI;
-constexpr uint32_t SIMD_AMX_TILE    = detail::SIMD_AMX_TILE;
-constexpr uint32_t SIMD_AMX_INT8    = detail::SIMD_AMX_INT8;
+// SIMD capability constants for the public API.
+//
+// These carry LITERAL values rather than aliasing detail::SIMD_* . The detail:: definitions
+// live in the global module fragment and are `static`, i.e. internal linkage, which makes them
+// TU-local. Initialising an exported constant from one exposes a TU-local entity in the module
+// interface -- ill-formed per [basic.link]/17, and clang warns -WTU-local-entity-exposure on
+// every one of the 14. Values are duplicated from the detail:: block above and must stay in
+// sync; they are stable ABI bit flags, so that is a fixed cost, not a maintenance burden.
+constexpr uint32_t SIMD_SSE2        = 0x002;
+constexpr uint32_t SIMD_SSE3        = 0x004;
+constexpr uint32_t SIMD_SSSE3       = 0x008;
+constexpr uint32_t SIMD_SSE41       = 0x010;
+constexpr uint32_t SIMD_SSE42       = 0x020;
+constexpr uint32_t SIMD_AVX         = 0x040;
+constexpr uint32_t SIMD_AVX2        = 0x080;
+constexpr uint32_t SIMD_AVX512F     = 0x100;
+constexpr uint32_t SIMD_AVX512BW    = 0x200;
+constexpr uint32_t SIMD_AVX512VBMI  = 0x400;
+constexpr uint32_t SIMD_AVX512VBMI2 = 0x800;
+constexpr uint32_t SIMD_AVX512VNNI  = 0x1000;
+constexpr uint32_t SIMD_AMX_TILE    = 0x2000;
+constexpr uint32_t SIMD_AMX_INT8    = 0x4000;
 
 // Thread-safe SIMD capability detection — delegates to GMF implementation
 [[nodiscard]] inline auto detect_simd_capabilities() noexcept -> uint32_t {
