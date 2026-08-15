@@ -447,8 +447,12 @@ if(NOT MSVC OR CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "GNU")
         -fvectorize             # Auto-vectorization
         -fslp-vectorize         # SLP vectorization
         -stdlib=libc++          # Use custom libc++
-        -march=native           # Native CPU optimizations (if enabled)
-        -mtune=native           # Tune for native CPU
+        # Portable baseline, NOT -march=native. A BMI records its target features, so a
+        # native-tuned translation unit cannot load a BMI built at the project baseline (or
+        # vice versa) -- that is two incompatible ISA worlds in one build tree. Keep every
+        # target on the one baseline the rest of the project uses.
+        -march=x86-64-v3
+        -mtune=generic
         $<$<BOOL:${FASTJSON_FORCE_AVX512}>:-mavx512f -mavx512bw>
         $<$<BOOL:${ENABLE_NATIVE_OPTIMIZATIONS}>:-mavx2 -mfma>
     )
@@ -512,8 +516,9 @@ target_compile_features(fastjson_multiregister_parser PUBLIC cxx_std_23)
 if(NOT MSVC OR CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "GNU")
     set(MULTIREGISTER_SIMD_FLAGS
         -stdlib=libc++
-        -march=native
-        -mtune=native
+        # Portable baseline, not native -- see note above; BMIs record target features.
+        -march=x86-64-v3
+        -mtune=generic
         -mavx2
         -mfma
         -fstack-protector-strong
