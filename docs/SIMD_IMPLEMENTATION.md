@@ -318,3 +318,42 @@ Sequential parse
 ## Author
 
 Olumuyiwa Oluwasanmi
+
+## 2026-10-03 — AVX-512 string scan, runtime-dispatched AVX-512, and four scan/lifetime defects
+
+**AVX-512 is now compiled in wherever the compiler can target it and chosen at run time.** The portable
+x86-64-v3 baseline (no `-mavx512f`) left `HAVE_AVX512F` undefined, so every AVX-512 kernel was compiled OUT
+and an AVX-512 host ran the AVX2 path. `FASTJSON_TARGET_AVX512` (clang/gcc on x86-64) compiles them under a
+per-function `target("avx512f,avx512bw")`; `detect_simd_capabilities()` decides at run time. cl.exe has no
+target attribute and keeps the scalar path. The kernels use no lambdas: a lambda does not inherit its
+enclosing function's target attribute, so an AVX-512 intrinsic inside one fails to compile at x86-64-v3.
+
+- **New: `find_string_end_avx512`** — 8× zmm (512 B/iteration), 1× zmm loop, masked final load (never reads
+  past the end). Dispatch: AVX-512F+BW → AVX2 8× ymm → scalar. Exported as `fastjson::find_string_end_simd`.
+- **Fixed: the AVX2 string scan stopped at the first byte of every string.** The unsigned `< 0x20` test
+  flipped each byte's sign bit but not the limit's; with the limit `0x20` instead of `0x20 ^ 0x80`, every
+  printable byte read as a control character, so `parse_string_simd`'s fast path never ran.
+- **Fixed: AVX-512 control tests compared SIGNED** (`_mm512_cmplt_epi8_mask`), flagging every UTF-8 byte;
+  now `_mm512_cmplt_epu8_mask` (also in `fastjson_simd_multiregister_complex.cpp`).
+- **Fixed: parsed strings dangled.** The fast path stored a `string_view` into the caller's input, so
+  `auto v = parse(readFile(p));` left every unescaped string pointing at freed memory. Live on every scalar
+  build (cl.exe, ARM) all along; on x86 only hidden by the AVX2 defect above. The fast path now copies once
+  (still a bulk copy, not the per-character loop); zero-copy views stay with the explicit ondemand API.
+- **Fixed: CPU detection ignored the OS.** CPUID says what the CPU has, not what the OS saves; a VM or kernel
+  that masks AVX/AVX-512 state would SIGILL. Now OSXSAVE + XGETBV gate AVX (XCR0 & 0x6), AVX-512
+  (XCR0 & 0xE6) and AMX (bits 17–18). The cache's plain `static bool initialized` (a data race) is a ready bit
+  in the one atomic.
+- **New knob: `FASTJSON_SIMD=scalar|avx2`** lowers the tier so one host exercises every path, and
+  **`fastjson::string_scan_tier()`** reports the kernel that actually runs (it mirrors the dispatcher, including
+  what was compiled in, so a compiled-out tier shows even when CPUID reports the feature).
+- **Fixed: the serializer's escape scan** (`find_escape_position_simd_impl`, used by `stringify`) compared
+  signed and its AVX-512 branch was dead; it now delegates to the string-end dispatcher (same predicate).
+- **Fixed: loop bounds formed pointers past one-past-the-end** (`ptr + 512 <= end` on a short input is undefined
+  behaviour even unread); every SIMD loop in `fastjson.cppm` now compares remaining bytes (`end - ptr >= N`).
+- Reviewed adversarially (agy Gemini 3.8 Flash High, cursor GPT-5.6 Sol High); false positives dropped after
+  checking (e.g. `read_xcr0` is inside the x86-only block).
+
+Gate: sensen's `test_fastjson_simd` (every tier; mutation-checked against each defect). Measured on a 5 MB
+tool-result-shaped document (Xeon, AVX-512): scalar 134, AVX2 146, AVX-512 150 MB/s. Parse time here is
+dominated by building the DOM (allocation, copies, map inserts), not by the scan; larger wins need the tape /
+structural-index design (`fastjson_turbo`).

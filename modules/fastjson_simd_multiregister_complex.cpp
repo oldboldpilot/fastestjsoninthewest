@@ -258,7 +258,8 @@ auto find_string_end_8x_avx512(const char* data, size_t size, size_t start_pos) 
             
             __mmask64 quote_mask = _mm512_cmpeq_epi8_mask(chunks[i], _mm512_set1_epi8('"'));
             __mmask64 backslash_mask = _mm512_cmpeq_epi8_mask(chunks[i], _mm512_set1_epi8('\\'));
-            __mmask64 control_mask = _mm512_cmplt_epi8_mask(chunks[i], _mm512_set1_epi8(0x20));
+            // UNSIGNED: a signed compare flags every byte >= 0x80 (each UTF-8 byte) as a control character.
+            __mmask64 control_mask = _mm512_cmplt_epu8_mask(chunks[i], _mm512_set1_epi8(0x20));
             
             special_masks[i] = quote_mask | backslash_mask | control_mask;
         }

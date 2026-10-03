@@ -775,16 +775,30 @@ static constexpr uint32_t SIMD_AVX512VNNI  = 0x1000;
 static constexpr uint32_t SIMD_AMX_TILE    = 0x2000;
 static constexpr uint32_t SIMD_AMX_INT8    = 0x4000;
 
-// Thread-safe SIMD capability detection (call_once + atomic cache)
-inline auto detect_simd_capabilities() noexcept -> uint32_t {
-    static std::atomic<uint32_t> cached_caps{0};
-    static bool initialized = false;
+// XCR0 (XGETBV with ECX = 0): which register states the OPERATING SYSTEM saves on a context switch.
+inline auto read_xcr0() noexcept -> uint64_t {
+#if defined(_MSC_VER) && !defined(__clang__)
+    return _xgetbv(0);
+#else
+    uint32_t lo = 0, hi = 0;
+    __asm__ volatile("xgetbv" : "=a"(lo), "=d"(hi) : "c"(0));
+    return (static_cast<uint64_t>(hi) << 32) | lo;
+#endif
+}
 
-    if (initialized) {
-        return cached_caps.load(std::memory_order_relaxed);
+// Thread-safe SIMD capability detection. ONE atomic carries both the result and a READY bit: the previous
+// `static bool initialized` was a plain flag read and written by every thread (a data race).
+inline auto detect_simd_capabilities() noexcept -> uint32_t {
+    static constexpr uint32_t kReady = 0x80000000U;
+    static std::atomic<uint32_t> cached_caps{0};
+    if (const uint32_t v = cached_caps.load(std::memory_order_acquire); (v & kReady) != 0) {
+        return v & ~kReady;
     }
 
     uint32_t caps = 0;
+    bool os_saves_ymm = false;   // XCR0 bits 1-2: SSE + AVX state
+    bool os_saves_zmm = false;   // XCR0 bits 5-7: opmask, ZMM_Hi256, Hi16_ZMM
+    bool os_saves_tiles = false; // XCR0 bits 17-18: AMX TILECFG + TILEDATA
     uint32_t eax, ebx, ecx, edx;
 
     __cpuid(0, eax, ebx, ecx, edx);
@@ -796,6 +810,15 @@ inline auto detect_simd_capabilities() noexcept -> uint32_t {
         if (ecx & (1 << 19)) caps |= SIMD_SSE41;
         if (ecx & (1 << 20)) caps |= SIMD_SSE42;
         if (ecx & (1 << 28)) caps |= SIMD_AVX;
+        // A CPU that HAS AVX/AVX-512 but whose OS does not save that state (a VM or kernel that masks it)
+        // faults on the first such instruction: CPUID alone is not permission. OSXSAVE (bit 27) says XGETBV
+        // may be executed at all.
+        if (ecx & (1 << 27)) {
+            const uint64_t xcr0 = read_xcr0();
+            os_saves_ymm = (xcr0 & 0x6) == 0x6;
+            os_saves_zmm = (xcr0 & 0xE6) == 0xE6;
+            os_saves_tiles = (xcr0 & 0x60000) == 0x60000;
+        }
     }
 
     __cpuid(0, eax, ebx, ecx, edx);
@@ -811,59 +834,88 @@ inline auto detect_simd_capabilities() noexcept -> uint32_t {
         if (edx & (1 << 25)) caps |= SIMD_AMX_INT8;
     }
 
-    cached_caps.store(caps, std::memory_order_release);
-    initialized = true;
+    if (!os_saves_ymm) caps &= ~(SIMD_AVX | SIMD_AVX2);
+    if (!os_saves_zmm) caps &= ~(SIMD_AVX512F | SIMD_AVX512BW | SIMD_AVX512VBMI | SIMD_AVX512VBMI2 | SIMD_AVX512VNNI);
+    if (!os_saves_tiles) caps &= ~(SIMD_AMX_TILE | SIMD_AMX_INT8);
+
+    // FASTJSON_SIMD caps the tier, so ONE host can exercise every dispatch path (tests, A/B timing):
+    // `scalar` (no vector tier), `avx2` (no AVX-512), unset or anything else = the best the CPU and OS allow.
+    // It can only LOWER the tier: it never claims a feature the hardware lacks.
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable : 4996)  // getenv: one read-only lookup of a tier name; _dupenv_s would allocate
+#endif
+    const char* const cap = std::getenv("FASTJSON_SIMD");
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
+    if (cap != nullptr) {
+        if (std::strcmp(cap, "scalar") == 0) {
+            caps = 0;
+        } else if (std::strcmp(cap, "avx2") == 0) {
+            caps &= ~(SIMD_AVX512F | SIMD_AVX512BW | SIMD_AVX512VBMI | SIMD_AVX512VBMI2 | SIMD_AVX512VNNI | SIMD_AMX_TILE |
+                      SIMD_AMX_INT8);
+        }
+    }
+
+    cached_caps.store(caps | kReady, std::memory_order_release);
     return caps;
 }
 
 // --------------------------------------------------------------------------
+// AVX-512 tier: COMPILED IN WHEREVER THE COMPILER CAN TARGET IT, chosen at RUN TIME by CPUID.
+// The build baseline is x86-64-v3 (no -mavx512f, so a binary built here runs on an AVX2-only CPU), which
+// left HAVE_AVX512F undefined and these kernels compiled OUT: an AVX-512 host ran the AVX2 path. A
+// per-function target attribute needs no global flag, and the dispatcher only calls the kernel when CPUID
+// reports AVX-512F+BW. cl.exe has no target attribute and takes the scalar path, as before.
+// No lambdas inside: a lambda does not inherit its enclosing function's target attribute, so an AVX-512
+// intrinsic in one fails to compile under the x86-64-v3 baseline.
+// --------------------------------------------------------------------------
+#if (defined(__clang__) || defined(__GNUC__)) && (defined(__x86_64__) || defined(_M_X64))
+#define FASTJSON_TARGET_AVX512 1
+#endif
+
+// --------------------------------------------------------------------------
 // AVX-512 Whitespace Skip — 4x zmm registers (256 bytes per iteration)
 // --------------------------------------------------------------------------
-#ifdef HAVE_AVX512F
+#ifdef FASTJSON_TARGET_AVX512
+__attribute__((target("avx512f,avx512bw")))
+inline auto ws_mask_avx512(__m512i chunk) -> __mmask64 {
+    return _mm512_cmpeq_epi8_mask(chunk, _mm512_set1_epi8(' ')) | _mm512_cmpeq_epi8_mask(chunk, _mm512_set1_epi8('\t')) |
+           _mm512_cmpeq_epi8_mask(chunk, _mm512_set1_epi8('\n')) | _mm512_cmpeq_epi8_mask(chunk, _mm512_set1_epi8('\r'));
+}
+
 __attribute__((target("avx512f,avx512bw")))
 inline auto skip_whitespace_avx512(const char* data, size_t size) -> const char* {
     const char* ptr = data;
     const char* end = data + size;
 
-    const __m512i ws_space = _mm512_set1_epi8(' ');
-    const __m512i ws_tab   = _mm512_set1_epi8('\t');
-    const __m512i ws_nl    = _mm512_set1_epi8('\n');
-    const __m512i ws_cr    = _mm512_set1_epi8('\r');
-
-    auto check_ws = [&](__m512i chunk) -> __mmask64 {
-        __mmask64 m0 = _mm512_cmpeq_epi8_mask(chunk, ws_space);
-        __mmask64 m1 = _mm512_cmpeq_epi8_mask(chunk, ws_tab);
-        __mmask64 m2 = _mm512_cmpeq_epi8_mask(chunk, ws_nl);
-        __mmask64 m3 = _mm512_cmpeq_epi8_mask(chunk, ws_cr);
-        return m0 | m1 | m2 | m3;
-    };
-
     // 4x zmm multi-register: 256 bytes per iteration
-    while (ptr + 256 <= end) {
+    while (end - ptr >= 256) {
         __m512i c0 = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(ptr));
         __m512i c1 = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(ptr + 64));
         __m512i c2 = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(ptr + 128));
         __m512i c3 = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(ptr + 192));
 
-        __mmask64 ws0 = check_ws(c0);
+        __mmask64 ws0 = ws_mask_avx512(c0);
         if (ws0 != 0xFFFFFFFFFFFFFFFF) return ptr + __builtin_ctzll(~ws0);
 
-        __mmask64 ws1 = check_ws(c1);
+        __mmask64 ws1 = ws_mask_avx512(c1);
         if (ws1 != 0xFFFFFFFFFFFFFFFF) return ptr + 64 + __builtin_ctzll(~ws1);
 
-        __mmask64 ws2 = check_ws(c2);
+        __mmask64 ws2 = ws_mask_avx512(c2);
         if (ws2 != 0xFFFFFFFFFFFFFFFF) return ptr + 128 + __builtin_ctzll(~ws2);
 
-        __mmask64 ws3 = check_ws(c3);
+        __mmask64 ws3 = ws_mask_avx512(c3);
         if (ws3 != 0xFFFFFFFFFFFFFFFF) return ptr + 192 + __builtin_ctzll(~ws3);
 
         ptr += 256;
     }
 
     // Single zmm tail loop
-    while (ptr + 64 <= end) {
+    while (end - ptr >= 64) {
         __m512i chunk = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(ptr));
-        __mmask64 ws = check_ws(chunk);
+        __mmask64 ws = ws_mask_avx512(chunk);
         if (ws != 0xFFFFFFFFFFFFFFFF) return ptr + __builtin_ctzll(~ws);
         ptr += 64;
     }
@@ -872,7 +924,7 @@ inline auto skip_whitespace_avx512(const char* data, size_t size) -> const char*
     while (ptr < end && (*ptr == ' ' || *ptr == '\t' || *ptr == '\n' || *ptr == '\r')) ++ptr;
     return ptr;
 }
-#endif // HAVE_AVX512F
+#endif // FASTJSON_TARGET_AVX512
 
 // --------------------------------------------------------------------------
 // AVX2 Whitespace Skip — 8x ymm registers (256 bytes per iteration)
@@ -897,7 +949,7 @@ inline auto skip_whitespace_avx2(const char* data, size_t size) -> const char* {
     };
 
     // 8x ymm multi-register: 256 bytes per iteration
-    while (ptr + 256 <= end) {
+    while (end - ptr >= 256) {
         __m256i c0 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr));
         __m256i c1 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr + 32));
         __m256i c2 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr + 64));
@@ -928,7 +980,7 @@ inline auto skip_whitespace_avx2(const char* data, size_t size) -> const char* {
     }
 
     // Single ymm tail loop
-    while (ptr + 32 <= end) {
+    while (end - ptr >= 32) {
         __m256i chunk = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr));
         uint32_t mask = ~static_cast<uint32_t>(_mm256_movemask_epi8(check_ws(chunk)));
         if (mask) return ptr + __builtin_ctz(mask);
@@ -954,7 +1006,7 @@ inline auto skip_whitespace_sse42(const char* data, size_t size) -> const char* 
         _mm_setr_epi8(' ', '\t', '\n', '\r', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 
     // 4x xmm multi-register: 64 bytes per iteration
-    while (ptr + 64 <= end) {
+    while (end - ptr >= 64) {
         __m128i c0 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(ptr));
         __m128i c1 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(ptr + 16));
         __m128i c2 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(ptr + 32));
@@ -980,7 +1032,7 @@ inline auto skip_whitespace_sse42(const char* data, size_t size) -> const char* 
     }
 
     // Single xmm tail loop
-    while (ptr + 16 <= end) {
+    while (end - ptr >= 16) {
         __m128i chunk = _mm_loadu_si128(reinterpret_cast<const __m128i*>(ptr));
         int result = _mm_cmpestri(whitespace_chars, 4, chunk, 16,
                                    _SIDD_CMP_EQUAL_ANY | _SIDD_NEGATIVE_POLARITY);
@@ -1017,7 +1069,7 @@ inline auto skip_whitespace_sse2(const char* data, size_t size) -> const char* {
     };
 
     // 4x xmm multi-register: 64 bytes per iteration
-    while (ptr + 64 <= end) {
+    while (end - ptr >= 64) {
         __m128i c0 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(ptr));
         __m128i c1 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(ptr + 16));
         __m128i c2 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(ptr + 32));
@@ -1036,7 +1088,7 @@ inline auto skip_whitespace_sse2(const char* data, size_t size) -> const char* {
     }
 
     // Single xmm tail loop
-    while (ptr + 16 <= end) {
+    while (end - ptr >= 16) {
         __m128i chunk = _mm_loadu_si128(reinterpret_cast<const __m128i*>(ptr));
         uint32_t mask = ~_mm_movemask_epi8(check_ws(chunk)) & 0xFFFF;
         if (mask) return ptr + __builtin_ctz(mask);
@@ -1055,7 +1107,7 @@ inline auto skip_whitespace_sse2(const char* data, size_t size) -> const char* {
 inline auto skip_whitespace_simd_impl(const char* data, size_t size) -> const char* {
     static const uint32_t caps = detect_simd_capabilities();
 
-#ifdef HAVE_AVX512F
+#ifdef FASTJSON_TARGET_AVX512
     if ((caps & SIMD_AVX512F) && (caps & SIMD_AVX512BW))
         return skip_whitespace_avx512(data, size);
 #endif
@@ -1090,7 +1142,10 @@ inline auto find_string_end_avx2(const char* start, const char* end) -> const ch
 
     const __m256i quote     = _mm256_set1_epi8('"');
     const __m256i backslash = _mm256_set1_epi8('\\');
-    const __m256i ctrl_limit = _mm256_set1_epi8(0x20);
+    // Unsigned "byte < 0x20" with SIGNED compares: flip the sign bit of BOTH sides. The limit used to stay
+    // 0x20 unflipped, so (b ^ 0x80) < 0x20 held for every printable byte (0x61 'a' -> 0xE1 = -31 < 32):
+    // the scan stopped at the first character of every string and parse_string_simd's fast path never ran.
+    const __m256i ctrl_limit = _mm256_set1_epi8(static_cast<char>(0x20 ^ 0x80));
     const __m256i sign_flip = _mm256_set1_epi8(static_cast<char>(0x80));
 
     auto check_special = [&](__m256i chunk) -> uint32_t {
@@ -1104,7 +1159,7 @@ inline auto find_string_end_avx2(const char* start, const char* end) -> const ch
     };
 
     // 8x ymm multi-register: 256 bytes per iteration
-    while (ptr + 256 <= end) {
+    while (end - ptr >= 256) {
         __m256i c0 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr));
         __m256i c1 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr + 32));
         __m256i c2 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr + 64));
@@ -1127,7 +1182,7 @@ inline auto find_string_end_avx2(const char* start, const char* end) -> const ch
     }
 
     // Single ymm tail loop
-    while (ptr + 32 <= end) {
+    while (end - ptr >= 32) {
         __m256i chunk = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr));
         uint32_t mask = check_special(chunk);
         if (mask) return ptr + __builtin_ctz(mask);
@@ -1145,11 +1200,66 @@ inline auto find_string_end_avx2(const char* start, const char* end) -> const ch
 #endif // HAVE_AVX2
 
 // --------------------------------------------------------------------------
+// AVX-512 String End Detection — 8x zmm registers (512 bytes per iteration)
+// First '"', '\\' or control byte (< 0x20). The control test is UNSIGNED (_mm512_cmplt_epu8_mask):
+// a signed compare reads every byte >= 0x80 -- each UTF-8 lead/continuation byte -- as negative and
+// therefore "< 0x20", which stopped the scan at the first non-ASCII character.
+// --------------------------------------------------------------------------
+#ifdef FASTJSON_TARGET_AVX512
+__attribute__((target("avx512f,avx512bw")))
+inline auto string_special_mask_avx512(__m512i chunk) -> __mmask64 {
+    return _mm512_cmpeq_epi8_mask(chunk, _mm512_set1_epi8('"')) | _mm512_cmpeq_epi8_mask(chunk, _mm512_set1_epi8('\\')) |
+           _mm512_cmplt_epu8_mask(chunk, _mm512_set1_epi8(0x20));
+}
+
+__attribute__((target("avx512f,avx512bw")))
+inline auto find_string_end_avx512(const char* start, const char* end) -> const char* {
+    const char* ptr = start;
+    while (end - ptr >= 512) {
+        const __m512i c0 = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(ptr));
+        const __m512i c1 = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(ptr + 64));
+        const __m512i c2 = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(ptr + 128));
+        const __m512i c3 = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(ptr + 192));
+        const __m512i c4 = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(ptr + 256));
+        const __m512i c5 = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(ptr + 320));
+        const __m512i c6 = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(ptr + 384));
+        const __m512i c7 = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(ptr + 448));
+        if (const __mmask64 m = string_special_mask_avx512(c0)) return ptr + __builtin_ctzll(m);
+        if (const __mmask64 m = string_special_mask_avx512(c1)) return ptr + 64 + __builtin_ctzll(m);
+        if (const __mmask64 m = string_special_mask_avx512(c2)) return ptr + 128 + __builtin_ctzll(m);
+        if (const __mmask64 m = string_special_mask_avx512(c3)) return ptr + 192 + __builtin_ctzll(m);
+        if (const __mmask64 m = string_special_mask_avx512(c4)) return ptr + 256 + __builtin_ctzll(m);
+        if (const __mmask64 m = string_special_mask_avx512(c5)) return ptr + 320 + __builtin_ctzll(m);
+        if (const __mmask64 m = string_special_mask_avx512(c6)) return ptr + 384 + __builtin_ctzll(m);
+        if (const __mmask64 m = string_special_mask_avx512(c7)) return ptr + 448 + __builtin_ctzll(m);
+        ptr += 512;
+    }
+    while (end - ptr >= 64) {
+        if (const __mmask64 m = string_special_mask_avx512(_mm512_loadu_si512(reinterpret_cast<const __m512i*>(ptr)))) {
+            return ptr + __builtin_ctzll(m);
+        }
+        ptr += 64;
+    }
+    // The last < 64 bytes in ONE masked load: the mask stops the load at `end`, so nothing past it is read.
+    if (ptr < end) {
+        const __mmask64 live = (end - ptr) >= 64 ? ~__mmask64{0} : ((__mmask64{1} << (end - ptr)) - 1);
+        const __m512i tail = _mm512_maskz_loadu_epi8(live, ptr);
+        if (const __mmask64 m = string_special_mask_avx512(tail) & live) return ptr + __builtin_ctzll(m);
+    }
+    return end;
+}
+#endif // FASTJSON_TARGET_AVX512
+
+// --------------------------------------------------------------------------
 // String End Detection Dispatcher
 // --------------------------------------------------------------------------
 inline auto find_string_end_simd_impl(const char* start, const char* end) -> const char* {
     [[maybe_unused]] static const uint32_t caps = detect_simd_capabilities();
 
+#ifdef FASTJSON_TARGET_AVX512
+    if ((caps & SIMD_AVX512F) && (caps & SIMD_AVX512BW))
+        return find_string_end_avx512(start, end);
+#endif
 #ifdef HAVE_AVX2
     if (caps & SIMD_AVX2)
         return find_string_end_avx2(start, end);
@@ -1162,76 +1272,29 @@ inline auto find_string_end_simd_impl(const char* start, const char* end) -> con
     return ptr;
 }
 
+// Which string-scan kernel the dispatcher above selects on this host: "avx512", "avx2" or "scalar". It mirrors
+// the dispatcher's conditions INCLUDING what was compiled in, so a kernel compiled out shows here even when
+// CPUID reports the feature (the x86-64-v3 baseline once compiled the AVX-512 tier out on AVX-512 hosts).
+inline auto string_scan_tier_impl() -> const char* {
+    [[maybe_unused]] static const uint32_t caps = detect_simd_capabilities();
+#ifdef FASTJSON_TARGET_AVX512
+    if ((caps & SIMD_AVX512F) && (caps & SIMD_AVX512BW)) return "avx512";
+#endif
+#ifdef HAVE_AVX2
+    if (caps & SIMD_AVX2) return "avx2";
+#endif
+    return "scalar";
+}
+
 // --------------------------------------------------------------------------
-// Serialization Escape Position Finder — 8x AVX2 (256 bytes per iteration)
-// Finds the first character that needs JSON escaping (", \, or control char < 0x20).
+// Serialization Escape Position Finder
+// The first character that needs JSON escaping ('"', '\\', control < 0x20) is EXACTLY the parser's string-end
+// predicate, so it delegates to that dispatcher (AVX-512 8x zmm -> AVX2 8x ymm -> scalar). The copies this
+// replaced compared SIGNED -- every UTF-8 byte stopped the vector loop, so UTF-8 text was escaped one SIMD
+// restart per byte -- and its AVX-512 branch was gated on HAVE_AVX512BW in a function with no target, i.e. dead.
 // --------------------------------------------------------------------------
 inline auto find_escape_position_simd_impl(const char* ptr, const char* end) -> const char* {
-    [[maybe_unused]] static const uint32_t caps = detect_simd_capabilities();
-
-#ifdef HAVE_AVX512BW
-    if (caps & SIMD_AVX512BW) {
-        while (ptr + 64 <= end) {
-            __m512i chunk = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(ptr));
-            __mmask64 m1 = _mm512_cmpeq_epi8_mask(chunk, _mm512_set1_epi8('"'));
-            __mmask64 m2 = _mm512_cmpeq_epi8_mask(chunk, _mm512_set1_epi8('\\'));
-            __mmask64 m3 = _mm512_cmp_epi8_mask(chunk, _mm512_set1_epi8(32), _MM_CMPINT_LT);
-            __mmask64 mask = m1 | m2 | m3;
-            if (mask != 0) return ptr + __builtin_ctzll(mask);
-            ptr += 64;
-        }
-    }
-#endif
-
-#ifdef HAVE_AVX2
-    if (caps & SIMD_AVX2) {
-        const __m256i quote     = _mm256_set1_epi8('"');
-        const __m256i backslash = _mm256_set1_epi8('\\');
-
-        auto check = [&](__m256i c) -> int {
-            __m256i m1 = _mm256_cmpeq_epi8(c, quote);
-            __m256i m2 = _mm256_cmpeq_epi8(c, backslash);
-            __m256i m3 = _mm256_cmpgt_epi8(_mm256_set1_epi8(32), c);
-            return _mm256_movemask_epi8(_mm256_or_si256(_mm256_or_si256(m1, m2), m3));
-        };
-
-        // 8x ymm multi-register: 256 bytes per iteration
-        while (ptr + 256 <= end) {
-            __m256i c0 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr));
-            __m256i c1 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr + 32));
-            __m256i c2 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr + 64));
-            __m256i c3 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr + 96));
-            __m256i c4 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr + 128));
-            __m256i c5 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr + 160));
-            __m256i c6 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr + 192));
-            __m256i c7 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr + 224));
-
-            if (int m = check(c0)) return ptr + __builtin_ctz(m);
-            if (int m = check(c1)) return ptr + 32 + __builtin_ctz(m);
-            if (int m = check(c2)) return ptr + 64 + __builtin_ctz(m);
-            if (int m = check(c3)) return ptr + 96 + __builtin_ctz(m);
-            if (int m = check(c4)) return ptr + 128 + __builtin_ctz(m);
-            if (int m = check(c5)) return ptr + 160 + __builtin_ctz(m);
-            if (int m = check(c6)) return ptr + 192 + __builtin_ctz(m);
-            if (int m = check(c7)) return ptr + 224 + __builtin_ctz(m);
-            ptr += 256;
-        }
-
-        // Single ymm tail
-        while (ptr + 32 <= end) {
-            __m256i chunk = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr));
-            if (int m = check(chunk)) return ptr + __builtin_ctz(m);
-            ptr += 32;
-        }
-    }
-#endif
-
-    // Scalar fallback
-    while (ptr < end && *ptr != '"' && *ptr != '\\'
-           && static_cast<unsigned char>(*ptr) >= 32) {
-        ++ptr;
-    }
-    return ptr;
+    return find_string_end_simd_impl(ptr, end);
 }
 
 // --------------------------------------------------------------------------
@@ -1358,6 +1421,8 @@ inline auto find_string_end_simd_impl(const char* start, const char* end) -> con
     return ptr;
 }
 
+inline auto string_scan_tier_impl() -> const char* { return "scalar"; }
+
 inline auto find_escape_position_simd_impl(const char* ptr, const char* end) -> const char* {
     while (ptr < end && *ptr != '"' && *ptr != '\\'
            && static_cast<unsigned char>(*ptr) >= 32)
@@ -1430,6 +1495,16 @@ constexpr uint32_t SIMD_AMX_INT8    = 0x4000;
 [[nodiscard]] inline auto skip_whitespace_simd(const char* data, size_t size) -> const char* {
     return detail::skip_whitespace_simd_impl(data, size);
 }
+
+// First '"', '\\' or control byte (< 0x20) in [data, data + size), or data + size: the parser's string-end
+// scan (AVX-512 8x zmm -> AVX2 8x ymm -> scalar, chosen at run time; FASTJSON_SIMD caps it). Exported because
+// any text scanner that stops at the same three classes can reuse it.
+[[nodiscard]] inline auto find_string_end_simd(const char* data, size_t size) -> const char* {
+    return detail::find_string_end_simd_impl(data, data + size);
+}
+
+// The kernel `find_string_end_simd` (and the parser's string fast path) uses here: "avx512" | "avx2" | "scalar".
+[[nodiscard]] inline auto string_scan_tier() -> std::string_view { return detail::string_scan_tier_impl(); }
 
 // (All SIMD implementations removed from module purview — see GMF detail:: namespace)
 // JSON Type Definitions - Standard Container Based
@@ -3178,10 +3253,14 @@ auto parser::parse_string_simd() -> json_result<json_string_data> {
     const char* start = current_;
     const char* string_end = find_string_end_simd(start);
 
-    // Fast path: found closing quote with no escapes — zero-copy string_view
+    // Fast path: found closing quote with no escapes -- ONE bulk copy instead of the per-character loop.
+    // OWNED, never a view into the input: `parse(std::string_view)` cannot know how long the caller keeps the
+    // buffer, and `auto v = parse(readFile(p));` destroys it at the end of the statement. This path never ran
+    // while the AVX2 scan's control limit was wrong; a view here made every unescaped string dangle the moment
+    // it did. Zero-copy views belong to the explicit ondemand API, whose caller owns the buffer's lifetime.
     if (string_end < end_ && *string_end == '"'
         && std::find(start, string_end, '\\') == string_end) {
-        json_string_data result(std::string_view(start, string_end - start));
+        json_string_data result(std::string(start, static_cast<size_t>(string_end - start)));
         current_ = string_end + 1;  // Skip the closing quote
         return result;
     }
@@ -3352,57 +3431,11 @@ auto serializer::escape_string(const std::string& input) -> void {
         // Find next character that needs escaping using SIMD if available
         const char* escape_pos = ptr;
 
-#ifdef FASTJSON_ENABLE_SIMD
-        static const uint32_t simd_caps = detect_simd_capabilities();
-
-#ifdef HAVE_AVX512F
-        if (simd_caps & SIMD_AVX512F) {
-            // Use AVX-512 for fast escape detection
-            while (escape_pos + 64 <= end) {
-                __m512i chunk = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(escape_pos));
-
-                __mmask64 quote_mask = _mm512_cmpeq_epi8_mask(chunk, _mm512_set1_epi8('"'));
-                __mmask64 backslash_mask = _mm512_cmpeq_epi8_mask(chunk, _mm512_set1_epi8('\\'));
-                __mmask64 control_mask = _mm512_cmplt_epi8_mask(chunk, _mm512_set1_epi8(0x20));
-
-                __mmask64 escape_mask = quote_mask | backslash_mask | control_mask;
-
-                if (escape_mask != 0) {
-                    int first_escape = __builtin_ctzll(escape_mask);
-                    escape_pos += first_escape;
-                    break;
-                }
-
-                escape_pos += 64;
-            }
-        }
-#endif
-
-#ifdef HAVE_AVX2
-        if ((simd_caps & SIMD_AVX2) && !(simd_caps & SIMD_AVX512F)) {
-            // Use AVX2 for escape detection
-            while (escape_pos + 32 <= end) {
-                __m256i chunk = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(escape_pos));
-
-                __m256i quote_cmp = _mm256_cmpeq_epi8(chunk, _mm256_set1_epi8('"'));
-                __m256i backslash_cmp = _mm256_cmpeq_epi8(chunk, _mm256_set1_epi8('\\'));
-                __m256i control_cmp = _mm256_cmpgt_epi8(_mm256_set1_epi8(0x20), chunk);
-
-                __m256i escape_mask = _mm256_or_si256(_mm256_or_si256(quote_cmp, backslash_cmp),
-control_cmp);
-
-                uint32_t mask = _mm256_movemask_epi8(escape_mask);
-                if (mask != 0) {
-                    int first_escape = __builtin_ctz(mask);
-                    escape_pos += first_escape;
-                    break;
-                }
-
-                escape_pos += 32;
-            }
-        }
-#endif
-#endif // FASTJSON_ENABLE_SIMD
+        // The SAME predicate as the parser's string-end scan ('"', '\\', control < 0x20), so the same runtime
+        // dispatch serves it: AVX-512 -> AVX2 -> scalar. The inline copies this replaced compared SIGNED (every
+        // UTF-8 byte stopped the vector loop), and on a host reporting AVX-512 they skipped AVX2 while the
+        // AVX-512 block was compiled out, so such a host escaped strings byte by byte.
+        escape_pos = detail::find_string_end_simd_impl(escape_pos, end);
 
         // Scalar fallback for remaining bytes
         while (escape_pos < end &&
