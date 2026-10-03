@@ -357,3 +357,30 @@ Gate: sensen's `test_fastjson_simd` (every tier; mutation-checked against each d
 tool-result-shaped document (Xeon, AVX-512): scalar 134, AVX2 146, AVX-512 150 MB/s. Parse time here is
 dominated by building the DOM (allocation, copies, map inserts), not by the scan; larger wins need the tape /
 structural-index design (`fastjson_turbo`).
+
+## 2026-10-03 — `find_first_of_simd`: the first byte of a small SET, on the same three tiers
+
+`fastjson::find_first_of_simd(const char* data, size_t size, std::string_view set) -> const char*` returns the
+first byte of `[data, data + size)` equal to ANY byte of `set`, or `data + size` (also for an empty set). It
+exists for text scanners that stop at a handful of delimiters (`&`, `<`, a backtick, `"`/`\`/`{`/`}`) and is
+built exactly like the string-end kernels: AVX-512F+BW 8× zmm (512 B/iteration, 1× zmm loop, ONE masked
+final load) → AVX2 8× ymm (256 B/iteration, 1× ymm loop, bounded byte tail) → scalar, chosen at run time;
+`FASTJSON_SIMD=scalar|avx2` caps it and `string_scan_tier()` names the tier.
+
+- **Needle count is a template parameter** (kernels for 1, 2, 4 and 8 needles). A runtime count would leave
+  the per-chunk compare loop rolled, and a 2-byte set would pay for eight compares. A set of n needles is
+  padded to the next width by repeating its last byte, which cannot change the answer.
+- **Equality only.** Needles are compared with `cmpeq`, which is sign-agnostic: a byte ≥ 0x80 (UTF-8 lead or
+  continuation) matches only the identical byte, never a sign-extended alias. (The `< 0x20` control test of the
+  string-end scan is the one place unsigned ordering matters; it does not exist here.)
+- **More than 8 needles** is answered by the exact scalar scan, never truncated. An empty set or range returns
+  the end.
+- **No lambdas** (they lose the enclosing target attribute), every loop bounded by `end - ptr` so no pointer is
+  formed past one-past-the-end, and the AVX-512 tail is a masked load, so a buffer allocated at exactly `size`
+  bytes is never over-read.
+- **One needle: do not use this.** `std::string_view::find(char)` reaches glibc's SIMD `memchr`, which is as
+  good; the set scanner is for 2..8 needles.
+- Gate: `agent/tests/test_fastjson_simd.cpp` (run per tier by `test_fastjson_simd_{scalar,avx2,best}`) checks
+  every byte value at offsets across the 32/64/256/512 boundaries for set sizes 0..9, every length 0..1100
+  absent and last-byte, earliest-of-two, UTF-8, exact-length vectors, and 4000 randomized cases against a
+  scalar oracle.

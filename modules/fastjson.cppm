@@ -1272,6 +1272,144 @@ inline auto find_string_end_simd_impl(const char* start, const char* end) -> con
     return ptr;
 }
 
+// --------------------------------------------------------------------------
+// First-of-a-byte-SET scan: the first byte in [start, end) equal to ANY of up to 8 needles.
+// Built like the string-end kernels (8 registers per iteration, runtime dispatch, an exact masked/bounded
+// tail) but with the needle count a TEMPLATE parameter: a runtime count would leave the per-chunk compare
+// loop rolled, and a 2-byte set would pay for eight compares. A set of n needles is padded to the next
+// kernel width (1, 2, 4, 8) by repeating its last byte, which cannot change the answer.
+// Needles are compared for EQUALITY (cmpeq), which is sign-agnostic: a byte >= 0x80 matches only itself.
+// No lambdas (they lose the target attribute); every loop is bounded by `end - ptr` so no pointer is ever
+// formed past one-past-the-end; the AVX-512 tail is ONE masked load, the AVX2 tail a bounded byte loop.
+// --------------------------------------------------------------------------
+inline constexpr size_t kFindFirstOfMaxSet = 8;
+
+template <size_t N>
+inline auto find_first_of_scalar_n(const char* start, const char* end, const unsigned char* set) -> const char* {
+    for (const char* ptr = start; ptr < end; ++ptr) {
+        const auto b = static_cast<unsigned char>(*ptr);
+        for (size_t k = 0; k < N; ++k) {
+            if (b == set[k]) return ptr;
+        }
+    }
+    return end;
+}
+
+#ifdef HAVE_AVX2
+template <size_t N>
+struct NeedlesAvx2 {
+    std::array<__m256i, N> v;
+};
+
+template <size_t N>
+__attribute__((target("avx2")))
+inline auto first_of_mask_avx2(__m256i chunk, const NeedlesAvx2<N>& nd) -> uint32_t {
+    __m256i hit = _mm256_cmpeq_epi8(chunk, nd.v[0]);
+    for (size_t k = 1; k < N; ++k) hit = _mm256_or_si256(hit, _mm256_cmpeq_epi8(chunk, nd.v[k]));
+    return static_cast<uint32_t>(_mm256_movemask_epi8(hit));
+}
+
+template <size_t N>
+__attribute__((target("avx2")))
+inline auto find_first_of_avx2_n(const char* start, const char* end, const unsigned char* set) -> const char* {
+    NeedlesAvx2<N> nd;
+    for (size_t k = 0; k < N; ++k) nd.v[k] = _mm256_set1_epi8(static_cast<char>(set[k]));
+    const char* ptr = start;
+    while (end - ptr >= 256) {
+        for (size_t j = 0; j < 8; ++j) {
+            const uint32_t m = first_of_mask_avx2<N>(
+                _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr + 32 * j)), nd);
+            if (m) return ptr + 32 * j + __builtin_ctz(m);
+        }
+        ptr += 256;
+    }
+    while (end - ptr >= 32) {
+        const uint32_t m = first_of_mask_avx2<N>(_mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr)), nd);
+        if (m) return ptr + __builtin_ctz(m);
+        ptr += 32;
+    }
+    return find_first_of_scalar_n<N>(ptr, end, set);
+}
+#endif // HAVE_AVX2
+
+#ifdef FASTJSON_TARGET_AVX512
+template <size_t N>
+struct NeedlesAvx512 {
+    std::array<__m512i, N> v;
+};
+
+template <size_t N>
+__attribute__((target("avx512f,avx512bw")))
+inline auto first_of_mask_avx512(__m512i chunk, const NeedlesAvx512<N>& nd) -> __mmask64 {
+    __mmask64 hit = _mm512_cmpeq_epi8_mask(chunk, nd.v[0]);
+    for (size_t k = 1; k < N; ++k) hit |= _mm512_cmpeq_epi8_mask(chunk, nd.v[k]);
+    return hit;
+}
+
+template <size_t N>
+__attribute__((target("avx512f,avx512bw")))
+inline auto find_first_of_avx512_n(const char* start, const char* end, const unsigned char* set) -> const char* {
+    NeedlesAvx512<N> nd;
+    for (size_t k = 0; k < N; ++k) nd.v[k] = _mm512_set1_epi8(static_cast<char>(set[k]));
+    const char* ptr = start;
+    while (end - ptr >= 512) {
+        for (size_t j = 0; j < 8; ++j) {
+            if (const __mmask64 m = first_of_mask_avx512<N>(
+                    _mm512_loadu_si512(reinterpret_cast<const __m512i*>(ptr + 64 * j)), nd)) {
+                return ptr + 64 * j + __builtin_ctzll(m);
+            }
+        }
+        ptr += 512;
+    }
+    while (end - ptr >= 64) {
+        if (const __mmask64 m = first_of_mask_avx512<N>(_mm512_loadu_si512(reinterpret_cast<const __m512i*>(ptr)), nd)) {
+            return ptr + __builtin_ctzll(m);
+        }
+        ptr += 64;
+    }
+    if (ptr < end) {
+        const __mmask64 live = (__mmask64{1} << (end - ptr)) - 1;  // 0 < end - ptr < 64 here
+        const __m512i tail = _mm512_maskz_loadu_epi8(live, ptr);
+        if (const __mmask64 m = first_of_mask_avx512<N>(tail, nd) & live) return ptr + __builtin_ctzll(m);
+    }
+    return end;
+}
+#endif // FASTJSON_TARGET_AVX512
+
+// Dispatcher. `set` holds exactly 8 bytes: the needles padded to width N by the caller (only N are read).
+template <size_t N>
+inline auto find_first_of_dispatch_n(const char* start, const char* end, const unsigned char* set) -> const char* {
+    [[maybe_unused]] static const uint32_t caps = detect_simd_capabilities();
+#ifdef FASTJSON_TARGET_AVX512
+    if ((caps & SIMD_AVX512F) && (caps & SIMD_AVX512BW)) return find_first_of_avx512_n<N>(start, end, set);
+#endif
+#ifdef HAVE_AVX2
+    if (caps & SIMD_AVX2) return find_first_of_avx2_n<N>(start, end, set);
+#endif
+    return find_first_of_scalar_n<N>(start, end, set);
+}
+
+inline auto find_first_of_simd_impl(const char* start, const char* end, const unsigned char* needles, size_t count)
+    -> const char* {
+    if (count == 0 || start >= end) return end;
+    if (count > kFindFirstOfMaxSet) {
+        // More than 8 needles is answered by the exact scalar scan, never truncated.
+        for (const char* ptr = start; ptr < end; ++ptr) {
+            const auto b = static_cast<unsigned char>(*ptr);
+            for (size_t k = 0; k < count; ++k) {
+                if (b == needles[k]) return ptr;
+            }
+        }
+        return end;
+    }
+    std::array<unsigned char, kFindFirstOfMaxSet> padded{};
+    for (size_t k = 0; k < kFindFirstOfMaxSet; ++k) padded[k] = needles[k < count ? k : count - 1];
+    if (count == 1) return find_first_of_dispatch_n<1>(start, end, padded.data());
+    if (count == 2) return find_first_of_dispatch_n<2>(start, end, padded.data());
+    if (count <= 4) return find_first_of_dispatch_n<4>(start, end, padded.data());
+    return find_first_of_dispatch_n<8>(start, end, padded.data());
+}
+
 // Which string-scan kernel the dispatcher above selects on this host: "avx512", "avx2" or "scalar". It mirrors
 // the dispatcher's conditions INCLUDING what was compiled in, so a kernel compiled out shows here even when
 // CPUID reports the feature (the x86-64-v3 baseline once compiled the AVX-512 tier out on AVX-512 hosts).
@@ -1423,6 +1561,17 @@ inline auto find_string_end_simd_impl(const char* start, const char* end) -> con
 
 inline auto string_scan_tier_impl() -> const char* { return "scalar"; }
 
+inline auto find_first_of_simd_impl(const char* start, const char* end, const unsigned char* needles, size_t count)
+    -> const char* {
+    for (const char* ptr = start; ptr < end; ++ptr) {
+        const auto b = static_cast<unsigned char>(*ptr);
+        for (size_t k = 0; k < count; ++k) {
+            if (b == needles[k]) return ptr;
+        }
+    }
+    return end;
+}
+
 inline auto find_escape_position_simd_impl(const char* ptr, const char* end) -> const char* {
     while (ptr < end && *ptr != '"' && *ptr != '\\'
            && static_cast<unsigned char>(*ptr) >= 32)
@@ -1501,6 +1650,16 @@ constexpr uint32_t SIMD_AMX_INT8    = 0x4000;
 // any text scanner that stops at the same three classes can reuse it.
 [[nodiscard]] inline auto find_string_end_simd(const char* data, size_t size) -> const char* {
     return detail::find_string_end_simd_impl(data, data + size);
+}
+
+// First byte in [data, data + size) equal to ANY byte of `set`, or data + size (also for an empty set).
+// Same dispatch as find_string_end_simd (AVX-512 8x zmm -> AVX2 8x ymm -> scalar; FASTJSON_SIMD caps it).
+// Needles compare for equality, so bytes >= 0x80 (UTF-8) are ordinary needles/haystack bytes. Up to 8 needles
+// run on the vector kernels; a longer set is answered by the exact scalar scan. For ONE needle prefer
+// std::string_view::find(char) (glibc's SIMD memchr).
+[[nodiscard]] inline auto find_first_of_simd(const char* data, size_t size, std::string_view set) -> const char* {
+    return detail::find_first_of_simd_impl(data, data + size,
+                                           reinterpret_cast<const unsigned char*>(set.data()), set.size());
 }
 
 // The kernel `find_string_end_simd` (and the parser's string fast path) uses here: "avx512" | "avx2" | "scalar".
