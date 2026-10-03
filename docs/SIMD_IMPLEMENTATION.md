@@ -384,3 +384,23 @@ final load) → AVX2 8× ymm (256 B/iteration, 1× ymm loop, bounded byte tail) 
   every byte value at offsets across the 32/64/256/512 boundaries for set sizes 0..9, every length 0..1100
   absent and last-byte, earliest-of-two, UTF-8, exact-length vectors, and 4000 randomized cases against a
   scalar oracle.
+
+## 2026-10-03 — parser fast paths found by profiling stream deltas (whitespace, small integers, escaped strings)
+
+Profiled on OpenAI/Anthropic SSE delta payloads (compact JSON, a few small integers, tool-call arguments that are JSON
+inside JSON). The scans were not the cost; three things around them were:
+
+- **`parser::skip_whitespace`** ran the runtime-dispatched vector kernel between every pair of tokens to find that compact
+  JSON has no whitespace (9.6% of parse time). A single byte test now returns when the next byte is not one of the four
+  JSON whitespace characters; the kernel runs only when there is whitespace to skip. Line/column tracking is untouched.
+- **`parse_number`**: an integer of at most 15 digits (no fraction, no exponent) is exact in a double, so it is summed
+  from its digits instead of going through `strtod` and a `to_chars` round trip. `-0` still yields `-0.0`; longer integers
+  and every fraction/exponent take the unchanged path.
+- **`parse_string`**: `parse_string_simd` takes only strings with NO escape, so a string with even one was decoded one
+  `push_back` per byte (91% of the time of parsing a 1 MiB escaped argument). The scalar loop now copies each run up to
+  the next quote/backslash/control byte in one `append`, the run's end found by the same `find_string_end_simd`; a clean
+  run holds no newline so only the column advances. Escapes and every error are still decoded by the per-byte code.
+- Gate: sensen's `agent/tests/test_fastjson_simd.cpp` (per tier): the integer path against the old strtod+round-trip
+  algorithm (1,691 cases), 1,500 whitespace-padded documents against their compact twins, padded error positions and 4,000
+  escaped strings (independent decoder) + 360 malformed shapes, positions pinned by digests recorded from the parser before
+  the change.

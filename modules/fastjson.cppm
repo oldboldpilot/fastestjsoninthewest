@@ -3009,7 +3009,9 @@ auto parser::parse_number() -> json_result<json_value> {
     }
 
     // Handle fractional part
+    bool plain_integer = true;
     if (peek() == '.') {
+        plain_integer = false;
         advance();
         if (!(peek() >= '0' && peek() <= '9')) {
             return std::unexpected(
@@ -3022,6 +3024,7 @@ auto parser::parse_number() -> json_result<json_value> {
 
     // Handle exponent
     if (peek() == 'e' || peek() == 'E') {
+        plain_integer = false;
         advance();
         if (peek() == '+' || peek() == '-') {
             advance();
@@ -3031,6 +3034,26 @@ auto parser::parse_number() -> json_result<json_value> {
         }
         while (peek() >= '0' && peek() <= '9') {
             advance();
+        }
+    }
+
+    // INTEGER FAST PATH. A token of at most 15 digits (and an optional '-') with no fraction or exponent is below 2^53,
+    // so the double is EXACT and the strtod + to_chars round trip below can only ever hand back the same value: the
+    // grammar above forbids leading zeros, so the digits are what `to_chars(..., fixed)` would print, and "-0" yields
+    // -0.0 from both routes. Streams carry such numbers on every delta (`created`, `index`, token counts), and the
+    // round trip was ~4% of parse time. Anything longer takes the unchanged path below.
+    if (plain_integer) {
+        const char* digits = start;
+        const bool negative = (*digits == '-');
+        if (negative) ++digits;
+        const size_t digit_count = static_cast<size_t>(current_ - digits);
+        if (digit_count <= 15) {
+            std::uint64_t acc = 0;
+            for (const char* d = digits; d < current_; ++d) {
+                acc = acc * 10U + static_cast<std::uint64_t>(*d - '0');
+            }
+            const double exact = static_cast<double>(acc);
+            return json_value{negative ? -exact : exact};
         }
     }
 
@@ -3141,6 +3164,20 @@ auto parser::parse_string() -> json_result<json_value> {
     value.reserve(64);  // Pre-allocate reasonable size
 
     while (!is_at_end() && peek() != '"') {
+        // BULK-COPY THE RUN UP TO THE NEXT QUOTE, BACKSLASH OR CONTROL BYTE. `parse_string_simd` above only takes a string
+        // with NO escape at all, so every string that has even one (a tool call's arguments are JSON inside JSON: a
+        // backslash every few bytes; source code and diffs carry `\n` throughout) used to be decoded one `push_back` per
+        // byte, ~10 ns/byte -- 91% of the time of parsing a 1 MiB argument delta in `perf`. The vector scan that already
+        // found the string end finds the end of each clean run, and the run is appended in one call. A clean run holds no
+        // newline (`\n` < 0x20 is a stop byte), so the column advances by its length and the line not at all, exactly what
+        // `advance()` would have done byte by byte; the stop byte itself is still handled by the per-byte code below, so
+        // every escape and every error is decoded and reported where it was.
+        if (const char* stop = find_string_end_simd(current_); stop != current_) {
+            value.append(current_, static_cast<size_t>(stop - current_));
+            column_ += static_cast<size_t>(stop - current_);
+            current_ = stop;
+            continue;
+        }
         char c = advance();
 
         if (c == '\\') {
@@ -3345,6 +3382,14 @@ auto parser::parse_object() -> json_result<json_value> {
 }
 
 auto parser::skip_whitespace() -> void {
+    // THE COMMON CASE IS NO WHITESPACE AT ALL. Compact JSON (every API stream, every wire delta) calls this between
+    // every pair of tokens and finds nothing to skip; a vector kernel dispatched through a runtime-capability branch
+    // and a PLT stub costs an order of magnitude more than the one byte test that decides there is no work. Measured
+    // on OpenAI-shaped stream deltas this call was 9.6% of total parse time (perf, AVX-512 host). A byte that is not
+    // one of the four JSON whitespace characters leaves `current_` where it is, exactly as the kernel's result would.
+    if (current_ >= end_) return;
+    const auto first = static_cast<unsigned char>(*current_);
+    if (first != ' ' && first != '\t' && first != '\n' && first != '\r') return;
     size_t remaining = end_ - current_;
     const char* new_pos = ::fastjson::skip_whitespace_simd(current_, remaining);
 
