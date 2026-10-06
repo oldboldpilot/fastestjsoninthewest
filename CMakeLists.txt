@@ -30,6 +30,12 @@ project(FastestJSONInTheWest
     DESCRIPTION "High-Performance C++23 JSON Library with Modules"
 )
 
+# Stale module BMIs: a BMI records its compiler and clang refuses one from another.
+# Included from a SUBMODULE on purpose -- the guard runs once per configure from
+# whichever copy gets there first, so embedding this project protects the WHOLE tree
+# even when the enclosing project carries no guard of its own.
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/ToolchainBMIGuard.cmake)
+
 # ============================================================================
 # Project Options
 # ============================================================================
