@@ -1789,6 +1789,12 @@ See [QUICKSTART.md](QUICKSTART.md) for comprehensive Python usage examples.
 
 ## 🧪 Testing
 
+**Conformance** (`tests/conformance/fastjson_conformance_test.cpp`, see [docs/CONFORMANCE.md](docs/CONFORMANCE.md)):
+strict RFC 8259 parsing (invalid UTF-8, lone surrogates, truncation and out-of-range numbers are errors, never a
+partial value), `is_number()` for every numeric representation, checked number reads (`get_int64` / `get_uint64` /
+`get_double`), valid output for every value (`to_string`, `to_json`, `escape_string`) and the call-order streaming
+`fastjson::writer`; run on every string-scan tier.
+
 ```bash
 # Run all tests
 ctest --output-on-failure
