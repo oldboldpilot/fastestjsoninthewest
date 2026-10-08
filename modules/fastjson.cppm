@@ -746,6 +746,9 @@ using uint128_compat = unsigned __int128;
 // Structural indexing for ondemand parsing (SIMD tape builder)
 #include "fastjson_simd_index.h"
 
+// \uXXXX / surrogate-pair decoding and UTF-8 encoding: the ONE implementation (fastjson_parallel uses it too).
+#include "unicode.h"
+
 // ============================================================================
 // SIMD Implementations in Global Module Fragment
 // All functions using SIMD intrinsic types (__m256i, __m512i, __m128i, etc.)
@@ -1581,6 +1584,214 @@ inline auto find_escape_position_simd_impl(const char* ptr, const char* end) -> 
 
 #endif // FASTJSON_ENABLE_SIMD
 
+// ============================================================================
+// Text helpers shared by the parser and json_value serialisation. One implementation each (DRY).
+// ============================================================================
+
+/// Length of the well-formed UTF-8 sequence starting at `p` (1..4), or 0 when it is not one (RFC 3629: no
+/// overlongs, no UTF-16 surrogates, nothing above U+10FFFF, no truncated sequence).
+[[nodiscard]] inline auto utf8_sequence_length(std::string_view s, size_t i) noexcept -> size_t {
+    const auto b0 = static_cast<unsigned char>(s[i]);
+    if (b0 < 0x80) { return 1; }
+    const size_t left = s.size() - i;
+    const auto cont = [&](size_t k) { return k < left && (static_cast<unsigned char>(s[i + k]) & 0xC0U) == 0x80U; };
+    if (b0 >= 0xC2 && b0 <= 0xDF) { return cont(1) ? 2 : 0; }
+    if (b0 >= 0xE0 && b0 <= 0xEF) {
+        if (!cont(1) || !cont(2)) { return 0; }
+        const auto b1 = static_cast<unsigned char>(s[i + 1]);
+        if (b0 == 0xE0 && b1 < 0xA0) { return 0; }  // overlong
+        if (b0 == 0xED && b1 > 0x9F) { return 0; }  // UTF-16 surrogate
+        return 3;
+    }
+    if (b0 >= 0xF0 && b0 <= 0xF4) {
+        if (!cont(1) || !cont(2) || !cont(3)) { return 0; }
+        const auto b1 = static_cast<unsigned char>(s[i + 1]);
+        if (b0 == 0xF0 && b1 < 0x90) { return 0; }  // overlong
+        if (b0 == 0xF4 && b1 > 0x8F) { return 0; }  // above U+10FFFF
+        return 4;
+    }
+    return 0;  // 0x80..0xC1 lead, 0xF5..0xFF
+}
+
+/// True when every byte of `s` belongs to a well-formed UTF-8 sequence. ASCII is skipped eight bytes at a time.
+[[nodiscard]] inline auto utf8_valid(std::string_view s) noexcept -> bool {
+    size_t i = 0;
+    while (i < s.size()) {
+        if (s.size() - i >= 8) {
+            std::uint64_t word = 0;
+            std::memcpy(&word, s.data() + i, sizeof word);
+            if ((word & 0x8080808080808080ULL) == 0) {
+                i += 8;
+                continue;
+            }
+        }
+        const size_t n = utf8_sequence_length(s, i);
+        if (n == 0) { return false; }
+        i += n;
+    }
+    return true;
+}
+
+/// Appends `s` as a quoted JSON string: `"` and `\` escaped, \n \t \r by name, every other byte below 0x20 as
+/// \u00XX, everything else (including UTF-8) verbatim. The caller decides whether invalid UTF-8 is acceptable.
+inline auto append_json_string(std::string& out, std::string_view s) -> void {
+    static constexpr std::array<char, 16> kHex{'0', '1', '2', '3', '4', '5', '6', '7',
+                                              '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'};
+    out += '"';
+    const char* ptr = s.data();
+    const char* const end = s.data() + s.size();
+    while (ptr < end) {
+        const char* const stop = find_escape_position_simd_impl(ptr, end);
+        out.append(ptr, stop);
+        ptr = stop;
+        if (ptr == end) { break; }
+        switch (*ptr) {
+            case '"': out += "\\\""; break;
+            case '\\': out += "\\\\"; break;
+            case '\n': out += "\\n"; break;
+            case '\t': out += "\\t"; break;
+            case '\r': out += "\\r"; break;
+            default: {
+                const auto b = static_cast<unsigned char>(*ptr);
+                out += "\\u00";
+                out += kHex[b >> 4U];
+                out += kHex[b & 0x0FU];
+                break;
+            }
+        }
+        ++ptr;
+    }
+    out += '"';
+}
+
+/// Exact decimal digits of a binary floating value m * 2^e, as a digit string and the power of ten of its first
+/// digit. Base-1e9 limbs; exact for every finite binary128 (at most ~11,500 digits, built only for the rare
+/// value outside double range or precision).
+struct exact_decimal {
+    std::string digits;   // no leading zeros; "0" for zero
+    long exponent10 = 0;  // value = digits[0].digits[1..] * 10^exponent10
+};
+
+#if !defined(_WIN32)
+[[nodiscard]] inline auto exact_decimal_of(unsigned __int128 m, int e) -> exact_decimal {
+    std::vector<std::uint32_t> limbs;  // little-endian, base 1e9
+    while (m != 0) {
+        limbs.push_back(static_cast<std::uint32_t>(m % 1000000000U));
+        m /= 1000000000U;
+    }
+    if (limbs.empty()) { return {"0", 0}; }
+    const auto mul_small = [&](std::uint32_t k) {
+        std::uint64_t carry = 0;
+        for (auto& limb : limbs) {
+            const std::uint64_t cur = static_cast<std::uint64_t>(limb) * k + carry;
+            limb = static_cast<std::uint32_t>(cur % 1000000000U);
+            carry = cur / 1000000000U;
+        }
+        while (carry != 0) {
+            limbs.push_back(static_cast<std::uint32_t>(carry % 1000000000U));
+            carry /= 1000000000U;
+        }
+    };
+    int pending = e >= 0 ? e : -e;
+    const std::uint32_t big = e >= 0 ? (1U << 29U) : 1220703125U;  // 2^29 or 5^13
+    const int big_step = e >= 0 ? 29 : 13;
+    while (pending >= big_step) {
+        mul_small(big);
+        pending -= big_step;
+    }
+    std::uint32_t rest = 1;
+    for (int k = 0; k < pending; ++k) { rest *= e >= 0 ? 2U : 5U; }
+    if (rest != 1) { mul_small(rest); }
+    exact_decimal out;
+    out.digits = std::to_string(limbs.back());
+    for (size_t i = limbs.size() - 1; i-- > 0;) {
+        const std::string part = std::to_string(limbs[i]);
+        out.digits.append(9 - part.size(), '0');
+        out.digits += part;
+    }
+    // e < 0: the integer N = m * 5^-e carries the value N * 10^e.
+    out.exponent10 = static_cast<long>(out.digits.size()) - 1 + (e < 0 ? e : 0);
+    return out;
+}
+#endif
+
+/// `x` rounded half-to-even to `p` significant digits, written as a JSON number (positional for exponents in
+/// [-7, 21), scientific otherwise), with trailing zeros removed.
+[[nodiscard]] inline auto decimal_text(const exact_decimal& x, size_t p, bool negative) -> std::string {
+    std::string d = x.digits;
+    long exp10 = x.exponent10;
+    if (d.size() > p) {
+        const char next = d[p];
+        const bool rest_nonzero = d.find_first_not_of('0', p + 1) != std::string::npos;
+        const bool round_up = next > '5' || (next == '5' && (rest_nonzero || ((d[p - 1] - '0') % 2 != 0)));
+        d.resize(p);
+        if (round_up) {
+            size_t i = p;
+            while (i > 0 && d[i - 1] == '9') {
+                d[i - 1] = '0';
+                --i;
+            }
+            if (i == 0) {
+                d.insert(d.begin(), '1');
+                d.pop_back();
+                ++exp10;
+            } else {
+                ++d[i - 1];
+            }
+        }
+    }
+    while (d.size() > 1 && d.back() == '0') { d.pop_back(); }
+    std::string out = negative ? "-" : "";
+    if (exp10 >= -7 && exp10 < 21) {
+        if (exp10 < 0) {
+            out += "0.";
+            out.append(static_cast<size_t>(-exp10 - 1), '0');
+            out += d;
+        } else if (static_cast<size_t>(exp10) + 1 >= d.size()) {
+            out += d;
+            out.append(static_cast<size_t>(exp10) + 1 - d.size(), '0');
+        } else {
+            out += d.substr(0, static_cast<size_t>(exp10) + 1);
+            out += '.';
+            out += d.substr(static_cast<size_t>(exp10) + 1);
+        }
+        return out;
+    }
+    out += d[0];
+    if (d.size() > 1) {
+        out += '.';
+        out += d.substr(1);
+    }
+    out += 'e';
+    out += std::to_string(exp10);
+    return out;
+}
+
+#if !defined(_WIN32)
+/// Shortest decimal that reads back (through strtold, the parser's own reader) to exactly `v`; 36 significant
+/// digits -- enough to identify any binary128 -- when no shorter one does. `v` must be finite. libc++'s
+/// to_chars(long double) formats at double precision (1e999 printed "inf"), so the digits are built exactly here.
+[[nodiscard]] inline auto float128_text(__float128 v) -> std::string {
+    unsigned __int128 bits = 0;
+    static_assert(sizeof bits == sizeof v);
+    std::memcpy(&bits, &v, sizeof v);
+    const bool negative = (bits >> 127U) != 0;
+    if ((bits << 1U) == 0) { return negative ? "-0" : "0"; }
+    const auto biased = static_cast<int>((bits >> 112U) & 0x7FFFU);
+    const unsigned __int128 frac = bits & ((static_cast<unsigned __int128>(1) << 112U) - 1U);
+    const unsigned __int128 mant = biased == 0 ? frac : (frac | (static_cast<unsigned __int128>(1) << 112U));
+    const int e2 = (biased == 0 ? 1 : biased) - 16383 - 112;
+    const exact_decimal x = exact_decimal_of(mant, e2);
+    for (size_t p = 17; p <= 36; ++p) {
+        std::string text = decimal_text(x, p, negative);
+        char* endp = nullptr;
+        const long double back = std::strtold(text.c_str(), &endp);
+        if (static_cast<__float128>(back) == v) { return text; }
+    }
+    return decimal_text(x, 36, negative);
+}
+#endif
+
 } // namespace fastjson::detail
 
 export module fastjson;
@@ -1588,6 +1799,16 @@ export module fastjson;
 #if !defined(SENSEN_NO_IMPORT_STD)
 import std;
 #endif
+
+// Module-internal (not exported). In the purview because the GMF's <charconv> exposes no floating to_chars here.
+namespace fastjson::detail {
+/// Appends the shortest round-trip decimal of a FINITE double (std::to_chars); the caller handles non-finite.
+inline auto append_double(std::string& out, double v) -> void {
+    std::array<char, 32> buf{};
+    const auto [end, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), v);
+    out.append(buf.data(), ec == std::errc{} ? end : buf.data());
+}
+}  // namespace fastjson::detail
 
 export namespace fastjson {
 
@@ -1953,6 +2174,26 @@ private:
 // ============================================================================
 
 // Thread-safe type checking functions
+// Floating -> integer conversion is undefined behaviour out of range (and for any negative value into an unsigned
+// type). The accessors keep their documented NaN -> 0, and refuse an out-of-range value loudly instead.
+template <class To>
+inline constexpr bool kSignedIntegral = std::is_same_v<To, int64_t> || std::is_same_v<To, int128_compat>;
+
+template <class To, class From>
+[[nodiscard]] auto checked_float_to_int(From v) -> To {
+    const auto ld = static_cast<long double>(v);
+    if (ld != ld) {
+        return 0;
+    }
+    constexpr int bits = static_cast<int>(sizeof(To) * 8);
+    const long double hi = std::ldexp(1.0L, kSignedIntegral<To> ? bits - 1 : bits);
+    const bool in_range = kSignedIntegral<To> ? (ld >= -hi && ld < hi) : (ld > -1.0L && ld < hi);
+    if (!in_range) {
+        throw std::out_of_range("JSON number does not fit the requested integer type");
+    }
+    return static_cast<To>(v);
+}
+
 auto json_value::is_null() const noexcept -> bool {
     return std::holds_alternative<std::nullptr_t>(data_);
 }
@@ -1961,8 +2202,12 @@ auto json_value::is_boolean() const noexcept -> bool {
     return std::holds_alternative<bool>(data_);
 }
 
+// "Is this a JSON number?" -- whatever representation the parser chose for it (double, or a 128-bit float or
+// integer when a double would lose digits or range). Asking only about `double` here made a 16-digit integer or a
+// 17-digit float "not a number" to every caller, which then had to know the representations (rule 66).
 auto json_value::is_number() const noexcept -> bool {
-    return std::holds_alternative<double>(data_);
+    return std::holds_alternative<double>(data_) || std::holds_alternative<float128_compat>(data_) ||
+           std::holds_alternative<int128_compat>(data_) || std::holds_alternative<uint128_compat>(data_);
 }
 
 auto json_value::is_number_128() const noexcept -> bool {
@@ -1999,7 +2244,7 @@ auto json_value::as_boolean() const -> bool {
 
 auto json_value::as_number() const -> double {
     // Try 64-bit double first (fast path)
-    if (is_number()) {
+    if (std::holds_alternative<double>(data_)) {
         return std::get<double>(data_);
     }
 
@@ -2025,7 +2270,7 @@ auto json_value::as_number_128() const -> float128_compat {
     }
 
     // Fallback: Convert from other numeric types (upcast or precision loss)
-    if (is_number()) {
+    if (std::holds_alternative<double>(data_)) {
         return static_cast<float128_compat>(std::get<double>(data_));
     }
     if (is_int_128()) {
@@ -2048,15 +2293,15 @@ auto json_value::as_int_128() const -> int128_compat {
     if (is_uint_128()) {
         return static_cast<int128_compat>(std::get<uint128_compat>(data_));
     }
-    if (is_number()) {
+    if (std::holds_alternative<double>(data_)) {
         const double val = std::get<double>(data_);
         if (__builtin_isnan(val)) {
             return 0;
         }
-        return static_cast<int128_compat>(val);
+        return checked_float_to_int<int128_compat>(val);
     }
     if (is_number_128()) {
-        return static_cast<int128_compat>(std::get<float128_compat>(data_));
+        return checked_float_to_int<int128_compat>(std::get<float128_compat>(data_));
     }
     return 0;
 }
@@ -2070,14 +2315,14 @@ auto json_value::as_uint_128() const -> uint128_compat {
     if (is_int_128()) {
         return static_cast<uint128_compat>(std::get<int128_compat>(data_));
     }
-    if (is_number()) {
+    if (std::holds_alternative<double>(data_)) {
         double val = std::get<double>(data_);
         if (__builtin_isnan(val))
             return 0;
-        return static_cast<uint128_compat>(val);
+        return checked_float_to_int<uint128_compat>(val);
     }
     if (is_number_128()) {
-        return static_cast<uint128_compat>(std::get<float128_compat>(data_));
+        return checked_float_to_int<uint128_compat>(std::get<float128_compat>(data_));
     }
     return 0;
 }
@@ -2103,39 +2348,39 @@ auto json_value::as_string_data() const -> const json_string_data& {
 // Numeric conversion helpers with automatic type handling
 // Returns NaN for non-numeric types instead of throwing
 auto json_value::as_int64() const -> int64_t {
-    if (is_number()) {
+    if (std::holds_alternative<double>(data_)) {
         double val = std::get<double>(data_);
         if (__builtin_isnan(val))
             return 0;
-        return static_cast<int64_t>(val);
+        return checked_float_to_int<int64_t>(val);
     } else if (is_int_128()) {
         return static_cast<int64_t>(std::get<int128_compat>(data_));
     } else if (is_uint_128()) {
         return static_cast<int64_t>(std::get<uint128_compat>(data_));
     } else if (is_number_128()) {
-        return static_cast<int64_t>(std::get<float128_compat>(data_));
+        return checked_float_to_int<int64_t>(std::get<float128_compat>(data_));
     }
     return 0;  // Non-numeric type returns 0
 }
 
 auto json_value::as_uint64() const -> uint64_t {
-    if (is_number()) {
+    if (std::holds_alternative<double>(data_)) {
         double val = std::get<double>(data_);
         if (__builtin_isnan(val))
             return 0;
-        return static_cast<uint64_t>(val);
+        return checked_float_to_int<uint64_t>(val);
     } else if (is_uint_128()) {
         return static_cast<uint64_t>(std::get<uint128_compat>(data_));
     } else if (is_int_128()) {
         return static_cast<uint64_t>(std::get<int128_compat>(data_));
     } else if (is_number_128()) {
-        return static_cast<uint64_t>(std::get<float128_compat>(data_));
+        return checked_float_to_int<uint64_t>(std::get<float128_compat>(data_));
     }
     return 0;  // Non-numeric type returns 0
 }
 
 auto json_value::as_float64() const -> double {
-    if (is_number()) {
+    if (std::holds_alternative<double>(data_)) {
         return std::get<double>(data_);
     } else if (is_int_128()) {
         return static_cast<double>(std::get<int128_compat>(data_));
@@ -2153,15 +2398,15 @@ auto json_value::as_int128() const -> int128_compat {
     } else if (is_uint_128()) {
         return static_cast<int128_compat>(std::get<uint128_compat>(data_));
     }
-    if (is_number()) {
+    if (std::holds_alternative<double>(data_)) {
         const double val = std::get<double>(data_);
         if (__builtin_isnan(val)) {
             return 0;
         }
-        return static_cast<int128_compat>(val);
+        return checked_float_to_int<int128_compat>(val);
     }
     if (is_number_128()) {
-        return static_cast<int128_compat>(std::get<float128_compat>(data_));
+        return checked_float_to_int<int128_compat>(std::get<float128_compat>(data_));
     }
     return 0;  // Non-numeric type returns 0
 }
@@ -2173,15 +2418,15 @@ auto json_value::as_uint128() const -> uint128_compat {
     if (is_int_128()) {
         return static_cast<uint128_compat>(std::get<int128_compat>(data_));
     }
-    if (is_number()) {
+    if (std::holds_alternative<double>(data_)) {
         const double val = std::get<double>(data_);
         if (__builtin_isnan(val)) {
             return 0;
         }
-        return static_cast<uint128_compat>(val);
+        return checked_float_to_int<uint128_compat>(val);
     }
     if (is_number_128()) {
-        return static_cast<uint128_compat>(std::get<float128_compat>(data_));
+        return checked_float_to_int<uint128_compat>(std::get<float128_compat>(data_));
     }
     return 0;  // Non-numeric type returns 0
 }
@@ -2189,7 +2434,7 @@ auto json_value::as_uint128() const -> uint128_compat {
 auto json_value::as_float128() const -> float128_compat {
     if (is_number_128()) {
         return std::get<float128_compat>(data_);
-    } else if (is_number()) {
+    } else if (std::holds_alternative<double>(data_)) {
         return static_cast<float128_compat>(std::get<double>(data_));
     } else if (is_int_128()) {
         return static_cast<float128_compat>(std::get<int128_compat>(data_));
@@ -2372,24 +2617,28 @@ auto json_value::serialize_to_buffer(std::string& buffer, int indent) const -> v
             } else if constexpr (std::is_same_v<T, bool>) {
                 buffer += v ? "true" : "false";
             } else if constexpr (std::is_same_v<T, double>) {
-                thread_local std::array<char, 32> num_buffer;
-                auto [ptr, ec] =
-                    std::to_chars(num_buffer.data(), num_buffer.data() + num_buffer.size(), v);
-                if (ec == std::errc{}) {
-                    buffer.append(num_buffer.data(), ptr);
+                // JSON has no NaN or infinity: one cannot be written as a number, so to_string() writes `null`
+                // (the JSON.stringify rule). fastjson::to_json() refuses such a value instead.
+                if (std::isfinite(v)) {
+                    detail::append_double(buffer, v);
                 } else {
-                    buffer += std::to_string(v);
+                    buffer += "null";
                 }
             } else if constexpr (std::is_same_v<T, float128_compat>) {
-                // Convert float128_compat to long double for string conversion
-                // This preserves most precision while using standard library
-                long double ld_value = static_cast<long double>(v);
-                thread_local std::array<char, 128> num_buffer;
-                auto [ptr, ec] = std::to_chars(num_buffer.data(),
-                                               num_buffer.data() + num_buffer.size(), ld_value);
-                if (ec == std::errc{}) {
-                    buffer.append(num_buffer.data(), ptr);
+#if defined(_WIN32)
+                const auto d = static_cast<double>(v);
+                if (std::isfinite(d)) {
+                    detail::append_double(buffer, d);
+                } else {
+                    buffer += "null";
                 }
+#else
+                if (std::isfinite(static_cast<long double>(v))) {
+                    buffer += detail::float128_text(v);
+                } else {
+                    buffer += "null";
+                }
+#endif
             } else if constexpr (std::is_same_v<T, int128_compat>) {
                 // Convert int128_compat to string manually
                 bool is_negative = v < 0;
@@ -2430,57 +2679,7 @@ auto json_value::serialize_to_buffer(std::string& buffer, int indent) const -> v
 
 auto json_value::serialize_string_to_buffer(std::string& buffer, std::string_view str) const
     -> void {
-    buffer += '"';
-
-    const char* data = str.data();
-    const size_t size = str.size();
-    const char* ptr = data;
-    const char* end = data + size;
-
-    while (ptr < end) {
-        // SIMD-accelerated escape position detection (delegates to GMF detail:: impl)
-        const char* escape_pos = detail::find_escape_position_simd_impl(ptr, end);
-
-        // Copy clean part
-        if (escape_pos > ptr) {
-            buffer.append(ptr, escape_pos);
-            ptr = escape_pos;
-        }
-
-        // Handle escape character
-        if (ptr < end) {
-            switch (*ptr) {
-                case '"':
-                    buffer += "\\\"";
-                    break;
-                case '\\':
-                    buffer += "\\\\";
-                    break;
-                case '\n':
-                    buffer += "\\n";
-                    break;
-                case '\t':
-                    buffer += "\\t";
-                    break;
-                case '\r':
-                    buffer += "\\r";
-                    break;
-                default:
-                    if (static_cast<unsigned char>(*ptr) < 32) {
-                        buffer += "\\u";
-                        thread_local std::array<char, 5> hex_buffer;
-                        snprintf(hex_buffer.data(), 5, "%04x", static_cast<unsigned char>(*ptr));
-                        buffer += hex_buffer.data();
-                    } else {
-                        buffer += *ptr;
-                    }
-                    break;
-            }
-            ++ptr;
-        }
-    }
-
-    buffer += '"';
+    detail::append_json_string(buffer, str);
 }
 
 auto json_value::serialize_array_to_buffer(std::string& buffer, const json_array& arr,
@@ -2670,8 +2869,10 @@ inline auto analyze_number_precision(const char* start, const char* end) -> numb
             info.needs_128bit = true;
         }
     } else {
-        // Float precision check
-        if (info.significant_digits > 15) {
+        // Float precision check. 17 significant digits identify any double uniquely, and every shortest
+        // round-trip printer (Python repr, JS, std::to_chars) emits up to 17 -- e.g. 0.30000000000000004 -- so
+        // only MORE digits than that carry precision a double cannot hold.
+        if (info.significant_digits > 17) {
             info.needs_128bit = true;
         }
         if (info.has_exponent && (info.exponent > 308 || info.exponent < -308)) {
@@ -2697,7 +2898,7 @@ inline auto parse_float128(const char* str, size_t length) -> std::optional<floa
     char* endptr = nullptr;
     long double value = std::strtold(buffer.data(), &endptr);
 
-    if (endptr != buffer.data() + length) {
+    if (endptr != buffer.data() + length || !std::isfinite(value)) {
         return std::nullopt;
     }
 
@@ -3077,7 +3278,9 @@ auto parser::parse_number() -> json_result<json_value> {
             char* end_ptr;
             double value = std::strtod(buffer.data(), &end_ptr);
 
-            if (end_ptr == buffer.data() + length) {
+            // An overflow is not a value: strtod's +-HUGE_VAL goes to the 128-bit reader below (which holds
+            // exponents far past 308) instead of being stored as infinity.
+            if (end_ptr == buffer.data() + length && std::isfinite(value)) {
                 // Verify no precision loss for integers
                 if (precision_info.is_integer) {
                     // For integers, check if value exactly represents the parsed number
@@ -3101,7 +3304,7 @@ auto parser::parse_number() -> json_result<json_value> {
                         // Conversion failed, upgrade to 128-bit
                     }
                 } else {
-                    // For floats with <= 15 significant digits and exponent in range,
+                    // For floats with <= 17 significant digits and exponent in range,
                     // 64-bit is sufficient
                     return json_value{value};
                 }
@@ -3137,14 +3340,14 @@ auto parser::parse_number() -> json_result<json_value> {
         }
     }
 
-    // All parsing attempts failed - return NaN for floats or error for integers
+    // All parsing attempts failed. A number no representation can hold is an ERROR -- never a NaN or an
+    // infinity standing in for it (JSON has neither, and a caller cannot tell the substitute from data).
     if (precision_info.is_integer) {
         return std::unexpected(
             make_error(json_error_code::invalid_number, "Integer value exceeds 128-bit range"));
-    } else {
-        // Return NaN for floating point overflow
-        return json_value{std::numeric_limits<double>::quiet_NaN()};
     }
+    return std::unexpected(
+        make_error(json_error_code::invalid_number, "Number is outside the representable range"));
 }
 
 auto parser::parse_string() -> json_result<json_value> {
@@ -3173,6 +3376,12 @@ auto parser::parse_string() -> json_result<json_value> {
         // `advance()` would have done byte by byte; the stop byte itself is still handled by the per-byte code below, so
         // every escape and every error is decoded and reported where it was.
         if (const char* stop = find_string_end_simd(current_); stop != current_) {
+            // RFC 8259 section 8.1: JSON text is UTF-8. A run ends only at an ASCII stop byte, so a multi-byte
+            // sequence never straddles two runs and each run can be checked on its own.
+            if (!detail::utf8_valid(std::string_view{current_, static_cast<size_t>(stop - current_)})) {
+                return std::unexpected(
+                    make_error(json_error_code::invalid_unicode, "Invalid UTF-8 in string"));
+            }
             value.append(current_, static_cast<size_t>(stop - current_));
             column_ += static_cast<size_t>(stop - current_);
             current_ = stop;
@@ -3213,37 +3422,32 @@ auto parser::parse_string() -> json_result<json_value> {
                     value += '\t';
                     break;
                 case 'u': {
-                    // Unicode escape sequence
+                    // \uXXXX, or a surrogate pair \uD83D\uDE00 as ONE code point (4-byte UTF-8). A lone or
+                    // mismatched surrogate has no UTF-8 form and is an error (it used to become CESU-8 bytes).
                     if (current_ + 4 > end_) {
                         return std::unexpected(make_error(json_error_code::invalid_string,
                                                           "Incomplete Unicode escape"));
                     }
-
-                    uint32_t codepoint = 0;
-                    for (int i = 0; i < 4; ++i) {
-                        char hex = advance();
-                        if (hex >= '0' && hex <= '9') {
-                            codepoint = (codepoint << 4) | (hex - '0');
-                        } else if (hex >= 'a' && hex <= 'f') {
-                            codepoint = (codepoint << 4) | (hex - 'a' + 10);
-                        } else if (hex >= 'A' && hex <= 'F') {
-                            codepoint = (codepoint << 4) | (hex - 'A' + 10);
-                        } else {
-                            return std::unexpected(make_error(json_error_code::invalid_string,
-                                                              "Invalid Unicode escape"));
+                    const auto decoded = unicode::parse_unicode_escape(
+                        current_, static_cast<size_t>(end_ - current_));
+                    if (!decoded.success && decoded.bytes_consumed == 0) {
+                        // A bad hex digit: reported where it always was -- just past the first non-hex byte.
+                        for (int k = 0; k < 4; ++k) {
+                            if (unicode::parse_hex_digit(advance()) < 0) {
+                                break;
+                            }
                         }
+                        return std::unexpected(make_error(json_error_code::invalid_string,
+                                                          "Invalid Unicode escape"));
                     }
-
-                    // Convert Unicode codepoint to UTF-8
-                    if (codepoint <= 0x7F) {
-                        value += static_cast<char>(codepoint);
-                    } else if (codepoint <= 0x7FF) {
-                        value += static_cast<char>(0xC0 | (codepoint >> 6));
-                        value += static_cast<char>(0x80 | (codepoint & 0x3F));
-                    } else {
-                        value += static_cast<char>(0xE0 | (codepoint >> 12));
-                        value += static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F));
-                        value += static_cast<char>(0x80 | (codepoint & 0x3F));
+                    for (int k = 0; k < 4; ++k) {
+                        advance();
+                    }
+                    if (!decoded.success || !unicode::encode_utf8(decoded.codepoint, value)) {
+                        return std::unexpected(make_error(json_error_code::invalid_unicode, decoded.error));
+                    }
+                    for (int k = 4; k < decoded.bytes_consumed; ++k) {
+                        advance();
                     }
                     break;
                 }
@@ -3254,6 +3458,19 @@ auto parser::parse_string() -> json_result<json_value> {
         } else if (static_cast<unsigned char>(c) < 0x20) {
             return std::unexpected(
                 make_error(json_error_code::invalid_string, "Control character in string"));
+        } else if (static_cast<unsigned char>(c) >= 0x80) {
+            // Not reached through a scan run (no tier stops on a byte >= 0x80), but never appended unchecked.
+            const char* const lead = current_ - 1;
+            const std::string_view rest{lead, static_cast<size_t>(end_ - lead)};
+            const size_t n = detail::utf8_sequence_length(rest, 0);
+            if (n == 0) {
+                return std::unexpected(
+                    make_error(json_error_code::invalid_unicode, "Invalid UTF-8 in string"));
+            }
+            value.append(lead, n);
+            for (size_t k = 1; k < n; ++k) {
+                advance();
+            }
         } else {
             value += c;
         }
@@ -3463,7 +3680,8 @@ auto parser::parse_string_simd() -> json_result<json_string_data> {
     // while the AVX2 scan's control limit was wrong; a view here made every unescaped string dangle the moment
     // it did. Zero-copy views belong to the explicit ondemand API, whose caller owns the buffer's lifetime.
     if (string_end < end_ && *string_end == '"'
-        && std::find(start, string_end, '\\') == string_end) {
+        && std::find(start, string_end, '\\') == string_end
+        && detail::utf8_valid(std::string_view{start, static_cast<size_t>(string_end - start)})) {
         json_string_data result(std::string(start, static_cast<size_t>(string_end - start)));
         current_ = string_end + 1;  // Skip the closing quote
         return result;
@@ -3472,260 +3690,6 @@ auto parser::parse_string_simd() -> json_result<json_string_data> {
     // Slow path: has escapes or control characters, fall back to regular parsing
     return std::unexpected(json_error{});
 }
-
-// Thread-safe JSON Serializer Implementation
-// ============================================================================
-// TODO: Serializer class definition not implemented yet
-// Commenting out implementation until class is properly defined
-
-/*
-serializer::serializer(bool pretty, int indent)
-    : pretty_(pretty), indent_(indent), current_indent_(0) {
-    buffer_.reserve(1024); // Pre-allocate reasonable size
-}
-
-auto serializer::serialize(const json_value& value) -> std::string {
-    buffer_.clear();
-    current_indent_ = 0;
-    serialize_value(value);
-    return buffer_;
-}
-
-auto serializer::serialize(const json_value& value, int indent) -> std::string {
-    serializer ser(true, indent);
-    return ser.serialize(value);
-}
-
-auto serializer::serialize_value(const json_value& value) -> void {
-    if (value.is_null()) {
-        serialize_null();
-    } else if (value.is_boolean()) {
-        serialize_boolean(value.as_boolean());
-    } else if (value.is_number()) {
-        serialize_number(value.as_number());
-    } else if (value.is_string()) {
-        serialize_string(value.as_string());
-    } else if (value.is_array()) {
-        serialize_array(value.as_array());
-    } else if (value.is_object()) {
-        serialize_object(value.as_object());
-    }
-}
-
-auto serializer::serialize_null() -> void {
-    buffer_ += "null";
-}
-
-auto serializer::serialize_boolean(bool value) -> void {
-    buffer_ += (value ? "true" : "false");
-}
-
-auto serializer::serialize_number(double value) -> void {
-    if (__builtin_isnan(value) || __builtin_isinf(value)) {
-        buffer_ += "null"; // JSON doesn't support NaN/Inf
-    } else {
-        // Use fast double-to-string conversion
-        thread_local std::array<char, 32> num_buffer;
-        auto [ptr, ec] = std::to_chars(num_buffer.data(),
-                                      num_buffer.data() + num_buffer.size(), value);
-        if (ec == std::errc{}) {
-            buffer_.append(num_buffer.data(), ptr);
-        } else {
-            buffer_ += std::to_string(value);
-        }
-    }
-}
-
-auto serializer::serialize_string(std::string_view value) -> void {
-    buffer_ += '"';
-    escape_string(value);
-    buffer_ += '"';
-}
-
-auto serializer::serialize_array(const json_array& value) -> void {
-    buffer_ += '[';
-
-    if (!value.empty()) {
-        if (pretty_) {
-            ++current_indent_;
-        }
-
-        for (size_t i = 0; i < value.size(); ++i) {
-            if (i > 0) {
-                buffer_ += ',';
-            }
-
-            if (pretty_) {
-                write_newline();
-                write_indent();
-            }
-
-            serialize_value(value[i]);
-        }
-
-        if (pretty_) {
-            --current_indent_;
-            write_newline();
-            write_indent();
-        }
-    }
-
-    buffer_ += ']';
-}
-
-auto serializer::serialize_object(const json_object& value) -> void {
-    buffer_ += '{';
-
-    if (!value.empty()) {
-        if (pretty_) {
-            ++current_indent_;
-        }
-
-        bool first = true;
-        for (const auto& [key, val] : value) {
-            if (!first) {
-                buffer_ += ',';
-            }
-            first = false;
-
-            if (pretty_) {
-                write_newline();
-                write_indent();
-            }
-
-            serialize_string(key);
-            buffer_ += ':';
-
-            if (pretty_) {
-                buffer_ += ' ';
-            }
-
-            serialize_value(val);
-        }
-
-        if (pretty_) {
-            --current_indent_;
-            write_newline();
-            write_indent();
-        }
-    }
-
-    buffer_ += '}';
-}
-
-auto serializer::write_indent() -> void {
-    if (pretty_) {
-        buffer_ += std::string(current_indent_ * indent_, ' ');
-    }
-}
-
-auto serializer::write_newline() -> void {
-    if (pretty_) {
-        buffer_ += '\n';
-    }
-}
-
-auto serializer::escape_string(const std::string& input) -> void {
-    const char* data = input.data();
-    const size_t size = input.size();
-    const char* ptr = data;
-    const char* end = data + size;
-
-    while (ptr < end) {
-        // Find next character that needs escaping using SIMD if available
-        const char* escape_pos = ptr;
-
-        // The SAME predicate as the parser's string-end scan ('"', '\\', control < 0x20), so the same runtime
-        // dispatch serves it: AVX-512 -> AVX2 -> scalar. The inline copies this replaced compared SIGNED (every
-        // UTF-8 byte stopped the vector loop), and on a host reporting AVX-512 they skipped AVX2 while the
-        // AVX-512 block was compiled out, so such a host escaped strings byte by byte.
-        escape_pos = detail::find_string_end_simd_impl(escape_pos, end);
-
-        // Scalar fallback for remaining bytes
-        while (escape_pos < end &&
-               *escape_pos != '"' && *escape_pos != '\\' &&
-               static_cast<unsigned char>(*escape_pos) >= 0x20) {
-            ++escape_pos;
-        }
-
-        // Copy clean part
-        if (escape_pos > ptr) {
-            buffer_.append(ptr, escape_pos);
-            ptr = escape_pos;
-        }
-
-        // Handle escape character
-        if (ptr < end) {
-            switch (*ptr) {
-                case '"':  buffer_ += "\\\""; break;
-                case '\\': buffer_ += "\\\\"; break;
-                case '\b': buffer_ += "\\b"; break;
-                case '\f': buffer_ += "\\f"; break;
-                case '\n': buffer_ += "\\n"; break;
-                case '\r': buffer_ += "\\r"; break;
-                case '\t': buffer_ += "\\t"; break;
-                default:
-                    if (static_cast<unsigned char>(*ptr) < 0x20) {
-                        buffer_ += "\\u";
-                        thread_local std::array<char, 5> hex_buffer;
-                        snprintf(hex_buffer.data(), 5, "%04x", static_cast<unsigned char>(*ptr));
-                        buffer_ += hex_buffer.data();
-                    } else {
-                        buffer_ += *ptr;
-                    }
-                    break;
-            }
-            ++ptr;
-        }
-    }
-}
-
-*/
-
-// JSON Builder Pattern Implementation
-// ============================================================================
-// TODO: json_builder class definition not implemented yet
-// Commenting out implementation until class is properly defined
-
-/*
-json_builder::json_builder() : value_(json_object{}) {}
-
-json_builder::json_builder(json_value initial) : value_(std::move(initial)) {}
-
-auto json_builder::add(const std::string& key, json_value value) -> json_builder& {
-    if (!value_.is_object()) {
-        value_ = json_object{};
-    }
-    value_[key] = std::move(value);
-    return *this;
-}
-
-template<JsonSerializable T>
-auto json_builder::add(const std::string& key, T&& value) -> json_builder& {
-    return add(key, json_value{std::forward<T>(value)});
-}
-
-auto json_builder::append(json_value value) -> json_builder& {
-    if (!value_.is_array()) {
-        value_ = json_array{};
-    }
-    value_.push_back(std::move(value));
-    return *this;
-}
-
-template<JsonSerializable T>
-auto json_builder::append(T&& value) -> json_builder& {
-    return append(json_value{std::forward<T>(value)});
-}
-
-auto json_builder::build() && -> json_value {
-    return std::move(value_);
-}
-
-auto json_builder::build() const & -> const json_value& {
-    return value_;
-}
-*/
 
 // Convenience Functions Implementation
 // ============================================================================
@@ -3837,6 +3801,16 @@ public:
 auto ondemand_document::parse(std::string input) -> json_result<ondemand_document> {
     ondemand_document doc;
     doc.input_ = std::move(input);
+    // The lazy accessors walk a structural tape that assumes a well-formed document; indexing a malformed one
+    // ("[1,", "[1]]", an unterminated string, invalid UTF-8) used to succeed and hand out values from it. The
+    // input is validated by THE grammar (the same parser, into a scratch arena that is dropped at once).
+    {
+        std::pmr::monotonic_buffer_resource scratch;
+        parser check(doc.input_, &scratch);
+        if (auto valid = check.parse(); !valid) {
+            return std::unexpected(valid.error());
+        }
+    }
     doc.tape_ = build_structural_index(
         std::span<const char>(doc.input_.data(), doc.input_.size()));
     if (doc.tape_.empty()) {
@@ -4115,18 +4089,6 @@ auto stringify(const json_value& value) -> std::string {
 auto prettify(const json_value& value, int indent) -> std::string {
     return value.to_pretty_string(indent);
 }
-
-// Factory functions for builders
-// TODO: json_builder not implemented yet, commenting out factory functions
-/*
-auto make_object() -> json_builder {
-    return json_builder{json_object{}};
-}
-
-auto make_array() -> json_builder {
-    return json_builder{json_array{}};
-}
-*/
 
 // Literals implementation
 inline namespace literals {
