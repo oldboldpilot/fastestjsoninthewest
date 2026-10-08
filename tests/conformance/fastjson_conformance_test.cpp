@@ -200,6 +200,37 @@ auto runNumbers() -> void {
         check(refused("1e999", [](const fastjson::json_value& v) { return v.as_int64(); }),
               "as_int64 of a 128-bit float past int64 is refused");
         check(refused("1e40", [](const fastjson::json_value& v) { return v.as_int128(); }), "as_int128(1e40) is refused");
+        check(refused("18446744073709551615", [](const fastjson::json_value& v) { return v.as_int64(); }),
+              "as_int64 of 2^64-1 is refused (it used to wrap to -1)");
+        check(refused("-170141183460469231731687303715884105728", [](const fastjson::json_value& v) { return v.as_uint64(); }),
+              "as_uint64 of a negative 128-bit integer is refused");
+        const auto big = parsed("18446744073709551615");
+        check(big.has_value() && big.value().as_uint64() == std::numeric_limits<std::uint64_t>::max(),
+              "as_uint64 of 2^64-1 is exact");
+    }
+    // Checked reads (get_*): the exact value or an error -- never rounded, wrapped, substituted or thrown.
+    {
+        const auto get_i = [](std::string_view text) { return parsed(text).value().get_int64(); };
+        const auto get_u = [](std::string_view text) { return parsed(text).value().get_uint64(); };
+        check(get_i("1").has_value() && get_i("1").value() == 1, "get_int64(1)");
+        check(get_i("1e3").has_value() && get_i("1e3").value() == 1000, "get_int64(1e3): an integral value is an integer");
+        check(get_i("-9223372036854775808").has_value() &&
+                  get_i("-9223372036854775808").value() == std::numeric_limits<std::int64_t>::min(),
+              "get_int64 at INT64_MIN");
+        check(!get_i("1.5").has_value(), "get_int64(1.5) is refused (not an integer)");
+        check(!get_i("9223372036854775808").has_value(), "get_int64(2^63) is refused (out of range)");
+        check(!get_i("1e999").has_value(), "get_int64(1e999) is refused");
+        check(!get_i("true").has_value() && !get_i("\"7\"").has_value() && !get_i("null").has_value(),
+              "get_int64 of a non-number is refused");
+        check(get_u("18446744073709551615").has_value() &&
+                  get_u("18446744073709551615").value() == std::numeric_limits<std::uint64_t>::max(),
+              "get_uint64(2^64-1) is exact");
+        check(!get_u("-1").has_value() && !get_u("-0.5").has_value(), "get_uint64 of a negative is refused");
+        check(!get_u("18446744073709551616").has_value(), "get_uint64(2^64) is refused");
+        check(parsed("0.1").value().get_double().has_value() && parsed("0.1").value().get_double().value() == 0.1,
+              "get_double(0.1)");
+        check(!parsed("1e999").value().get_double().has_value(), "get_double(1e999) is refused (outside double range)");
+        check(!parsed("[1]").value().get_double().has_value(), "get_double of an array is refused");
     }
 }
 
