@@ -3234,14 +3234,53 @@ auto parser::parse_string() -> json_result<json_value> {
                         }
                     }
 
+                    // Handle UTF-16 surrogate pairs
+                    if (codepoint >= 0xD800 && codepoint <= 0xDBFF) {
+                        if (current_ + 6 <= end_ && current_[0] == '\\' && current_[1] == 'u') {
+                            advance(); // skip '\\'
+                            advance(); // skip 'u'
+                            uint32_t low = 0;
+                            for (int i = 0; i < 4; ++i) {
+                                char hex = advance();
+                                if (hex >= '0' && hex <= '9') {
+                                    low = (low << 4) | (hex - '0');
+                                } else if (hex >= 'a' && hex <= 'f') {
+                                    low = (low << 4) | (hex - 'a' + 10);
+                                } else if (hex >= 'A' && hex <= 'F') {
+                                    low = (low << 4) | (hex - 'A' + 10);
+                                } else {
+                                    return std::unexpected(make_error(json_error_code::invalid_string,
+                                                                      "Invalid Unicode escape"));
+                                }
+                            }
+                            if (low >= 0xDC00 && low <= 0xDFFF) {
+                                codepoint = 0x10000 + ((codepoint - 0xD800) << 10) + (low - 0xDC00);
+                            } else {
+                                return std::unexpected(make_error(json_error_code::invalid_string,
+                                                                  "Invalid Unicode low surrogate"));
+                            }
+                        } else {
+                            return std::unexpected(make_error(json_error_code::invalid_string,
+                                                              "Unpaired Unicode high surrogate"));
+                        }
+                    } else if (codepoint >= 0xDC00 && codepoint <= 0xDFFF) {
+                        return std::unexpected(make_error(json_error_code::invalid_string,
+                                                          "Unexpected Unicode low surrogate"));
+                    }
+
                     // Convert Unicode codepoint to UTF-8
                     if (codepoint <= 0x7F) {
                         value += static_cast<char>(codepoint);
                     } else if (codepoint <= 0x7FF) {
                         value += static_cast<char>(0xC0 | (codepoint >> 6));
                         value += static_cast<char>(0x80 | (codepoint & 0x3F));
-                    } else {
+                    } else if (codepoint <= 0xFFFF) {
                         value += static_cast<char>(0xE0 | (codepoint >> 12));
+                        value += static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F));
+                        value += static_cast<char>(0x80 | (codepoint & 0x3F));
+                    } else {
+                        value += static_cast<char>(0xF0 | (codepoint >> 18));
+                        value += static_cast<char>(0x80 | ((codepoint >> 12) & 0x3F));
                         value += static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F));
                         value += static_cast<char>(0x80 | (codepoint & 0x3F));
                     }
