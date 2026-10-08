@@ -17,6 +17,8 @@
  *   serialize  -- to_string() output is valid JSON that parses back to an equal value (control bytes, quotes,
  *                 backslashes, non-ASCII, non-finite numbers).
  *   ondemand   -- the lazy API refuses a malformed document instead of indexing it.
+ *   writer     -- the streaming writer (fastjson::writer), escape_string and to_json emit valid JSON in call
+ *                 order and refuse an unbalanced or keyless sequence, a non-finite number and non-UTF-8 text.
  *
  * Author: Olumuyiwa Oluwasanmi
  */
@@ -278,13 +280,18 @@ auto runSerialize() -> void {
         const std::string out = arr.to_string();
         check(fastjson::parse(out).has_value(),
               std::format("a non-finite double serialises to valid JSON (got {})", out));
+        check(!fastjson::to_json(arr).has_value(), "to_json refuses a non-finite number (it has no JSON form)");
     }
     const auto parsed = fastjson::parse(
         R"({"a":[1,2.5,"s\"q",{"b":null}],"c":-0,"u":"\u2028\u2029","big":170141183460469231731687303715884105727})");
     check(parsed.has_value() && roundTrips(parsed.value()), "a mixed document round-trips");
     check(parsed.has_value() && fastjson::parse(parsed.value().to_pretty_string(2)).has_value(),
           "pretty output parses");
-
+    check(parsed.has_value() && fastjson::to_json(parsed.value()).has_value() &&
+              fastjson::to_json(parsed.value()).value() == parsed.value().to_string(),
+          "to_json of a writable value is to_string()");
+    check(!fastjson::to_json(fastjson::json_value{std::string{"bad \xFF"}}).has_value(),
+          "to_json refuses a string that is not UTF-8");
 }
 
 // ---- ondemand -----------------------------------------------------------------------------------------------
@@ -298,6 +305,49 @@ auto runOndemand() -> void {
     check(ok.has_value(), "ondemand: a well-formed document parses");
 }
 
+// ---- writer -------------------------------------------------------------------------------------------------
+
+auto runWriter() -> void {
+    // escape_string: the same escaping to_string uses, available to code that writes JSON text itself.
+    const auto esc = fastjson::escape_string("a\"b\\c\n\x01\xC3\xA9");
+    check(esc.has_value() && esc.value() == "\"a\\\"b\\\\c\\n\\u0001\xC3\xA9\"",
+          std::format("escape_string ({})", esc.has_value() ? shown(esc.value()) : esc.error().message));
+    check(!fastjson::escape_string("bad \xFF").has_value(), "escape_string refuses text that is not UTF-8");
+
+    // The streaming writer keeps CALL ORDER (a json_object is a hash map and does not).
+    auto out = fastjson::writer{}
+                   .begin_object()
+                   .key("z").value(1)
+                   .key("a").value("x\"y")
+                   .key("list").begin_array().value(true).value(nullptr).value(2.5).value(std::int64_t{-7}).end_array()
+                   .key("obj").begin_object().key("k").value(std::string_view{"v"}).end_object()
+                   .end_object()
+                   .finish();
+    check(out.has_value() && out.value() == R"({"z":1,"a":"x\"y","list":[true,null,2.5,-7],"obj":{"k":"v"}})",
+          std::format("writer output in call order ({})", out.has_value() ? out.value() : out.error().message));
+    check(out.has_value() && fastjson::parse(out.value()).has_value(), "writer output parses");
+
+    check(!fastjson::writer{}.begin_object().value(1).end_object().finish().has_value(),
+          "writer: a value inside an object without a key is refused");
+    check(!fastjson::writer{}.begin_array().finish().has_value(), "writer: an unclosed array is refused");
+    check(!fastjson::writer{}.begin_array().end_object().finish().has_value(), "writer: a mismatched close is refused");
+    check(!fastjson::writer{}.value(1).value(2).finish().has_value(), "writer: two top-level values are refused");
+    check(!fastjson::writer{}.begin_array().value(std::numeric_limits<double>::quiet_NaN()).end_array().finish()
+              .has_value(),
+          "writer: a non-finite number is refused");
+    check(!fastjson::writer{}.begin_object().key("a").key("b").value(1).end_object().finish().has_value(),
+          "writer: two keys in a row are refused");
+    check(!fastjson::writer{}.finish().has_value(), "writer: an empty document is refused");
+    check(!fastjson::writer{}.begin_array().value(std::string_view{"\xFF"}).end_array().finish().has_value(),
+          "writer: invalid UTF-8 text is refused");
+    // A pre-encoded fragment from to_string() embeds verbatim.
+    const auto inner = fastjson::parse(R"({"q":[1,2]})");
+    auto raw = fastjson::writer{}.begin_array().raw(inner.value().to_string()).end_array().finish();
+    check(raw.has_value() && raw.value() == R"([{"q":[1,2]}])", "writer: raw() embeds a serialised value");
+    check(!fastjson::writer{}.begin_array().raw("{").end_array().finish().has_value(),
+          "writer: raw() refuses text that is not one JSON value");
+}
+
 }  // namespace
 
 auto main(int argc, char** argv) -> int {
@@ -307,6 +357,7 @@ auto main(int argc, char** argv) -> int {
     runStructure();
     runSerialize();
     runOndemand();
+    runWriter();
     std::println("fastjson_conformance [{} / scan tier {}]: {} checks, {} failed", tier, fastjson::string_scan_tier(),
                  g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
