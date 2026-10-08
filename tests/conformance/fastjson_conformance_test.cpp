@@ -181,6 +181,11 @@ auto runNumbers() -> void {
         check(r.has_value() && r.value().to_string() == "340282366920938463463374607431768211455",
               "2^128-1 parses exactly");
         expectError("340282366920938463463374607431768211456", "an integer past 128 bits is an error");
+        const auto lowest = parsed("-170141183460469231731687303715884105728");  // -2^127
+        check(lowest.has_value() && lowest.value().to_string() == "-170141183460469231731687303715884105728",
+              "-2^127 parses and prints exactly (its negation has no int128 form)");
+        expectError("1e99999999999", "an exponent past every range is an error, and its digits do not overflow");
+        expectError("-1e-99999999999999999999x", "a huge negative exponent then garbage is an error");
     }
     // Floating -> integer accessors: in range truncates; out of range is refused (it was undefined behaviour).
     {
