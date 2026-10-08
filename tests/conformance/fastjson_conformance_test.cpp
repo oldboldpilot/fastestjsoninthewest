@@ -17,6 +17,7 @@
  *   serialize  -- to_string() output is valid JSON that parses back to an equal value (control bytes, quotes,
  *                 backslashes, non-ASCII, non-finite numbers).
  *   ondemand   -- the lazy API refuses a malformed document instead of indexing it.
+ *   concurrency -- eight threads parse, print and write the same documents and agree with one thread.
  *   writer     -- the streaming writer (fastjson::writer), escape_string and to_json emit valid JSON in call
  *                 order and refuse an unbalanced or keyless sequence, a non-finite number and non-UTF-8 text.
  *
@@ -383,6 +384,41 @@ auto runWriter() -> void {
           "writer: raw() refuses text that is not one JSON value");
 }
 
+// ---- concurrency --------------------------------------------------------------------------------------------
+// sensen parses on many threads at once. The number paths use thread_local buffers and the scan tier is chosen once
+// per process: eight threads parsing, printing and writing the same documents must agree with one thread (and a
+// TSan build of this gate must stay silent).
+auto runConcurrent() -> void {
+    const std::string doc = R"({"name":"x\u00e9\uD83D\uDE00","n":[1,-2.5e3,1e999,0.30000000000000004,12345678901234567890],"s":"a\nb\"c","o":{"k":[true,false,null]}})";
+    const auto one = fastjson::parse(doc);
+    check(one.has_value(), "the concurrency fixture parses");
+    if (!one.has_value()) { return; }
+    const std::string want = one.value().to_string();
+    const auto write_once = [] {
+        return fastjson::writer{}.begin_object().key("a").value(1.5).key("b").begin_array().value("x").end_array()
+            .end_object().finish();
+    };
+    const auto want_written = write_once();
+    std::atomic<int> mismatches{0};
+    {
+        std::vector<std::jthread> threads;
+        for (int t = 0; t < 8; ++t) {
+            threads.emplace_back([&] {
+                for (int i = 0; i < 300; ++i) {
+                    const auto r = fastjson::parse(doc);
+                    if (!r.has_value() || !sameValue(r.value(), one.value())) { ++mismatches; }
+                    if (fastjson::parse("[1e5000]").has_value()) { ++mismatches; }
+                    const auto w = write_once();
+                    if (!w.has_value() || w.value() != want_written.value()) { ++mismatches; }
+                }
+            });
+        }
+    }
+    check(mismatches.load() == 0, std::format("8 threads x 300 parses/writes agree with one thread ({} mismatches)",
+                                              mismatches.load()));
+    check(!want.empty(), "the single-thread text is non-empty");
+}
+
 }  // namespace
 
 auto main(int argc, char** argv) -> int {
@@ -393,6 +429,7 @@ auto main(int argc, char** argv) -> int {
     runSerialize();
     runOndemand();
     runWriter();
+    runConcurrent();
     std::println("fastjson_conformance [{} / scan tier {}]: {} checks, {} failed", tier, fastjson::string_scan_tier(),
                  g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
