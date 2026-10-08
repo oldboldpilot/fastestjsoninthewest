@@ -2936,9 +2936,11 @@ inline auto analyze_number_precision(const char* start, const char* end) -> numb
             ++ptr;
         }
 
+        // Saturates: only "past +-308" matters here, and an exponent of 99999999999 must not overflow an int.
         int exp_value = 0;
+        constexpr int kExponentCap = 1000000;
         while (ptr < end && (*ptr >= '0' && *ptr <= '9')) {
-            exp_value = exp_value * 10 + (*ptr - '0');
+            exp_value = exp_value >= kExponentCap ? kExponentCap : exp_value * 10 + (*ptr - '0');
             ++ptr;
         }
 
@@ -3039,7 +3041,9 @@ inline auto parse_int128(const char* str, size_t length, bool is_negative)
         if (value > max_neg) {
             return std::nullopt;
         }
-        return -static_cast<int128_compat>(value);
+        // Negate in the UNSIGNED type, then convert (modular, well defined): negating the signed value overflows
+        // for exactly -2^127, whose magnitude has no positive int128 form.
+        return static_cast<int128_compat>(-value);
     } else {
         // Check if value fits in signed int128_compat
         constexpr uint128_compat max_pos = (static_cast<uint128_compat>(1) << 127) - 1;
