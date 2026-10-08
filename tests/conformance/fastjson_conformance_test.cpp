@@ -270,6 +270,20 @@ auto runStructure() -> void {
     for (int i = 0; i < 100000; ++i) { deep_obj += "{\"a\":"; }
     expectError(deep_obj, "100000 unclosed objects is an error, not a stack overflow");
 
+    // Error COLUMNS count the bytes of every string before the error, on the fast path (no escape) exactly as on
+    // the escape path: the escaped key below is 5 bytes longer in the text, so its error is 5 columns further on.
+    {
+        const auto plain = fastjson::parse(R"({"ab": x})");
+        const auto escaped = fastjson::parse(R"({"a\u0062": x})");
+        check(!plain.has_value() && !escaped.has_value() && escaped.error().column == plain.error().column + 5,
+              std::format("error column after an unescaped string counts the string (plain {}, escaped {})",
+                          plain.has_value() ? 0 : plain.error().column, escaped.has_value() ? 0 : escaped.error().column));
+        const auto keyed = fastjson::parse(R"({"hello_world": invalid})");
+        check(!keyed.has_value() && keyed.error().line == 1 && keyed.error().column == 17,
+              std::format("the error in {{\"hello_world\": invalid}} is at column 17 (got {})",
+                          keyed.has_value() ? 0 : keyed.error().column));
+    }
+
     // Duplicate keys: one deterministic rule (the last value wins), not an unspecified one.
     const auto dup = fastjson::parse(R"({"a":1,"a":2})");
     check(dup.has_value() && dup.value().is_object() && dup.value().size() == 1 && dup.value()["a"].as_number() == 2.0,
@@ -379,6 +393,27 @@ auto runWriter() -> void {
     check(!fastjson::writer{}.begin_object().key("a").key("b").value(1).end_object().finish().has_value(),
           "writer: two keys in a row are refused");
     check(!fastjson::writer{}.finish().has_value(), "writer: an empty document is refused");
+    {
+        const char* none = nullptr;
+        check(!fastjson::writer{}.begin_array().value(none).end_array().finish().has_value(),
+              "writer: a null const char* is refused (never strlen(nullptr))");
+        const char* some = "ok";
+        const auto w = fastjson::writer{}.begin_array().value(some).end_array().finish();
+        check(w.has_value() && w.value() == R"(["ok"])", "writer: a const char* is written as a string");
+    }
+#if defined(__SIZEOF_INT128__)
+    {
+        const __int128 big = -(static_cast<__int128>(1) << 126);  // 38 digits: past any 24-byte buffer
+        const auto w = fastjson::writer{}.begin_array().value(big).end_array().finish();
+        check(w.has_value() && w.value() == "[-85070591730234615865843651857942052864]",
+              std::format("writer: a 128-bit integer is written whole ({})", w.has_value() ? w.value() : w.error().message));
+    }
+#endif
+    {
+        const auto w = fastjson::writer{}.begin_array().value(1e400L).end_array().finish();
+        check(!w.has_value() && w.error().message.find("double range") != std::string::npos,
+              "writer: a long double past double range is refused and the error says so");
+    }
     check(!fastjson::writer{}.begin_array().value(std::string_view{"\xFF"}).end_array().finish().has_value(),
           "writer: invalid UTF-8 text is refused");
     // A pre-encoded fragment from to_string() embeds verbatim.
