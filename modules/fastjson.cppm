@@ -1585,7 +1585,8 @@ inline auto find_escape_position_simd_impl(const char* ptr, const char* end) -> 
 #endif // FASTJSON_ENABLE_SIMD
 
 // ============================================================================
-// Text helpers shared by the parser and json_value serialisation. One implementation each (DRY).
+// Text helpers shared by the parser, json_value serialisation, fastjson::writer and escape_string. One
+// implementation each (DRY): the escaping that to_string() applies is the escaping the streaming writer applies.
 // ============================================================================
 
 /// Length of the well-formed UTF-8 sequence starting at `p` (1..4), or 0 when it is not one (RFC 3629: no
@@ -1905,7 +1906,8 @@ enum class json_error_code {
     invalid_number,
     invalid_string,
     invalid_escape,
-    invalid_unicode
+    invalid_unicode,
+    invalid_writer_sequence  ///< fastjson::writer: a call order that does not describe one JSON value
 };
 
 struct json_error {
@@ -4089,6 +4091,262 @@ auto stringify(const json_value& value) -> std::string {
 auto prettify(const json_value& value, int indent) -> std::string {
     return value.to_pretty_string(indent);
 }
+
+// ============================================================================
+// Writing JSON text without a json_value: escape_string, to_json, writer.
+// Everything that WRITES JSON uses these (or json_value::to_string), never hand-built text: the escaping and the
+// number formatting below are the ones to_string() uses (detail::append_json_string / append_double).
+// ============================================================================
+
+/// `text` as a quoted, escaped JSON string. Refuses text that is not UTF-8 (JSON text must be).
+[[nodiscard]] auto escape_string(std::string_view text) -> json_result<std::string> {
+    if (!detail::utf8_valid(text)) {
+        return std::unexpected(json_error{json_error_code::invalid_unicode, "escape_string: text is not UTF-8", 0, 0});
+    }
+    std::string out;
+    out.reserve(text.size() + 2);
+    detail::append_json_string(out, text);
+    return out;
+}
+
+namespace writer_detail {
+// A value is writable as JSON only if every number is finite and every string and key is UTF-8.
+[[nodiscard]] inline auto writable(const json_value& v) -> std::optional<json_error> {
+    if (v.is_string()) {
+        if (!detail::utf8_valid(v.as_string())) {
+            return json_error{json_error_code::invalid_unicode, "to_json: a string is not UTF-8", 0, 0};
+        }
+    } else if (v.is_number()) {
+        if (!std::isfinite(static_cast<long double>(v.as_float128()))) {
+            return json_error{json_error_code::invalid_number, "to_json: a number is NaN or infinite", 0, 0};
+        }
+    } else if (v.is_array()) {
+        for (const auto& item : v.as_array()) {
+            if (auto bad = writable(item)) { return bad; }
+        }
+    } else if (v.is_object()) {
+        for (const auto& [key, item] : v.as_object()) {
+            if (!detail::utf8_valid(key)) {
+                return json_error{json_error_code::invalid_unicode, "to_json: a key is not UTF-8", 0, 0};
+            }
+            if (auto bad = writable(item)) { return bad; }
+        }
+    }
+    return std::nullopt;
+}
+}  // namespace writer_detail
+
+/// The checked form of to_string(): the same text, or an error when the value has no JSON form (a NaN or
+/// infinite number, which to_string() writes as `null`; a string or key that is not UTF-8).
+[[nodiscard]] auto to_json(const json_value& value) -> json_result<std::string> {
+    if (auto bad = writer_detail::writable(value)) {
+        return std::unexpected(std::move(bad).value());
+    }
+    return value.to_string();
+}
+
+/// A streaming JSON writer: members and elements are written in CALL ORDER (a json_object is a hash map and
+/// keeps none), straight into one string, with the escaping and number formatting to_string() uses.
+///
+///     auto text = fastjson::writer{}
+///                     .begin_object()
+///                     .key("model").value(name)
+///                     .key("messages").begin_array().raw(message.to_string()).end_array()
+///                     .end_object()
+///                     .finish();          // json_result<std::string>
+///
+/// Fail fast, no partial output: the first call that cannot be part of ONE well-formed JSON value (a value in
+/// an object without a key, two keys in a row, a mismatched or missing close, a second top-level value, a NaN or
+/// infinite number, text that is not UTF-8, raw() text that is not exactly one JSON value) is recorded, every
+/// later call is ignored, and finish() returns that error instead of text.
+class writer {
+public:
+    writer() = default;
+
+    template <class Self> auto begin_object(this Self&& self) -> Self&& {
+        self.open(frame_kind::object, '{');
+        return std::forward<Self>(self);
+    }
+    template <class Self> auto end_object(this Self&& self) -> Self&& {
+        self.close(frame_kind::object, '}');
+        return std::forward<Self>(self);
+    }
+    template <class Self> auto begin_array(this Self&& self) -> Self&& {
+        self.open(frame_kind::array, '[');
+        return std::forward<Self>(self);
+    }
+    template <class Self> auto end_array(this Self&& self) -> Self&& {
+        self.close(frame_kind::array, ']');
+        return std::forward<Self>(self);
+    }
+    /// The next member's name; must be followed by exactly one value (or container).
+    template <class Self> auto key(this Self&& self, std::string_view name) -> Self&& {
+        self.write_key(name);
+        return std::forward<Self>(self);
+    }
+    template <class Self> auto value(this Self&& self, std::string_view text) -> Self&& {
+        self.write_string(text);
+        return std::forward<Self>(self);
+    }
+    template <class Self> auto value(this Self&& self, std::nullptr_t) -> Self&& {
+        self.write_scalar("null");
+        return std::forward<Self>(self);
+    }
+    template <class Self, class B>
+        requires std::same_as<B, bool>
+    auto value(this Self&& self, B flag) -> Self&& {
+        self.write_scalar(flag ? "true" : "false");
+        return std::forward<Self>(self);
+    }
+    template <class Self, std::integral I>
+        requires(!std::same_as<I, bool> && !std::same_as<I, char> && !std::same_as<I, char8_t>)
+    auto value(this Self&& self, I number) -> Self&& {
+        std::array<char, 24> buf{};
+        const auto [end, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), number);
+        self.write_scalar(std::string_view{buf.data(), static_cast<size_t>(end - buf.data())});
+        return std::forward<Self>(self);
+    }
+    template <class Self, std::floating_point F>
+    auto value(this Self&& self, F number) -> Self&& {
+        self.write_double(static_cast<double>(number));
+        return std::forward<Self>(self);
+    }
+    /// One value already in JSON form (e.g. a json_value's to_string()); it must parse as exactly one value.
+    template <class Self> auto raw(this Self&& self, std::string_view json_text) -> Self&& {
+        self.write_raw(json_text);
+        return std::forward<Self>(self);
+    }
+
+    /// The finished document, or the first error. A writer that holds no complete value is an error.
+    [[nodiscard]] auto finish() && -> json_result<std::string> {
+        if (auto bad = final_error()) { return std::unexpected(std::move(bad).value()); }
+        return std::move(out_);
+    }
+    [[nodiscard]] auto finish() const& -> json_result<std::string> {
+        if (auto bad = final_error()) { return std::unexpected(std::move(bad).value()); }
+        return out_;
+    }
+
+private:
+    enum class frame_kind : std::uint8_t { object, array };
+    struct frame {
+        frame_kind kind;
+        bool has_items = false;
+        bool awaiting_value = false;  // object only: a key was written, its value has not been
+    };
+
+    std::string out_;
+    std::vector<frame> stack_;
+    std::optional<json_error> error_;
+    bool root_written_ = false;
+
+    auto fail(std::string message, json_error_code code = json_error_code::invalid_writer_sequence) -> void {
+        if (!error_) { error_ = json_error{code, std::move(message), 0, 0}; }
+    }
+    // Called before every value or container: is a value allowed here, and does it need a comma?
+    [[nodiscard]] auto begin_value() -> bool {
+        if (error_) { return false; }
+        if (stack_.empty()) {
+            if (root_written_) {
+                fail("writer: a second top-level value");
+                return false;
+            }
+            root_written_ = true;
+            return true;
+        }
+        frame& top = stack_.back();
+        if (top.kind == frame_kind::object) {
+            if (!top.awaiting_value) {
+                fail("writer: a value inside an object needs a key first");
+                return false;
+            }
+            top.awaiting_value = false;
+            return true;
+        }
+        if (top.has_items) { out_ += ','; }
+        top.has_items = true;
+        return true;
+    }
+    auto open(frame_kind kind, char bracket) -> void {
+        if (!begin_value()) { return; }
+        out_ += bracket;
+        stack_.push_back(frame{kind});
+    }
+    auto close(frame_kind kind, char bracket) -> void {
+        if (error_) { return; }
+        if (stack_.empty() || stack_.back().kind != kind) {
+            fail(kind == frame_kind::object ? "writer: end_object() closes no open object"
+                                            : "writer: end_array() closes no open array");
+            return;
+        }
+        if (stack_.back().awaiting_value) {
+            fail("writer: a key without a value");
+            return;
+        }
+        stack_.pop_back();
+        out_ += bracket;
+    }
+    auto write_key(std::string_view name) -> void {
+        if (error_) { return; }
+        if (stack_.empty() || stack_.back().kind != frame_kind::object) {
+            fail("writer: key() outside an object");
+            return;
+        }
+        frame& top = stack_.back();
+        if (top.awaiting_value) {
+            fail("writer: two keys in a row");
+            return;
+        }
+        if (!detail::utf8_valid(name)) {
+            fail("writer: a key is not UTF-8", json_error_code::invalid_unicode);
+            return;
+        }
+        if (top.has_items) { out_ += ','; }
+        top.has_items = true;
+        top.awaiting_value = true;
+        detail::append_json_string(out_, name);
+        out_ += ':';
+    }
+    auto write_string(std::string_view text) -> void {
+        if (!detail::utf8_valid(text)) {
+            fail("writer: a string is not UTF-8", json_error_code::invalid_unicode);
+            return;
+        }
+        if (!begin_value()) { return; }
+        detail::append_json_string(out_, text);
+    }
+    auto write_scalar(std::string_view literal) -> void {
+        if (!begin_value()) { return; }
+        out_ += literal;
+    }
+    auto write_double(double number) -> void {
+        if (!std::isfinite(number)) {
+            fail("writer: a number is NaN or infinite", json_error_code::invalid_number);
+            return;
+        }
+        if (!begin_value()) { return; }
+        detail::append_double(out_, number);
+    }
+    auto write_raw(std::string_view json_text) -> void {
+        if (error_) { return; }
+        if (auto parsed = parse(json_text); !parsed) {
+            fail("writer: raw() text is not one JSON value: " + parsed.error().message);
+            return;
+        }
+        if (!begin_value()) { return; }
+        out_ += json_text;
+    }
+    [[nodiscard]] auto final_error() const -> std::optional<json_error> {
+        if (error_) { return error_; }
+        if (!stack_.empty()) {
+            return json_error{json_error_code::invalid_writer_sequence, "writer: an object or array is still open", 0, 0};
+        }
+        if (!root_written_) {
+            return json_error{json_error_code::invalid_writer_sequence, "writer: nothing was written", 0, 0};
+        }
+        return std::nullopt;
+    }
+};
 
 // Literals implementation
 inline namespace literals {
