@@ -141,7 +141,7 @@ auto runNumbers() -> void {
         const std::string text = v.value().to_string();
         const auto again = parsed(text);
         check(text.find("inf") == std::string::npos && text.find("nan") == std::string::npos && again.has_value() &&
-                  again.value().to_string() == text,
+                  again.value().is_number() && again.value().to_string() == text,
               std::format("{} prints as a number that reads back to itself (got {})", wide, text));
     }
     // is_number() means "a JSON number", whatever representation the parser picked for it.
@@ -156,6 +156,10 @@ auto runNumbers() -> void {
         check(v.has_value() && v.value().to_string() == "0.30000000000000004" &&
                   v.value().as_number() == 0.30000000000000004,
               "a 17-digit double keeps its value and prints back unchanged");
+        check(v.has_value() && !v.value().is_number_128() && !v.value().is_int_128(),
+              "a 17-digit float is held as a double (17 digits identify a double; only more need 128 bits)");
+        const auto eighteen = parsed("0.123456789012345678");
+        check(eighteen.has_value() && eighteen.value().is_number_128(), "an 18-digit float is held in 128 bits");
         const auto pi = parsed("3.14159265358979323846264338327950288");
         check(pi.has_value() && pi.value().to_string().starts_with("3.141592653589793238"),
               std::format("a 36-digit float keeps more than double precision ({})",
