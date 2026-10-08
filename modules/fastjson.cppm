@@ -1804,10 +1804,15 @@ import std;
 // Module-internal (not exported). In the purview because the GMF's <charconv> exposes no floating to_chars here.
 namespace fastjson::detail {
 /// Appends the shortest round-trip decimal of a FINITE double (std::to_chars); the caller handles non-finite.
-inline auto append_double(std::string& out, double v) -> void {
-    std::array<char, 32> buf{};
+/// Returns false, appending nothing, if the text could not be formed (the caller decides what that means).
+[[nodiscard]] inline auto append_double(std::string& out, double v) -> bool {
+    std::array<char, 64> buf{};  // the longest shortest-round-trip double is 24 characters
     const auto [end, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), v);
-    out.append(buf.data(), ec == std::errc{} ? end : buf.data());
+    if (ec != std::errc{}) {
+        return false;
+    }
+    out.append(buf.data(), end);
+    return true;
 }
 }  // namespace fastjson::detail
 
@@ -2227,7 +2232,13 @@ template <class To, class From>
     if (ld != ld) {
         return To(0);
     }
+#if defined(_MSC_VER) && !defined(__clang__)
+    // MSVC's 128-bit compatibility types convert from a floating value through 64 bits: past 2^63 / 2^64 that
+    // conversion truncates, so only the 64-bit range is accepted there.
+    constexpr int bits = 64;
+#else
     constexpr int bits = static_cast<int>(sizeof(To) * 8);
+#endif
     const long double hi = std::ldexp(1.0L, kSignedIntegral<To> ? bits - 1 : bits);
     const bool in_range = kSignedIntegral<To> ? (ld >= -hi && ld < hi) : (ld > -1.0L && ld < hi);
     if (!in_range) {
@@ -2712,17 +2723,13 @@ auto json_value::serialize_to_buffer(std::string& buffer, int indent) const -> v
             } else if constexpr (std::is_same_v<T, double>) {
                 // JSON has no NaN or infinity: one cannot be written as a number, so to_string() writes `null`
                 // (the JSON.stringify rule). fastjson::to_json() refuses such a value instead.
-                if (std::isfinite(v)) {
-                    detail::append_double(buffer, v);
-                } else {
+                if (!std::isfinite(v) || !detail::append_double(buffer, v)) {
                     buffer += "null";
                 }
             } else if constexpr (std::is_same_v<T, float128_compat>) {
 #if defined(_WIN32)
                 const auto d = static_cast<double>(v);
-                if (std::isfinite(d)) {
-                    detail::append_double(buffer, d);
-                } else {
+                if (!std::isfinite(d) || !detail::append_double(buffer, d)) {
                     buffer += "null";
                 }
 #else
@@ -3780,7 +3787,10 @@ auto parser::parse_string_simd() -> json_result<json_string_data> {
         && std::find(start, string_end, '\\') == string_end
         && detail::utf8_valid(std::string_view{start, static_cast<size_t>(string_end - start)})) {
         json_string_data result(std::string(start, static_cast<size_t>(string_end - start)));
-        current_ = string_end + 1;  // Skip the closing quote
+        // Skip the string and its closing quote. The column counts them as advance() would have (a run holds no
+        // newline: control bytes stop the scan), so an error after the string reports the column it is at.
+        column_ += static_cast<size_t>(string_end - start) + 1;
+        current_ = string_end + 1;
         return result;
     }
 
@@ -4283,6 +4293,18 @@ public:
         self.write_string(text);
         return std::forward<Self>(self);
     }
+    /// A C string. A null pointer is refused (it is not text; write value(nullptr) for JSON null).
+    template <class Self> auto value(this Self&& self, const char* text) -> Self&& {
+        if (text == nullptr) {
+            self.fail("writer: a null const char* is not a string (use value(nullptr) for null)");
+        } else {
+            self.write_string(std::string_view{text});
+        }
+        return std::forward<Self>(self);
+    }
+    /// A char is ambiguous (a one-character string or a code unit as a number): say which, value(std::string_view
+    /// {&c, 1}) or value(int{c}). Refused at compile time rather than guessed.
+    template <class Self> auto value(this Self&& self, char) -> Self&& = delete;
     template <class Self> auto value(this Self&& self, std::nullptr_t) -> Self&& {
         self.write_scalar("null");
         return std::forward<Self>(self);
@@ -4296,14 +4318,24 @@ public:
     template <class Self, std::integral I>
         requires(!std::same_as<I, bool> && !std::same_as<I, char> && !std::same_as<I, char8_t>)
     auto value(this Self&& self, I number) -> Self&& {
-        std::array<char, 24> buf{};
+        std::array<char, 48> buf{};  // a 128-bit integer has at most 40 characters
         const auto [end, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), number);
-        self.write_scalar(std::string_view{buf.data(), static_cast<size_t>(end - buf.data())});
+        if (ec != std::errc{}) {
+            self.fail("writer: an integer could not be formatted", json_error_code::invalid_number);
+        } else {
+            self.write_scalar(std::string_view{buf.data(), static_cast<size_t>(end - buf.data())});
+        }
         return std::forward<Self>(self);
     }
     template <class Self, std::floating_point F>
     auto value(this Self&& self, F number) -> Self&& {
-        self.write_double(static_cast<double>(number));
+        // Written as a double (the format to_string uses). A finite long double past double range is refused as
+        // such, not reported as an infinity it never was.
+        if (std::isfinite(number) && !std::isfinite(static_cast<double>(number))) {
+            self.fail("writer: a number is outside double range", json_error_code::invalid_number);
+        } else {
+            self.write_double(static_cast<double>(number));
+        }
         return std::forward<Self>(self);
     }
     /// One value already in JSON form (e.g. a json_value's to_string()); it must parse as exactly one value.
@@ -4420,7 +4452,9 @@ private:
             return;
         }
         if (!begin_value()) { return; }
-        detail::append_double(out_, number);
+        if (!detail::append_double(out_, number)) {
+            fail("writer: a number could not be formatted", json_error_code::invalid_number);
+        }
     }
     auto write_raw(std::string_view json_text) -> void {
         if (error_) { return; }
