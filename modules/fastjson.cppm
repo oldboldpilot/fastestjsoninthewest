@@ -2138,6 +2138,14 @@ public:
     auto as_uint128() const -> uint128_compat;
     auto as_float128() const -> float128_compat;
 
+    // CHECKED reads, for values from outside (a provider's stream, a peer's frame, a config file): the exact value
+    // or an error -- never a rounded, wrapped or substituted one, and never an exception. get_int64/get_uint64 take
+    // any JSON number whose value is an integer in range (1, 1.0, 1e3, a 128-bit integer); get_double takes any
+    // finite JSON number at its nearest double.
+    [[nodiscard]] auto get_int64() const -> json_result<int64_t>;
+    [[nodiscard]] auto get_uint64() const -> json_result<uint64_t>;
+    [[nodiscard]] auto get_double() const -> json_result<double>;
+
     // Mutable accessor methods
     auto as_array() -> json_array&;
     auto as_object() -> json_object&;
@@ -2176,24 +2184,64 @@ private:
 // ============================================================================
 
 // Thread-safe type checking functions
-// Floating -> integer conversion is undefined behaviour out of range (and for any negative value into an unsigned
-// type). The accessors keep their documented NaN -> 0, and refuse an out-of-range value loudly instead.
+// Integer -> narrower integer: the plain cast wraps (a huge id read back as a small or negative one).
+// Floating -> integer: the plain cast is undefined behaviour out of range. Both are checked here, ONCE, as optional
+// results: the get_*() accessors report an empty one as an error, the as_*() accessors throw std::out_of_range.
 template <class To>
 inline constexpr bool kSignedIntegral = std::is_same_v<To, int64_t> || std::is_same_v<To, int128_compat>;
 
 template <class To, class From>
-[[nodiscard]] auto checked_float_to_int(From v) -> To {
+[[nodiscard]] auto narrow_int(From v) -> std::optional<To> {
+    if constexpr (std::is_same_v<From, int128_compat>) {
+        if constexpr (!kSignedIntegral<To>) {
+            if (v < static_cast<int128_compat>(int64_t{0})) { return std::nullopt; }
+        }
+        if constexpr (std::is_same_v<To, int64_t>) {
+            if (v < static_cast<int128_compat>(std::numeric_limits<int64_t>::min()) ||
+                v > static_cast<int128_compat>(std::numeric_limits<int64_t>::max())) {
+                return std::nullopt;
+            }
+        } else if constexpr (std::is_same_v<To, uint64_t>) {
+            if (static_cast<uint128_compat>(v) > static_cast<uint128_compat>(std::numeric_limits<uint64_t>::max())) {
+                return std::nullopt;
+            }
+        }
+    } else {  // uint128_compat
+        if constexpr (std::is_same_v<To, int64_t>) {
+            if (v > static_cast<uint128_compat>(static_cast<uint64_t>(std::numeric_limits<int64_t>::max()))) {
+                return std::nullopt;
+            }
+        } else if constexpr (std::is_same_v<To, uint64_t>) {
+            if (v > static_cast<uint128_compat>(std::numeric_limits<uint64_t>::max())) { return std::nullopt; }
+        } else if constexpr (std::is_same_v<To, int128_compat>) {
+            if ((v >> 127) == static_cast<uint128_compat>(uint64_t{1})) { return std::nullopt; }
+        }
+    }
+    return static_cast<To>(v);
+}
+
+// Truncates toward zero. NaN gives 0 (the accessors' documented value); out of range gives nothing.
+template <class To, class From>
+[[nodiscard]] auto narrow_float(From v) -> std::optional<To> {
     const auto ld = static_cast<long double>(v);
     if (ld != ld) {
-        return 0;
+        return To(0);
     }
     constexpr int bits = static_cast<int>(sizeof(To) * 8);
     const long double hi = std::ldexp(1.0L, kSignedIntegral<To> ? bits - 1 : bits);
     const bool in_range = kSignedIntegral<To> ? (ld >= -hi && ld < hi) : (ld > -1.0L && ld < hi);
     if (!in_range) {
-        throw std::out_of_range("JSON number does not fit the requested integer type");
+        return std::nullopt;
     }
     return static_cast<To>(v);
+}
+
+template <class To>
+[[nodiscard]] auto or_out_of_range(std::optional<To> v) -> To {
+    if (!v.has_value()) {
+        throw std::out_of_range("JSON number does not fit the requested integer type");
+    }
+    return v.value();
 }
 
 auto json_value::is_null() const noexcept -> bool {
@@ -2293,17 +2341,17 @@ auto json_value::as_int_128() const -> int128_compat {
     }
     // Fallback: Convert from other numeric types
     if (is_uint_128()) {
-        return static_cast<int128_compat>(std::get<uint128_compat>(data_));
+        return or_out_of_range(narrow_int<int128_compat>(std::get<uint128_compat>(data_)));
     }
     if (std::holds_alternative<double>(data_)) {
         const double val = std::get<double>(data_);
         if (__builtin_isnan(val)) {
             return 0;
         }
-        return checked_float_to_int<int128_compat>(val);
+        return or_out_of_range(narrow_float<int128_compat>(val));
     }
     if (is_number_128()) {
-        return checked_float_to_int<int128_compat>(std::get<float128_compat>(data_));
+        return or_out_of_range(narrow_float<int128_compat>(std::get<float128_compat>(data_)));
     }
     return 0;
 }
@@ -2315,16 +2363,16 @@ auto json_value::as_uint_128() const -> uint128_compat {
     }
     // Fallback: Convert from other numeric types
     if (is_int_128()) {
-        return static_cast<uint128_compat>(std::get<int128_compat>(data_));
+        return or_out_of_range(narrow_int<uint128_compat>(std::get<int128_compat>(data_)));
     }
     if (std::holds_alternative<double>(data_)) {
         double val = std::get<double>(data_);
         if (__builtin_isnan(val))
             return 0;
-        return checked_float_to_int<uint128_compat>(val);
+        return or_out_of_range(narrow_float<uint128_compat>(val));
     }
     if (is_number_128()) {
-        return checked_float_to_int<uint128_compat>(std::get<float128_compat>(data_));
+        return or_out_of_range(narrow_float<uint128_compat>(std::get<float128_compat>(data_)));
     }
     return 0;
 }
@@ -2354,13 +2402,13 @@ auto json_value::as_int64() const -> int64_t {
         double val = std::get<double>(data_);
         if (__builtin_isnan(val))
             return 0;
-        return checked_float_to_int<int64_t>(val);
+        return or_out_of_range(narrow_float<int64_t>(val));
     } else if (is_int_128()) {
-        return static_cast<int64_t>(std::get<int128_compat>(data_));
+        return or_out_of_range(narrow_int<int64_t>(std::get<int128_compat>(data_)));
     } else if (is_uint_128()) {
-        return static_cast<int64_t>(std::get<uint128_compat>(data_));
+        return or_out_of_range(narrow_int<int64_t>(std::get<uint128_compat>(data_)));
     } else if (is_number_128()) {
-        return checked_float_to_int<int64_t>(std::get<float128_compat>(data_));
+        return or_out_of_range(narrow_float<int64_t>(std::get<float128_compat>(data_)));
     }
     return 0;  // Non-numeric type returns 0
 }
@@ -2370,13 +2418,13 @@ auto json_value::as_uint64() const -> uint64_t {
         double val = std::get<double>(data_);
         if (__builtin_isnan(val))
             return 0;
-        return checked_float_to_int<uint64_t>(val);
+        return or_out_of_range(narrow_float<uint64_t>(val));
     } else if (is_uint_128()) {
-        return static_cast<uint64_t>(std::get<uint128_compat>(data_));
+        return or_out_of_range(narrow_int<uint64_t>(std::get<uint128_compat>(data_)));
     } else if (is_int_128()) {
-        return static_cast<uint64_t>(std::get<int128_compat>(data_));
+        return or_out_of_range(narrow_int<uint64_t>(std::get<int128_compat>(data_)));
     } else if (is_number_128()) {
-        return checked_float_to_int<uint64_t>(std::get<float128_compat>(data_));
+        return or_out_of_range(narrow_float<uint64_t>(std::get<float128_compat>(data_)));
     }
     return 0;  // Non-numeric type returns 0
 }
@@ -2398,17 +2446,17 @@ auto json_value::as_int128() const -> int128_compat {
     if (is_int_128()) {
         return std::get<int128_compat>(data_);
     } else if (is_uint_128()) {
-        return static_cast<int128_compat>(std::get<uint128_compat>(data_));
+        return or_out_of_range(narrow_int<int128_compat>(std::get<uint128_compat>(data_)));
     }
     if (std::holds_alternative<double>(data_)) {
         const double val = std::get<double>(data_);
         if (__builtin_isnan(val)) {
             return 0;
         }
-        return checked_float_to_int<int128_compat>(val);
+        return or_out_of_range(narrow_float<int128_compat>(val));
     }
     if (is_number_128()) {
-        return checked_float_to_int<int128_compat>(std::get<float128_compat>(data_));
+        return or_out_of_range(narrow_float<int128_compat>(std::get<float128_compat>(data_)));
     }
     return 0;  // Non-numeric type returns 0
 }
@@ -2418,17 +2466,17 @@ auto json_value::as_uint128() const -> uint128_compat {
         return std::get<uint128_compat>(data_);
     }
     if (is_int_128()) {
-        return static_cast<uint128_compat>(std::get<int128_compat>(data_));
+        return or_out_of_range(narrow_int<uint128_compat>(std::get<int128_compat>(data_)));
     }
     if (std::holds_alternative<double>(data_)) {
         const double val = std::get<double>(data_);
         if (__builtin_isnan(val)) {
             return 0;
         }
-        return checked_float_to_int<uint128_compat>(val);
+        return or_out_of_range(narrow_float<uint128_compat>(val));
     }
     if (is_number_128()) {
-        return checked_float_to_int<uint128_compat>(std::get<float128_compat>(data_));
+        return or_out_of_range(narrow_float<uint128_compat>(std::get<float128_compat>(data_)));
     }
     return 0;  // Non-numeric type returns 0
 }
@@ -2444,6 +2492,49 @@ auto json_value::as_float128() const -> float128_compat {
         return static_cast<float128_compat>(std::get<uint128_compat>(data_));
     }
     return static_cast<float128_compat>(std::numeric_limits<double>::quiet_NaN());
+}
+
+namespace checked_read {
+[[nodiscard]] inline auto number_error(std::string_view what) -> json_error {
+    return json_error{json_error_code::invalid_number, std::string{what}, 0, 0};
+}
+
+// The exact integer a JSON number holds, as To, or why not.
+template <class To, class Data>
+[[nodiscard]] auto exact_integer(const Data& data) -> json_result<To> {
+    return std::visit(
+        [](const auto& v) -> json_result<To> {
+            using T = std::decay_t<decltype(v)>;
+            if constexpr (std::is_same_v<T, double> || std::is_same_v<T, float128_compat>) {
+                const auto ld = static_cast<long double>(v);
+                if (!std::isfinite(ld)) { return std::unexpected(number_error("the number is not finite")); }
+                if (ld != std::truncl(ld)) { return std::unexpected(number_error("the number is not an integer")); }
+                if (auto n = narrow_float<To>(v)) { return n.value(); }
+                return std::unexpected(number_error("the integer is outside the requested range"));
+            } else if constexpr (std::is_same_v<T, int128_compat> || std::is_same_v<T, uint128_compat>) {
+                if (auto n = narrow_int<To>(v)) { return n.value(); }
+                return std::unexpected(number_error("the integer is outside the requested range"));
+            } else {
+                return std::unexpected(number_error("the value is not a number"));
+            }
+        },
+        data);
+}
+}  // namespace checked_read
+
+auto json_value::get_int64() const -> json_result<int64_t> { return checked_read::exact_integer<int64_t>(data_); }
+
+auto json_value::get_uint64() const -> json_result<uint64_t> { return checked_read::exact_integer<uint64_t>(data_); }
+
+auto json_value::get_double() const -> json_result<double> {
+    if (!is_number()) {
+        return std::unexpected(checked_read::number_error("the value is not a number"));
+    }
+    const double d = as_float64();
+    if (!std::isfinite(d)) {
+        return std::unexpected(checked_read::number_error("the number is outside double range"));
+    }
+    return d;
 }
 
 auto json_value::as_array() const -> const json_array& {
