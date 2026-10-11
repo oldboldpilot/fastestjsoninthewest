@@ -2692,9 +2692,11 @@ auto json_value::operator[](const std::string& key) const -> const json_value& {
 }
 
 // Thread-safe serialization with SIMD optimization
+// A local buffer, not a thread_local one: the result is returned by value either way (a thread_local is COPIED
+// out, a local is moved), and a thread_local is destroyed before any static destructor runs, so a caller that
+// serializes from a static destructor -- an exit-time report -- would write into a destroyed string.
 auto json_value::to_string() const -> std::string {
-    thread_local std::string buffer;  // Thread-local buffer for performance
-    buffer.clear();
+    std::string buffer;
     buffer.reserve(1024);  // Pre-allocate reasonable size
 
     serialize_to_buffer(buffer, 0);
@@ -2702,8 +2704,7 @@ auto json_value::to_string() const -> std::string {
 }
 
 auto json_value::to_pretty_string(int indent) const -> std::string {
-    thread_local std::string buffer;  // Thread-local buffer
-    buffer.clear();
+    std::string buffer;  // local, for the reason given at to_string()
     buffer.reserve(2048);  // Larger buffer for pretty printing
 
     serialize_pretty_to_buffer(buffer, indent, 0);
