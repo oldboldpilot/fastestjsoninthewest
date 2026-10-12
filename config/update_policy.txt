@@ -1,0 +1,42 @@
+# fastestjsoninthewest (fastjson) — Update & Commit Policy
+# Created: October 12, 2026
+
+It is consumed as a submodule by sensen and ThinButQuickWebFramework, and through sensen by OptionsAndFuturesCalculator and mortgage-nest-egg. A change here is not live in any
+consumer until that consumer's submodule pointer is bumped and pushed
+separately, which is a decision taken in the consumer, not here.
+
+## Pre-Commit Checklist
+
+1. **Build Verification**
+   - This library is compiled as a subproject of its consumers, so the build that
+     matters is theirs: build it where it is consumed before landing a code change.
+     Do not record a build command here that nothing in this repository runs.
+
+2. **Test Suite**
+   - Run the tests this repository carries, and name the gate that covers the
+     change in the commit message. A change with no gate that can see it is not done.
+
+3. **Documentation Updates** (required for every push)
+   - Update the documents this change makes wrong, in the same commit. A stale
+     note recording why something is impossible is worse than no note: it is the
+     one the next reader trusts instead of measuring.
+   - Run the documentation citation gate before every commit that changes a *.md, and
+     again on the branch before landing it:
+       python3 tools/check_docs_claims.py          # every code name a doc cites must exist
+       bash tools/test_check_docs_claims.sh        # the gate's own gate
+     MISSING must be zero, or every remaining line is listed with its justification in the
+     commit message (another repository's code names and kernel/external-tool names are that
+     class). DESIGN, FRAGMENT and REVISION are reported and are not fatal. The gate is
+     TEXTUAL: it proves a cited name exists, never that the sentence around it is true, so it
+     does not replace reading. See the documentation-citation rule in config/cpp_details.txt.
+
+## Authorship Policy (MANDATORY)
+
+Commits are authored by the repository owner only. Do not add an AI assistant as
+an author, a committer or a trailer.
+
+## Post-Commit Actions
+
+1. **Push to every remote** this repository has, and verify each one with
+   `git ls-remote` afterwards -- a push's own output is not proof the ref persisted.
+2. **Back up to the NAS** with a one-way `rsync -a -c --no-links` (never --delete).

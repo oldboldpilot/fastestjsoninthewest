@@ -1,0 +1,50 @@
+═══════════════════════════════════════════════════════════════════════════════
+  OFFICIAL CODE POLICY — fastestjsoninthewest (fastjson)
+  This is a leaf C++23 module library. It is consumed as a submodule by sensen and ThinButQuickWebFramework, and through sensen by OptionsAndFuturesCalculator and mortgage-nest-egg.
+  The authoritative C++23 code policy for this ecosystem is sensen's
+  config/cpp_details.txt (mirrored in OptionsAndFuturesCalculator,
+  ThinButQuickWebFramework and mortgage-nest-egg), and this library is developed
+  against it; this file is deliberately NOT a second copy of those rules -- it
+  records the rules enforced HERE, by gates that live in THIS repository, so that
+  a rule and the thing that checks it sit in one place. Referenced by
+  config/update_policy.txt. Created: 2026-10-12.
+═══════════════════════════════════════════════════════════════════════════════
+
+1. EVERY CODE NAME A DOC CITES MUST EXIST IN THE CODE (owner 2026-10-12). A document is part
+    of the deliverable, so an invented name in it is a defect of the same kind as an invented
+    function in code, and it is worse in one way: the next reader TRUSTS it, so a stale note
+    recording why something is impossible is the one they believe instead of measuring. On
+    2026-10-07 a docs lane's report marked every citation "verified" while its docs named
+    functions, files and error strings that do not exist. GATE: `tools/check_docs_claims.py`
+    reads the Markdown lines a branch ADDED, takes every backticked span that names code (an
+    identifier, a qualified name, a flag, an environment variable, a repository path, a quoted
+    message, a git revision, a command line) and looks it up in this repository's own tracked
+    files outside docs/ and *.md -- the tree is read once and every lookup is answered in
+    memory, so a doc with a thousand citations costs one pass:
+
+      python3 tools/check_docs_claims.py                   # lines added since the default branch
+      python3 tools/check_docs_claims.py --base REV         # ... since REV
+      python3 tools/check_docs_claims.py --all FILE.md ...  # whole files
+      python3 tools/check_docs_claims.py --json             # machine-readable
+      bash tools/test_check_docs_claims.sh                  # the gate's own gate, on a throwaway repo
+
+    Four buckets. MISSING is fatal (exit status 1): the name is not in this repository. DESIGN
+    (inside a heading section or top-level list entry marked "Design (not built)"), FRAGMENT
+    (two backticks paired across a sentence -- a Markdown defect) and REVISION (a commit this
+    repository cannot resolve, i.e. another repository's) are reported and never fatal. A
+    commit that changes a *.md runs the gate and leaves MISSING at zero, or lists every
+    remaining line WITH its justification in the commit message or lane report; another
+    repository's code names and kernel/external-tool names are that justified class, and a
+    lane's own statement that its citations were verified is not evidence. LIMIT, stated
+    because it is the half this cannot do: the lookup is TEXTUAL, so a pass proves the cited
+    name EXISTS, not that the sentence around it is true -- the semantic fact-check is still a
+    human's. Nothing in it is specific to one repository: the base is derived from this
+    repository's own default branch (origin/HEAD, else origin/master, else origin/main) and the
+    path prefixes from its own tracked top-level directories, because a recorded list is right
+    for one tree and silently skips every citation outside it. The COPY OF RECORD is sensen's
+    `tools/check_docs_claims.py`; sensen, OptionsAndFuturesCalculator, ThinButQuickWebFramework,
+    mortgage-nest-egg, fastestjsoninthewest and cpp23-logger each carry a BYTE-IDENTICAL copy.
+    Change sensen's and copy it out; never edit a copy in place. Nothing in a consuming
+    repository can compare the two today -- OptionsAndFuturesCalculator's backend/sensen pin
+    predates the script -- so that rule is kept by hand, and the self-test is the only local
+    proof that the copy where it sits works.
