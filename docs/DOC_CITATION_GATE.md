@@ -4,7 +4,7 @@ This library now carries the shared documentation-citation gate. The script is `
 
 `config/cpp_details.txt` and `config/update_policy.txt` were created here to record the gate. The rule is that a commit changing a `*.md` file runs the gate and leaves MISSING at zero, or lists every remaining line with its justification in the commit message. The update-policy bullets sit under the documentation-updates checklist item.
 
-Run the gate with `python3 tools/check_docs_claims.py`, which checks the Markdown lines added since the merge-base with this repository's own default branch. Use `python3 tools/check_docs_claims.py --base REV` to set the base revision, `python3 tools/check_docs_claims.py --all FILE.md` to check one whole document, and `python3 tools/check_docs_claims.py --json` for machine-readable output. Run the self-test with `bash tools/test_check_docs_claims.sh`. It has 30 checks, runs on a throwaway fixture repository, and needs no model, no build and no network.
+Run the gate with `python3 tools/check_docs_claims.py`, which checks the Markdown lines added since the merge-base with this repository's own default branch. Use `python3 tools/check_docs_claims.py --base REV` to set the base revision, `python3 tools/check_docs_claims.py --all FILE.md` to check one whole document, and `python3 tools/check_docs_claims.py --json` for machine-readable output. Run the self-test with `bash tools/test_check_docs_claims.sh`. It has 53 checks, runs on a throwaway fixture repository, and needs no model, no build and no network.
 
 The four buckets are:
 
