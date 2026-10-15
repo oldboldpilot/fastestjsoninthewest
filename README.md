@@ -299,9 +299,23 @@ export LD_LIBRARY_PATH=/opt/clang-21/lib/x86_64-unknown-linux-gnu:$LD_LIBRARY_PA
 
 #### Makefile Example
 
+**The ISA flags must MATCH the ones the library's modules were built with, not merely be wider.**
+A C++23 module BMI records its target features and clang refuses to load one into a translation
+unit compiled with a different set -- in both directions. `-march=native` here is therefore
+wrong, not merely unportable: against a library built at the project baseline it produces
+
+```
+error: current translation unit is compiled with the target feature '+fma' but the
+       precompiled file 'fastjson.pcm' was not
+```
+
+The baseline is `-march=x86-64-v3 -mtune=generic -mavx2 -mfma`. Use exactly that, or rebuild the
+library with `-DENABLE_NATIVE_OPTIMIZATIONS=ON` (which puts every target here on `-march=native`
+together) and then match it.
+
 ```makefile
-CXX = /opt/clang-21/bin/clang++
-CXXFLAGS = -std=c++23 -O3 -march=native
+CXX = clang++                      # clang 23 or newer; use its ABSOLUTE path if several exist
+CXXFLAGS = -std=c++23 -O3 -march=x86-64-v3 -mtune=generic -mavx2 -mfma
 MODULE_PATH = /path/to/FastestJSONInTheWest/build
 LDFLAGS = -L$(MODULE_PATH)
 

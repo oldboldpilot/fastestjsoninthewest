@@ -1,6 +1,65 @@
 #include "benchmark.h"
 #include <string>
 #include <simdjson.h>
+// The AVX2 hand-written scan below names `__m256i` and `_mm256_*` directly, and nothing else
+// here declares them: `import fastjson_turbo;` exports the library's API, not the intrinsics it
+// happens to use internally, because a module does not re-export what its implementation
+// included. Without this the file does not compile at all --
+//   error: missing '#include <immintrin.h>'; '__m256i' must be declared before it is used
+// -- which went unseen only because two earlier build defects in this project stopped the build
+// before this translation unit was ever reached.
+#include <immintrin.h>
+
+// clmul(x, ~0) IS THE PREFIX-XOR, AND THE PROJECT BASELINE HAS NO PCLMUL.
+//
+// The string-mask step in every scan below turns a bitmap of unescaped quote positions into a
+// bitmap of "inside a string" by carry-less-multiplying it with all-ones -- simdjson's trick.
+// `_mm_clmulepi64_si128` needs the `pclmul` target feature, which is NOT part of
+// `-march=x86-64-v3`, the baseline every target in this project compiles at:
+//
+//     error: '__builtin_ia32_pclmulqdq128' needs target feature pclmul
+//
+// Raising the baseline to carry pclmul is not an option. A C++23 module BMI records its target
+// features, so a translation unit compiled with a wider set cannot load BMIs built with the
+// project's -- and sensen has already recorded an incident where a submodule appending
+// `-maes -mpclmul` split a shared `std.pcm` from the units that imported it.
+//
+// So the intrinsic is used ONLY where the compiler was actually told pclmul is available, and
+// the portable shift chain -- which IS the prefix-XOR, by doubling steps -- is used otherwise.
+// VERIFIED EQUAL rather than assumed, both widths, against the intrinsic compiled with -mpclmul:
+// all 65,536 low-16 patterns, every single-bit input, 2,000,000 random words and the six
+// boundary values (0, 1, ~0, the top bit, 0xAA.., 0x55..) -- 2,065,574 comparisons at 32 bits
+// and 2,065,606 at 64, 0 mismatches each.
+[[nodiscard]] static inline auto prefix_xor32(std::uint32_t x) noexcept -> std::uint32_t {
+#if defined(__PCLMUL__)
+    const __m128i v = _mm_cvtsi32_si128(static_cast<int>(x));
+    const __m128i ones = _mm_set1_epi8(static_cast<char>(0xFF));
+    return static_cast<std::uint32_t>(_mm_cvtsi128_si32(_mm_clmulepi64_si128(v, ones, 0)));
+#else
+    x ^= x << 1;
+    x ^= x << 2;
+    x ^= x << 4;
+    x ^= x << 8;
+    x ^= x << 16;
+    return x;
+#endif
+}
+
+[[nodiscard]] static inline auto prefix_xor64(std::uint64_t x) noexcept -> std::uint64_t {
+#if defined(__PCLMUL__)
+    const __m128i v = _mm_cvtsi64_si128(static_cast<long long>(x));
+    const __m128i ones = _mm_set1_epi8(static_cast<char>(0xFF));
+    return static_cast<std::uint64_t>(_mm_cvtsi128_si64(_mm_clmulepi64_si128(v, ones, 0)));
+#else
+    x ^= x << 1;
+    x ^= x << 2;
+    x ^= x << 4;
+    x ^= x << 8;
+    x ^= x << 16;
+    x ^= x << 32;
+    return x;
+#endif
+}
 
 import fastjson_turbo;
 import fastjson;
@@ -313,10 +372,7 @@ static void BM_Fastjson_Turbo_IndexOnly_NoChar(benchmark::State& state) {
             
             uint32_t unescaped_quotes = quote_mask & ~escaped_mask;
             
-            __m128i v = _mm_cvtsi32_si128(unescaped_quotes);
-            __m128i ones = _mm_set1_epi8(0xFF);
-            __m128i string_mask_vec = _mm_clmulepi64_si128(v, ones, 0);
-            uint32_t string_mask = _mm_cvtsi128_si32(string_mask_vec);
+            uint32_t string_mask = prefix_xor32(unescaped_quotes);
             string_mask ^= prev_string_mask;
             prev_string_mask = static_cast<uint32_t>(static_cast<int32_t>(string_mask) >> 31);
             
@@ -413,10 +469,7 @@ static void BM_Fastjson_Turbo_IndexOnly_64(benchmark::State& state) {
             
             uint64_t unescaped_quotes = quote_mask & ~escaped_mask;
             
-            __m128i v = _mm_set_epi64x(0, unescaped_quotes);
-            __m128i ones = _mm_set1_epi8(0xFF);
-            __m128i string_mask_vec = _mm_clmulepi64_si128(v, ones, 0);
-            uint64_t string_mask = _mm_cvtsi128_si64(string_mask_vec);
+            uint64_t string_mask = prefix_xor64(unescaped_quotes);
             string_mask ^= prev_string_mask;
             prev_string_mask = static_cast<uint64_t>(static_cast<int64_t>(string_mask) >> 63);
             
@@ -528,10 +581,7 @@ static void BM_Fastjson_Turbo_IndexOnly_64_NoChar(benchmark::State& state) {
             
             uint64_t unescaped_quotes = quote_mask & ~escaped_mask;
             
-            __m128i v = _mm_set_epi64x(0, unescaped_quotes);
-            __m128i ones = _mm_set1_epi8(0xFF);
-            __m128i string_mask_vec = _mm_clmulepi64_si128(v, ones, 0);
-            uint64_t string_mask = _mm_cvtsi128_si64(string_mask_vec);
+            uint64_t string_mask = prefix_xor64(unescaped_quotes);
             string_mask ^= prev_string_mask;
             prev_string_mask = static_cast<uint64_t>(static_cast<int64_t>(string_mask) >> 63);
             
@@ -640,10 +690,7 @@ static void BM_Fastjson_Turbo_IndexOnly_Pshufb(benchmark::State& state) {
             
             uint32_t unescaped_quotes = quote_mask & ~escaped_mask;
             
-            __m128i v = _mm_cvtsi32_si128(unescaped_quotes);
-            __m128i ones = _mm_set1_epi8(0xFF);
-            __m128i string_mask_vec = _mm_clmulepi64_si128(v, ones, 0);
-            uint32_t string_mask = _mm_cvtsi128_si32(string_mask_vec);
+            uint32_t string_mask = prefix_xor32(unescaped_quotes);
             string_mask ^= prev_string_mask;
             prev_string_mask = static_cast<uint32_t>(static_cast<int32_t>(string_mask) >> 31);
             
@@ -736,10 +783,7 @@ static void BM_Fastjson_Turbo_IndexOnly_64_Pshufb(benchmark::State& state) {
             
             uint64_t unescaped_quotes = quote_mask & ~escaped_mask;
             
-            __m128i v = _mm_set_epi64x(0, unescaped_quotes);
-            __m128i ones = _mm_set1_epi8(0xFF);
-            __m128i string_mask_vec = _mm_clmulepi64_si128(v, ones, 0);
-            uint64_t string_mask = _mm_cvtsi128_si64(string_mask_vec);
+            uint64_t string_mask = prefix_xor64(unescaped_quotes);
             string_mask ^= prev_string_mask;
             prev_string_mask = static_cast<uint64_t>(static_cast<int64_t>(string_mask) >> 63);
             
@@ -840,10 +884,7 @@ static void BM_Fastjson_Turbo_IndexOnly_Pshufb_Char(benchmark::State& state) {
             
             uint32_t unescaped_quotes = quote_mask & ~escaped_mask;
             
-            __m128i v = _mm_cvtsi32_si128(unescaped_quotes);
-            __m128i ones = _mm_set1_epi8(0xFF);
-            __m128i string_mask_vec = _mm_clmulepi64_si128(v, ones, 0);
-            uint32_t string_mask = _mm_cvtsi128_si32(string_mask_vec);
+            uint32_t string_mask = prefix_xor32(unescaped_quotes);
             string_mask ^= prev_string_mask;
             prev_string_mask = static_cast<uint32_t>(static_cast<int32_t>(string_mask) >> 31);
             
@@ -941,10 +982,7 @@ static void BM_Fastjson_Turbo_IndexOnly_Decoupled(benchmark::State& state) {
             
             uint64_t unescaped_quotes = quote_mask & ~escaped_mask;
             
-            __m128i v = _mm_set_epi64x(0, unescaped_quotes);
-            __m128i ones = _mm_set1_epi8(0xFF);
-            __m128i string_mask_vec = _mm_clmulepi64_si128(v, ones, 0);
-            uint64_t string_mask = _mm_cvtsi128_si64(string_mask_vec);
+            uint64_t string_mask = prefix_xor64(unescaped_quotes);
             string_mask ^= prev_string_mask;
             prev_string_mask = static_cast<uint64_t>(static_cast<int64_t>(string_mask) >> 63);
             
@@ -1056,10 +1094,7 @@ static void BM_Fastjson_Turbo_IndexOnly_Decoupled_Char(benchmark::State& state) 
             
             uint64_t unescaped_quotes = quote_mask & ~escaped_mask;
             
-            __m128i v = _mm_set_epi64x(0, unescaped_quotes);
-            __m128i ones = _mm_set1_epi8(0xFF);
-            __m128i string_mask_vec = _mm_clmulepi64_si128(v, ones, 0);
-            uint64_t string_mask = _mm_cvtsi128_si64(string_mask_vec);
+            uint64_t string_mask = prefix_xor64(unescaped_quotes);
             string_mask ^= prev_string_mask;
             prev_string_mask = static_cast<uint64_t>(static_cast<int64_t>(string_mask) >> 63);
             

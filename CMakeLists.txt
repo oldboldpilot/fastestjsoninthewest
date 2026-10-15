@@ -118,7 +118,11 @@ if(NOT MSVC OR CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "GNU")
     )
 
     set(FASTJSON_OPTIMIZATION_FLAGS
-        -ffast-math             # Fast math for performance
+        # -ffast-math is NOT here, by policy. config/cpp_details.txt rule 50 forbids it: it lets
+        # the compiler assume no NaN and no signed zero and reassociate freely, and a JSON library
+        # PARSES AND PRINTS the very doubles those assumptions are about. A number that round-trips
+        # under -O3 and not under -ffast-math is a correctness defect in the serialiser, not a
+        # tuning question.
         -funroll-loops          # Loop unrolling
         -fvectorize             # Vectorization
         -fslp-vectorize         # SLP vectorization
@@ -287,9 +291,48 @@ target_compile_definitions(fastjson PRIVATE
 target_compile_options(fastjson PRIVATE ${FASTJSON_BASE_COMPILE_FLAGS})
 target_link_options(fastjson PRIVATE ${FASTJSON_BASE_LINK_FLAGS})
 
-# Conditionally enable CUDA and compile GPU files
-# Conditionally enable CUDA and compile GPU files
-option(ENABLE_CUDA "Enable CUDA GPU acceleration" ON)
+# Conditionally enable CUDA and compile GPU files.
+#
+# ENABLE_CUDA AUTO-DETECTS, and it has to. A hardcoded `option(ENABLE_CUDA ... ON)` writes the
+# cache entry ON before anything has looked for a toolkit, so `enable_language(CUDA)` below ran on
+# every host and a machine with no nvcc died at CONFIGURE time:
+#
+#     CMake Error ... Failed to find nvcc.
+#     Compiler requires the CUDA toolkit.  Please set the CUDAToolkit_ROOT variable.
+#
+# That is a configure failure in a JSON library on any CPU-only box -- including every host that
+# builds this repository as a submodule -- and it reads as a broken release rather than as a flag.
+# sensen hit the identical defect and fixed it the same way; this is that fix.
+#
+# THE PROBE LOOKS FOR A COMPILER, NOT FOR A DEVICE. `enable_language(CUDA)` needs nvcc; a GPU box
+# with no toolkit must still resolve OFF, and a toolkit off PATH must still be found. An EXPLICIT
+# -DENABLE_CUDA=ON on a toolkit-less host still fails loudly, which is the right direction: the
+# caller asked for something this host cannot do.
+if(NOT DEFINED ENABLE_CUDA)
+    set(_fastjson_cuda_found OFF)
+    foreach(_hint ${CMAKE_CUDA_COMPILER} $ENV{CUDACXX})
+        if(_hint AND EXISTS "${_hint}")
+            set(_fastjson_cuda_found ON)
+        endif()
+    endforeach()
+    if(NOT _fastjson_cuda_found)
+        find_program(_fastjson_nvcc NAMES nvcc
+                     HINTS ${CUDAToolkit_ROOT} $ENV{CUDAToolkit_ROOT}
+                           ${CUDA_PATH} $ENV{CUDA_PATH}
+                           ${CUDA_HOME} $ENV{CUDA_HOME}
+                           /usr/local/cuda
+                     PATH_SUFFIXES bin)
+        if(_fastjson_nvcc)
+            set(_fastjson_cuda_found ON)
+            set(CMAKE_CUDA_COMPILER "${_fastjson_nvcc}" CACHE FILEPATH "CUDA compiler" FORCE)
+        endif()
+    endif()
+    option(ENABLE_CUDA "Enable CUDA GPU acceleration" ${_fastjson_cuda_found})
+    message(STATUS "fastjson: ENABLE_CUDA auto-detected ${_fastjson_cuda_found}"
+                   " (pass -DENABLE_CUDA=ON/OFF to decide it by hand)")
+else()
+    option(ENABLE_CUDA "Enable CUDA GPU acceleration" ${ENABLE_CUDA})
+endif()
 if(ENABLE_CUDA)
     enable_language(CUDA)
     if(WIN32)
@@ -448,7 +491,7 @@ if(NOT MSVC OR CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "GNU")
     target_compile_options(fastjson_simd_multiregister PRIVATE
         -O3                     # Maximum optimization
         -fPIC                   # Position Independent Code
-        -ffast-math             # Aggressive fast math
+        # -ffast-math removed: see FASTJSON_OPTIMIZATION_FLAGS for why a JSON codec may not have it.
         -funroll-loops          # Loop unrolling
         -fvectorize             # Auto-vectorization
         -fslp-vectorize         # SLP vectorization
@@ -530,7 +573,10 @@ if(NOT MSVC OR CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "GNU")
         -fstack-protector-strong
         -D_FORTIFY_SOURCE=2
         -pthread
-        ${SIMD_FLAGS}
+        # `${SIMD_FLAGS}` used to be expanded here. It is EMPTY at this point -- SIMD_FLAGS is
+        # first set some 350 lines below -- so this read contributed nothing and merely looked as
+        # though the two flag sets agreed. They did not, which is the defect written up at
+        # SIMD_FLAGS' own definition. The baseline above is the same one SIMD_FLAGS now holds.
     )
     set(BENCHMARK_COMPILE_FLAGS
         -std=c++23
@@ -593,19 +639,31 @@ set_target_properties(fastjson_multiregister_parser PROPERTIES
     ARCHIVE_OUTPUT_NAME fastjson_multiregister_parser
 )
 
-# Link dependencies for fastjson_multiregister_parser
-# Target-level ordering so std.pcm (built by std_module) exists before this
-# target's objects link. NOTE: on a COLD build this does NOT fully serialise the
-# C++23 module *dyndep scan* phase against std_module — Ninja/CMake schedule the
-# `import std` BMI scan of fastjson_turbo.cppm independently of add_dependencies,
-# so a from-scratch build can intermittently fail with "module 'std' not found".
-# This is a known CMake/Ninja cross-target C++23-modules limitation (the fix
-# would be to adopt CMake's native CMAKE_CXX_MODULE_STD instead of the hand-built
-# std_module target). Re-running `ninja` succeeds: std.pcm is present on the
-# second pass. Incremental builds are unaffected.
-add_dependencies(fastjson_multiregister_parser
-    std_module
-)
+# Link dependencies for fastjson_multiregister_parser.
+#
+# LINKING std_module IS WHAT ORDERS THE MODULE SCAN; `add_dependencies` alone is not.
+#
+# This block used to carry `add_dependencies(... std_module)` and a note calling the resulting
+# cold-build failure "a known CMake/Ninja cross-target C++23-modules limitation" that one should
+# work around by running `ninja` twice. It is neither known-unfixable nor a limitation: it is a
+# missing link edge. `add_dependencies` orders TARGETS, and the `import std` dyndep scan of
+# fastjson_turbo.cppm is scheduled independently of it -- so on a clean tree the scan ran before
+# std.pcm existed and the build died with:
+#
+#     fastjson_turbo.cppm:16:8: fatal error: module 'std' not found
+#
+# `std_module` exposes its interface through a PUBLIC `FILE_SET CXX_MODULES`. LINKING it is what
+# tells CMake this target can import those modules, so CMake writes the module mapping into this
+# target's modmap and orders the BMI ahead of the scan that needs it. Its two siblings `fastjson`
+# (line ~275) and `fastjson_parallel` (line ~431) have always linked it, and neither ever showed
+# this failure -- the evidence was in the same file as the note.
+#
+# `$<TARGET_NAME_IF_EXISTS:...>` matches the siblings: a parent project may provide std_module
+# itself (FASTJSON_SKIP_STD_MODULE), and then there is no target here to link.
+target_link_libraries(fastjson_multiregister_parser PUBLIC $<TARGET_NAME_IF_EXISTS:std_module>)
+if(TARGET std_module)
+    add_dependencies(fastjson_multiregister_parser std_module)
+endif()
 
 # Link parallel processing libraries
 if(ENABLE_PARALLEL_STL)
@@ -1005,6 +1063,46 @@ if(CPU_SUPPORTS_AMX)
     message(STATUS "  ✓ AMX (Advanced Matrix Extensions)")
 endif()
 
+# ONE ISA BASELINE FOR EVERY TARGET, REPLACING THE PER-FEATURE LIST BUILT ABOVE.
+#
+# The detection above is still what decides the HAVE_* DEFINES, which is what runtime dispatch
+# reads. What it must NOT decide is the compiler's target FEATURE SET, because a C++23 module BMI
+# RECORDS the features it was built with and refuses to load into a translation unit compiled with
+# a different set. This file already says so, 500 lines up, about `fastjson_simd_multiregister`:
+# "Keep every target on the one baseline the rest of the project uses." That rule was never
+# applied to the `fastjson` library target itself, and the result was a build that does not
+# complete:
+#
+#     error: precompiled file 'CMakeFiles/fastjson.dir/fastjson.pcm' was compiled with the
+#            target feature '+avx' but the current translation unit is not
+#     error: current translation unit is compiled with the target feature '+fma' but the
+#            precompiled file ... was not
+#
+# Measured 2026-10-14: the library's modules compiled with `-mavx -mavx2 -msse2 -msse3 -msse4.1
+# -msse4.2 -mssse3` and NO `-mfma` (this accumulated list), while every benchmark and test
+# compiled with `-march=x86-64-v3 -mtune=generic -mavx2 -mfma` (MULTIREGISTER_SIMD_FLAGS). Two
+# incompatible ISA worlds in one build tree, so `ninja` ended with 20 errors in
+# fastjson_vs_simdjson_benchmark and turbo_benchmark on a clean checkout.
+#
+# x86-64-v3 already IMPLIES sse2/sse3/ssse3/sse4.1/sse4.2/avx/avx2/fma, so nothing in the list
+# below is lost -- it is the same silicon, named once. AVX-512 and AMX stay OPT-IN
+# (FASTJSON_FORCE_AVX512, ENABLE_NATIVE_OPTIMIZATIONS) because they are above the baseline and
+# raising the floor for everyone would make the artefact unportable.
+set(SIMD_FLAGS
+    -march=x86-64-v3
+    -mtune=generic
+    -mavx2
+    -mfma
+)
+if(ENABLE_NATIVE_OPTIMIZATIONS AND COMPILER_SUPPORTS_MARCH_NATIVE)
+    # An EXPLICIT opt-in. The code policy's rule 50 names `-march=x86-64-v3` and forbids
+    # `-march=native` for a shipped build; this path exists for a caller who asked for it by name
+    # and who therefore owns the consequence -- including that every target here gets it, so the
+    # BMIs and the TUs stay in one world.
+    set(SIMD_FLAGS -march=native -mtune=native)
+    message(STATUS "  ! -march=native requested explicitly: this build is NOT portable")
+endif()
+
 # Add additional optimization flags
 list(APPEND SIMD_FLAGS "-fno-omit-frame-pointer")
 
@@ -1172,3 +1270,40 @@ target_compile_options(test_turbo_correctness PRIVATE
 )
 target_link_options(test_turbo_correctness PRIVATE ${TEST_LINK_FLAGS})
 add_dependencies(test_turbo_correctness std_module fastjson_multiregister_parser)
+
+# ============================================================================
+# Tests registered with CTest
+# ============================================================================
+#
+# This file built test executables and registered NONE of them, so `ctest` here had nothing to
+# run and every one of them passed only when somebody remembered to type its name. A test that
+# cannot be run by the suite is not a test.
+#
+# `PROJECT_IS_TOP_LEVEL` is the guard throughout. This repository is a submodule of sensen,
+# ThinButQuickWebFramework, OptionsAndFuturesCalculator and BigBrotherAnalytics; a superproject
+# runs its own suite and must not have this one's tests injected into it.
+if(PROJECT_IS_TOP_LEVEL)
+    enable_testing()
+
+    add_test(NAME test_turbo_correctness COMMAND test_turbo_correctness)
+    set_tests_properties(test_turbo_correctness PROPERTIES TIMEOUT 300)
+
+    # THE DOCUMENTATION CITATION GATE'S OWN GATE.
+    #
+    # `tools/check_docs_claims.py` is this repository's documentation gate: every code name a
+    # Markdown file cites in backticks must exist in the tracked sources.
+    # `config/cpp_details.txt` and `config/update_policy.txt` both name it, and
+    # `tools/test_check_docs_claims.sh` is the self-test that proves THIS COPY of the gate still
+    # detects what it claims to.
+    #
+    # Until now the self-test was carried here and reachable only by hand, so it passed whenever
+    # somebody remembered to type it -- indistinguishable from a gate that passes, which is the
+    # defect the citation gate exists to catch in prose. sensen and ThinButQuickWebFramework
+    # register it as the ctest `check_docs_claims`; this is the same registration.
+    #
+    # No build target and no WORKING_DIRECTORY: the script resolves its own directory and builds
+    # its fixtures under TMPDIR, so it passes from any cwd.
+    add_test(NAME check_docs_claims
+             COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tools/test_check_docs_claims.sh)
+    set_tests_properties(check_docs_claims PROPERTIES TIMEOUT 120 LABELS "docs;policy")
+endif()
