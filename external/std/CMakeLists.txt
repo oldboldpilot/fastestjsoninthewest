@@ -7,18 +7,9 @@ cmake_minimum_required(VERSION 3.28)
 
 message(STATUS "Building C++23 std modules...")
 
-# Create module library using FILE_SET CXX_MODULES
-# This is CMake's native way to handle C++20/23 modules
-add_library(std_module STATIC)
-
-target_sources(std_module
-    PUBLIC
-        FILE_SET CXX_MODULES FILES
-        ${CMAKE_CURRENT_SOURCE_DIR}/std.cppm
-        ${CMAKE_CURRENT_SOURCE_DIR}/std.compat.cppm
-)
-
-# Dynamically locate libc++ headers and library paths based on CMAKE_CXX_COMPILER
+# Dynamically locate libc++ headers and library paths based on CMAKE_CXX_COMPILER.
+#
+# RESOLVED BEFORE THE SOURCES ARE CHOSEN, because WHICH std.cppm we compile depends on it.
 get_filename_component(COMPILER_REAL_PATH "${CMAKE_CXX_COMPILER}" REALPATH)
 get_filename_component(COMPILER_DIR "${COMPILER_REAL_PATH}" DIRECTORY)
 get_filename_component(LLVM_PREFIX "${COMPILER_DIR}" DIRECTORY)
@@ -43,6 +34,48 @@ if(NOT EXISTS "${LIBCXX_SHARE}/std/algorithm.inc")
         set(LIBCXX_LIB_DIR "/home/linuxbrew/.linuxbrew/Cellar/llvm/22.1.5/lib")
     endif()
 endif()
+
+# THE INSTALLED libc++ OWNS std.cppm; THE VENDORED COPY IS A SNAPSHOT AND GOES STALE.
+#
+# This directory carried its own std.cppm/std.compat.cppm, taken from some earlier libc++. A
+# snapshot of that file cannot survive libc++ gaining a header, because the upstream file guards
+# each not-yet-available header with an `#error` telling the libc++ MAINTAINER to update a table:
+#
+#     #  if __has_include(<text_encoding>)
+#     #    error "please update the header information for <text_encoding> in headers_not_available ..."
+#
+# On libc++ 23, <text_encoding> EXISTS, so the vendored snapshot stopped compiling -- and that
+# error reads as a broken standard library rather than as a stale vendored file. Measured here:
+# `fatal error: module 'std' not found` on every module in the project, downstream of this one
+# `error`, so a standalone build of this repository could not produce a single test binary.
+#
+# So: compile the INSTALLED file when it is there, and fall back to the vendored snapshot only for
+# a toolchain that ships none. The installed file is versioned with the headers it describes, so
+# it cannot disagree with them.
+if(EXISTS "${LIBCXX_SHARE}/std.cppm" AND EXISTS "${LIBCXX_SHARE}/std.compat.cppm")
+    set(FASTJSON_STD_CPPM        "${LIBCXX_SHARE}/std.cppm")
+    set(FASTJSON_STD_COMPAT_CPPM "${LIBCXX_SHARE}/std.compat.cppm")
+    message(STATUS "std modules: using the INSTALLED libc++ interface at ${LIBCXX_SHARE}")
+else()
+    set(FASTJSON_STD_CPPM        "${CMAKE_CURRENT_SOURCE_DIR}/std.cppm")
+    set(FASTJSON_STD_COMPAT_CPPM "${CMAKE_CURRENT_SOURCE_DIR}/std.compat.cppm")
+    message(WARNING "std modules: ${LIBCXX_SHARE} ships no std.cppm, so the VENDORED snapshot in "
+                    "external/std is being compiled. It is a snapshot: expect it to fail with a "
+                    "'please update the header information' error on a newer libc++.")
+endif()
+
+# Create module library using FILE_SET CXX_MODULES
+# This is CMake's native way to handle C++20/23 modules
+add_library(std_module STATIC)
+
+target_sources(std_module
+    PUBLIC
+        FILE_SET CXX_MODULES
+        BASE_DIRS ${LIBCXX_SHARE} ${CMAKE_CURRENT_SOURCE_DIR}
+        FILES
+        ${FASTJSON_STD_CPPM}
+        ${FASTJSON_STD_COMPAT_CPPM}
+)
 
 message(STATUS "Dynamic libc++ detection:")
 message(STATUS "  Headers: ${LIBCXX_INC}")
