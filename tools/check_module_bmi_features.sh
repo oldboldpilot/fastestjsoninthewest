@@ -37,9 +37,41 @@ fi
 # Features an opt-in is allowed to add, named explicitly by whoever turned it on.
 WAIVE="${BMI_FEATURES_WAIVE:-}"
 
+# The compiler the build is configured with, so the probe answers for the toolchain in use rather
+# than for whatever happens to be first on PATH.
+CXX_FOR_PROBE="$(awk -F= '/^CMAKE_CXX_COMPILER:/{print $2}' "${BUILD}/CMakeCache.txt" 2>/dev/null)"
+[[ -x "${CXX_FOR_PROBE}" ]] || CXX_FOR_PROBE="$(command -v clang++ || command -v c++)"
+if [[ ! -x "${CXX_FOR_PROBE}" ]]; then
+    echo "module-bmi-features: FAILED -- no C++ compiler to probe the baseline with; the"
+    echo "  redundant-versus-above-baseline distinction cannot be made without one, and guessing"
+    echo "  it from an ISA table is how this check would go stale."
+    exit 2
+fi
+
+
+# IS THIS FEATURE ALREADY IMPLIED BY THE COMMAND'S OWN BASELINE? The compiler is the oracle, not a
+# hand-kept ISA table: `-m<feat>` is REDUNDANT when compiling with the command's `-march=` alone
+# already defines the feature's predefined macro. The distinction is the whole point of this gate.
+#
+#   REDUNDANT (a defect): `-mfma` beside `-march=x86-64-v3`. v3 enables FMA already, so the flag
+#   buys no instruction -- and yet it is recorded in the BMI as a demand every consumer must spell.
+#   That is cost with no benefit, and it is what broke a downstream repository on 2026-10-16.
+#
+#   ABOVE THE BASELINE (a decision): `-maes`, `-mpclmul` beside the same `-march`. x86-64-v3 does
+#   NOT include AES-NI or PCLMUL, so these genuinely add instructions and genuinely raise the floor
+#   for every consumer of the BMI. That may be exactly what the author wants; it must be said out
+#   loud with BMI_FEATURES_WAIVE rather than discovered by a consumer whose build stops.
+implied_by_baseline() { # feature, march-and-mtune flags
+    local feat="$1"; shift
+    local macro
+    macro="__$(printf '%s' "${feat}" | tr 'a-z.' 'A-Z_')__"
+    "${CXX_FOR_PROBE}" "$@" -dM -E -x c++ /dev/null 2>/dev/null | grep -q "define ${macro}\b"
+}
+
 findings=0
 scanned=0
 reported=""
+above=0
 
 # HOW MODULE TRANSLATION UNITS ARE FOUND, and why not from the target list. A C++ module's BMI is
 # produced through DYNDEP: the .pcm is discovered while building, so `ninja -t targets all` lists
@@ -62,24 +94,41 @@ while IFS= read -r cmd; do
     case " ${reported} " in *" ${src} "*) continue ;; esac
     reported="${reported} ${src}"
     scanned=$((scanned + 1))
-    bad=""
+    baseline=""
+    for tok in ${cmd}; do
+        case "${tok}" in -march=*|-mtune=*) baseline="${baseline} ${tok}" ;; esac
+    done
+    redundant=""
+    raises=""
     for tok in ${cmd}; do
         case "${tok}" in
-            -march=*|-mtune=*) ;;
-            -m[a-z]*)
-                feat="${tok#-m}"
-                case " ${WAIVE} " in *" ${feat} "*) continue ;; esac
-                case "${feat}" in no-*|omit-*|cmodel*|stack*|red-zone|unaligned*|module*|macosx*) continue ;; esac
-                case " ${bad} " in *" ${tok} "*) continue ;; esac
-                bad="${bad} ${tok}"
-                ;;
+            -march=*|-mtune=*) continue ;;
+            -m[a-z]*) ;;
+            *) continue ;;
         esac
+        feat="${tok#-m}"
+        case " ${WAIVE} " in *" ${feat} "*) continue ;; esac
+        case "${feat}" in no-*|omit-*|cmodel*|stack*|red-zone|unaligned*|module*|macosx*|arch=*|tune=*) continue ;; esac
+        case " ${redundant} ${raises} " in *" ${tok} "*) continue ;; esac
+        if [[ -n "${baseline}" ]] && implied_by_baseline "${feat}" ${baseline}; then
+            redundant="${redundant} ${tok}"
+        else
+            raises="${raises} ${tok}"
+        fi
     done
-    if [[ -n "${bad}" ]]; then
+    if [[ -n "${redundant}" ]]; then
         findings=$((findings + 1))
-        echo "FEATURE-ON-BMI ${src#"${PWD}/"}:${bad}"
-        echo "    a consumer must now name${bad} in exactly that spelling, or the BMI will not load."
-        echo "    -march= enabling the same silicon is NOT enough: it emits no -target-feature."
+        echo "REDUNDANT-ON-BMI ${src#"${PWD}/"}:${redundant}"
+        echo "    ${baseline# } already enables these, so the flags add no instruction -- but they ARE"
+        echo "    recorded in the BMI, and every consumer must then name them in the same spelling."
+        echo "    Cost with no benefit: drop them and let -march= carry the baseline."
+    fi
+    if [[ -n "${raises}" ]]; then
+        above=$((above + 1))
+        echo "RAISES-BASELINE ${src#"${PWD}/"}:${raises}"
+        echo "    not implied by ${baseline# }, so these genuinely add instructions AND genuinely"
+        echo "    require every consumer of this BMI to name them. That may be intended; say so with"
+        echo "    BMI_FEATURES_WAIVE and the reason, so a consumer does not discover it as a build stop."
     fi
 done < <(ninja -C "${BUILD}" -t commands all 2>/dev/null)
 
@@ -90,12 +139,16 @@ if [[ ${scanned} -eq 0 ]]; then
     exit 1
 fi
 
-echo "module-bmi-features: ${scanned} module precompile(s) scanned, ${findings} carrying an explicit feature"
+echo "module-bmi-features: ${scanned} module interface(s) scanned, ${findings} with a REDUNDANT feature, ${above} raising the baseline"
 if [[ ${findings} -ne 0 ]]; then
-    echo "module-bmi-features: FAILED -- move the feature into the baseline (-march=), where every"
-    echo "  consumer inherits it, or into an implementation translation unit, which exports no BMI."
-    echo "  To accept it deliberately: BMI_FEATURES_WAIVE='fma avx2' with the reason in the commit."
+    echo "module-bmi-features: FAILED -- a redundant -m<feature> on a module interface is a demand"
+    echo "  on every consumer bought with no instruction in return. Drop it; -march= already has it."
     exit 1
+fi
+if [[ ${above} -ne 0 ]]; then
+    echo "module-bmi-features: OK, with ${above} interface(s) deliberately above the baseline (listed"
+    echo "  above). Nothing redundant is exported. Waive them by name once the decision is recorded."
+    exit 0
 fi
 echo "module-bmi-features: OK -- every module BMI demands only its baseline"
 exit 0
