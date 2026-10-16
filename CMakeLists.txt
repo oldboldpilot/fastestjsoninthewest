@@ -502,6 +502,14 @@ if(NOT MSVC OR CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "GNU")
         # target on the one baseline the rest of the project uses.
         -march=x86-64-v3
         -mtune=generic
+        # THESE TWO OPT-INS RAISE THE BAR FOR EVERY CONSUMER, not just for this target, because
+        # this is a module target: clang records the explicit target-feature list in the BMI and
+        # refuses to load one naming a feature the consuming translation unit does not also name.
+        # So turning either on means every downstream module must be compiled with the identical
+        # flags, in the identical spelling -- `-march=` enabling the same silicon is NOT enough,
+        # since it emits no `-target-feature` of its own. They stay available because a caller who
+        # asks by name owns the consequence; they are off by default so the shipped BMI demands
+        # only the baseline. See the note at SIMD_FLAGS for the measured failure.
         $<$<BOOL:${FASTJSON_FORCE_AVX512}>:-mavx512f -mavx512bw>
         $<$<BOOL:${ENABLE_NATIVE_OPTIMIZATIONS}>:-mavx2 -mfma>
     )
@@ -568,8 +576,19 @@ if(NOT MSVC OR CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "GNU")
         # Portable baseline, not native -- see note above; BMIs record target features.
         -march=x86-64-v3
         -mtune=generic
-        -mavx2
-        -mfma
+        # NOT `-mavx2 -mfma`. Both are already implied by `-march=x86-64-v3` above, so naming
+        # them changes no instruction this target can emit -- but on a MODULE target a redundant
+        # `-m<feature>` is not free, because it is EXPORTED AS A REQUIREMENT. Clang records the
+        # EXPLICIT target-feature list in the BMI and the compatibility check is one-directional:
+        # a BMI naming `+fma` is refused by any consumer that does not name it too, while a BMI
+        # that names fewer features loads in a consumer that names more. `-march=x86-64-v3`
+        # enables FMA (it defines `__FMA__`) and emits NO `-target-feature +fma` to cc1, so a
+        # consumer on the same baseline, spelled that way, is told it "is not" compiled with
+        # `+fma` and every name in this module disappears. Measured 2026-10-16: it broke
+        # ThinButQuickWebFramework's build outright at `src/ads/answer.cppm`, on the identical
+        # baseline, purely over the spelling. A library's module interface therefore names the
+        # MINIMUM -- the baseline and nothing else -- and leaves specialisation to implementation
+        # translation units, which export no BMI.
         -fstack-protector-strong
         -D_FORTIFY_SOURCE=2
         -pthread
@@ -1091,8 +1110,19 @@ endif()
 set(SIMD_FLAGS
     -march=x86-64-v3
     -mtune=generic
-    -mavx2
-    -mfma
+    # NOT `-mavx2 -mfma`. Both are already implied by `-march=x86-64-v3` above, so naming
+    # them changes no instruction this target can emit -- but on a MODULE target a redundant
+    # `-m<feature>` is not free, because it is EXPORTED AS A REQUIREMENT. Clang records the
+    # EXPLICIT target-feature list in the BMI and the compatibility check is one-directional:
+    # a BMI naming `+fma` is refused by any consumer that does not name it too, while a BMI
+    # that names fewer features loads in a consumer that names more. `-march=x86-64-v3`
+    # enables FMA (it defines `__FMA__`) and emits NO `-target-feature +fma` to cc1, so a
+    # consumer on the same baseline, spelled that way, is told it "is not" compiled with
+    # `+fma` and every name in this module disappears. Measured 2026-10-16: it broke
+    # ThinButQuickWebFramework's build outright at `src/ads/answer.cppm`, on the identical
+    # baseline, purely over the spelling. A library's module interface therefore names the
+    # MINIMUM -- the baseline and nothing else -- and leaves specialisation to implementation
+    # translation units, which export no BMI.
 )
 if(ENABLE_NATIVE_OPTIMIZATIONS AND COMPILER_SUPPORTS_MARCH_NATIVE)
     # An EXPLICIT opt-in. The code policy's rule 50 names `-march=x86-64-v3` and forbids
