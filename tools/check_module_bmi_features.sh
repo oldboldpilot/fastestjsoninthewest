@@ -94,9 +94,17 @@ while IFS= read -r cmd; do
     case " ${reported} " in *" ${src} "*) continue ;; esac
     reported="${reported} ${src}"
     scanned=$((scanned + 1))
+    # The baseline, DEDUPED: a command often carries `-march=`/`-mtune=` more than once (a target
+    # property on top of CMAKE_CXX_FLAGS), and repeating it in the message made the report read as
+    # though two different baselines were in play.
     baseline=""
     for tok in ${cmd}; do
-        case "${tok}" in -march=*|-mtune=*) baseline="${baseline} ${tok}" ;; esac
+        case "${tok}" in
+            -march=*|-mtune=*)
+                case " ${baseline} " in *" ${tok} "*) continue ;; esac
+                baseline="${baseline} ${tok}"
+                ;;
+        esac
     done
     redundant=""
     raises=""
