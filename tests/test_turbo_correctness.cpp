@@ -1,16 +1,9 @@
 // Comprehensive correctness tests for fastjson_turbo.
 // Run: ./test_turbo_correctness (exits 0 on pass, non-zero on first failure)
 
-// Legacy C headers must precede module imports to avoid std-module conflicts.
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
-#include <cstdint>
-#include <string>
-#include <string_view>
-#include <vector>
-
+import std;
 import fastjson_turbo;
+import fastjson_multiregister_parser;
 
 // ---------------------------------------------------------------------------
 // Minimal test framework
@@ -24,7 +17,7 @@ static int g_tests_failed = 0;
     g_tests_run++; \
     if (!(expr)) { \
         g_tests_failed++; \
-        std::fprintf(stderr, "FAIL  %s:%d  %s\n", __FILE__, __LINE__, #expr); \
+        std::println(std::cerr, "FAIL  {}:{}  {}", __FILE__, __LINE__, #expr); \
     } else { \
         g_tests_passed++; \
     } \
@@ -34,7 +27,7 @@ static int g_tests_failed = 0;
     g_tests_run++; \
     if (!((a) == (b))) { \
         g_tests_failed++; \
-        std::fprintf(stderr, "FAIL  %s:%d  expected equal: %s == %s\n", __FILE__, __LINE__, #a, #b); \
+        std::println(std::cerr, "FAIL  {}:{}  expected equal: {} == {}", __FILE__, __LINE__, #a, #b); \
     } else { \
         g_tests_passed++; \
     } \
@@ -49,6 +42,11 @@ static fastjson::turbo::turbo_parser g_parser;
 static fastjson::turbo::result<fastjson::turbo::turbo_document>
 parse(const char* json) {
     return fastjson::turbo::parse(std::string_view{json, std::strlen(json)}, g_parser);
+}
+
+static fastjson::turbo::result<fastjson::turbo::turbo_document>
+iterate(const char* json) {
+    return fastjson::turbo::iterate(std::string_view{json, std::strlen(json)}, g_parser);
 }
 
 // ---------------------------------------------------------------------------
@@ -74,7 +72,7 @@ static void test_integer() {
     CHECK(val.is_number());
     auto r = val.get_int64();
     CHECK(r.has_value());
-    CHECK_EQ(*r, (int64_t)42);
+    CHECK_EQ(*r, static_cast<std::int64_t>(42));
 }
 
 static void test_negative_integer() {
@@ -82,7 +80,7 @@ static void test_negative_integer() {
     CHECK(doc.has_value());
     auto r = doc->root().get_int64();
     CHECK(r.has_value());
-    CHECK_EQ(*r, (int64_t)-7);
+    CHECK_EQ(*r, static_cast<std::int64_t>(-7));
 }
 
 static void test_float() {
@@ -132,7 +130,7 @@ static void test_flat_object() {
     CHECK(age->is_number());
     auto age_v = age->get_int64();
     CHECK(age_v.has_value());
-    CHECK_EQ(*age_v, (int64_t)30);
+    CHECK_EQ(*age_v, static_cast<std::int64_t>(30));
 
     auto active = obj->find_field("active");
     CHECK(active.has_value());
@@ -157,15 +155,15 @@ static void test_flat_array() {
     auto arr = root.get_array();
     CHECK(arr.has_value());
 
-    std::vector<int64_t> got;
+    std::vector<std::int64_t> got;
     for (auto elem : *arr) {
         auto v = elem.get_int64();
         CHECK(v.has_value());
         got.push_back(*v);
     }
-    std::vector<int64_t> expected = {1, 2, 3, 4, 5};
+    std::vector<std::int64_t> expected = {1, 2, 3, 4, 5};
     CHECK_EQ(got.size(), expected.size());
-    for (size_t i = 0; i < std::min(got.size(), expected.size()); i++) {
+    for (std::size_t i = 0; i < std::min(got.size(), expected.size()); i++) {
         CHECK_EQ(got[i], expected[i]);
     }
 }
@@ -181,7 +179,7 @@ static void test_string_array() {
         CHECK(elem.is_string());
         got.push_back(elem.as_std_string());
     }
-    CHECK_EQ(got.size(), (size_t)3);
+    CHECK_EQ(got.size(), static_cast<std::size_t>(3));
     if (got.size() == 3) {
         CHECK_EQ(got[0], std::string("foo"));
         CHECK_EQ(got[1], std::string("bar"));
@@ -214,7 +212,7 @@ static void test_nested_object() {
     CHECK(score.has_value());
     auto sv = score->get_int64();
     CHECK(sv.has_value());
-    CHECK_EQ(*sv, (int64_t)99);
+    CHECK_EQ(*sv, static_cast<std::int64_t>(99));
 }
 
 // ---------------------------------------------------------------------------
@@ -227,7 +225,7 @@ static void test_array_of_objects() {
     auto arr = doc->root().get_array();
     CHECK(arr.has_value());
 
-    int64_t expected_id = 1;
+    std::int64_t expected_id = 1;
     const char* expected_vals[] = {"a", "b", "c"};
     int idx = 0;
     for (auto elem : *arr) {
@@ -269,7 +267,7 @@ static void test_deep_nesting() {
     auto r8 = r7->get_object();        CHECK(r8.has_value());
     auto r9 = r8->find_field("e");     CHECK(r9.has_value());
     auto rv = r9->get_int64();         CHECK(rv.has_value());
-    CHECK_EQ(*rv, (int64_t)42);
+    CHECK_EQ(*rv, static_cast<std::int64_t>(42));
 }
 
 // ---------------------------------------------------------------------------
@@ -377,18 +375,18 @@ static void test_structural_index_n10() {
     CHECK(doc.has_value());
     if (!doc.has_value()) return;
 
-    size_t sc = doc->structurals_count();
+    std::size_t sc = doc->structurals_count();
     // Each element contributes exactly: [ { " " : val , " " : " " } ]
     // but we just assert none of the structural chars are plain letters/digits from inside strings
     const char* valid = R"({}[],:0123456789.eE+-"trufalsn)";  // structural + scalar starts
     bool all_valid = true;
-    for (size_t i = 0; i < sc; i++) {
+    for (std::size_t i = 0; i < sc; i++) {
         char c = doc->get_structural_char(i);
         bool ok = false;
         for (const char* p = valid; *p; ++p) { if (c == *p) { ok = true; break; } }
         if (!ok) {
-            std::fprintf(stderr, "[DIAG] unexpected structural char '%c' (0x%02x) at index %zu pos %u\n",
-                (c >= 32 && c < 127) ? c : '?', (unsigned char)c, i, doc->get_structural(i));
+            std::println(std::cerr, "[DIAG] unexpected structural char '{}' ({:#04x}) at index {} pos {}",
+                (c >= 32 && c < 127) ? c : '?', static_cast<unsigned char>(c), i, doc->get_structural(i));
             all_valid = false;
         }
     }
@@ -407,7 +405,7 @@ static void test_large_array_n(int N) {
 
     auto doc = fastjson::turbo::parse(std::string_view{json}, g_parser);
     CHECK(doc.has_value());
-    if (!doc.has_value()) { std::fprintf(stderr, "  [N=%d] parse failed\n", N); return; }
+    if (!doc.has_value()) { std::println(std::cerr, "  [N={}] parse failed", N); return; }
 
     auto arr = doc->root().get_array();
     CHECK(arr.has_value());
@@ -418,32 +416,32 @@ static void test_large_array_n(int N) {
     for (auto elem : *arr) {
         bool is_obj = elem.is_object();
         if (!is_obj) {
-            std::fprintf(stderr, "  [N=%d count=%d] elem is not object\n", N, count);
+            std::println(std::cerr, "  [N={} count={}] elem is not object", N, count);
             all_ok = false; break;
         }
         auto obj = elem.get_object();
         if (!obj.has_value()) {
-            std::fprintf(stderr, "  [N=%d count=%d] get_object() failed\n", N, count);
+            std::println(std::cerr, "  [N={} count={}] get_object() failed", N, count);
             all_ok = false; break;
         }
         auto id = obj->find_field("id");
         if (!id.has_value()) {
-            std::fprintf(stderr, "  [N=%d count=%d] find_field(id) failed\n", N, count);
+            std::println(std::cerr, "  [N={} count={}] find_field(id) failed", N, count);
             all_ok = false; break;
         }
         auto id_v = id->get_int64();
         if (!id_v.has_value()) {
-            std::fprintf(stderr, "  [N=%d count=%d] get_int64() failed\n", N, count);
+            std::println(std::cerr, "  [N={} count={}] get_int64() failed", N, count);
             all_ok = false; break;
         }
-        if (*id_v != (int64_t)count) {
-            std::fprintf(stderr, "  [N=%d count=%d] id=%lld != expected %d\n", N, count, (long long)*id_v, count);
+        if (*id_v != static_cast<std::int64_t>(count)) {
+            std::println(std::cerr, "  [N={} count={}] id={} != expected {}", N, count, *id_v, count);
             all_ok = false; break;
         }
         count++;
     }
     if (count != N || !all_ok) {
-        std::fprintf(stderr, "  [N=%d] iterated %d/%d, all_ok=%d\n", N, count, N, (int)all_ok);
+        std::println(std::cerr, "  [N={}] iterated {}/{}, all_ok={}", N, count, N, all_ok);
     }
     CHECK(all_ok);
     CHECK_EQ(count, N);
@@ -464,7 +462,7 @@ static void test_zero() {
     CHECK(doc.has_value());
     auto r = doc->root().get_int64();
     CHECK(r.has_value());
-    CHECK_EQ(*r, (int64_t)0);
+    CHECK_EQ(*r, static_cast<std::int64_t>(0));
 }
 
 static void test_negative_float() {
@@ -486,7 +484,7 @@ static void test_many_keys() {
     auto obj = doc->root().get_object();
     CHECK(obj.has_value());
 
-    auto check = [&](const char* key, int64_t expected) {
+    auto check = [&](const char* key, std::int64_t expected) {
         auto f = obj->find_field(key);
         CHECK(f.has_value());
         if (f.has_value()) {
@@ -511,6 +509,415 @@ static void test_whitespace() {
     auto k = obj->find_field("k");
     CHECK(k.has_value());
     if (k.has_value()) CHECK_EQ(k->as_string(), std::string_view("v"));
+}
+
+// ---------------------------------------------------------------------------
+// 16. OnDemand Streaming Iteration tests
+// ---------------------------------------------------------------------------
+
+static void test_iterate_cases() {
+    // 1. Primitive
+    {
+        auto doc = iterate(R"("hello world")");
+        CHECK(doc.has_value());
+        auto val = doc->root();
+        CHECK(val.is_string());
+        CHECK_EQ(val.as_string(), std::string_view("hello world"));
+    }
+    // 2. Object with multiple fields
+    {
+        auto doc = iterate(R"({"symbol":"QQQ","price":530.12,"vol":45230100,"active":true})");
+        CHECK(doc.has_value());
+        auto obj = doc->root().get_object();
+        CHECK(obj.has_value());
+        auto sym = obj->find_field("symbol");
+        CHECK(sym.has_value());
+        CHECK_EQ(sym->as_string(), std::string_view("QQQ"));
+        auto price = obj->find_field("price");
+        CHECK(price.has_value());
+        auto p_res = price->get_double();
+        CHECK(p_res.has_value());
+        if (p_res.has_value()) CHECK(std::abs(*p_res - 530.12) < 0.001);
+        auto vol = obj->find_field("vol");
+        CHECK(vol.has_value());
+        auto v_res = vol->get_int64();
+        CHECK(v_res.has_value());
+        if (v_res.has_value()) CHECK_EQ(*v_res, 45230100);
+        auto active = obj->find_field("active");
+        CHECK(active.has_value());
+        auto a_res = active->get_bool();
+        CHECK(a_res.has_value());
+        if (a_res.has_value()) CHECK_EQ(*a_res, true);
+    }
+    // 3. Array of objects with lazy skipping
+    {
+        auto doc = iterate(R"({"records":[{"id":1,"close":100.5},{"id":2,"close":101.5}]})");
+        CHECK(doc.has_value());
+        auto obj = doc->root().get_object();
+        CHECK(obj.has_value());
+        auto recs = obj->find_field("records");
+        CHECK(recs.has_value());
+        auto arr = recs->get_array();
+        CHECK(arr.has_value());
+        double sum = 0.0;
+        int count = 0;
+        for (auto item : *arr) {
+            auto r = item.get_object();
+            CHECK(r.has_value());
+            auto c = r->find_field("close");
+            CHECK(c.has_value());
+            sum += *c->get_double();
+            count++;
+        }
+        CHECK_EQ(count, 2);
+        CHECK(std::abs(sum - 202.0) < 0.001);
+    }
+}
+
+static void test_iterate_large_record() {
+    std::string json = R"({"header":{"format":"safetensors","num_tensors":128,"total_bytes":524288},"records":[{"id":0,"symbol":"SYM0","open":100.0,"high":101.0,"low":99.0,"close":100.5,"volume":1000000,"features":[0.0,0.1,0.2,0.3,0.4,0.5,0.6,0.7]}]})";
+    auto doc = iterate(json.c_str());
+    CHECK(doc.has_value());
+    auto root = doc->root();
+    CHECK(root.is_object());
+    auto obj = root.get_object();
+    CHECK(obj.has_value());
+    auto arr = (*obj)["records"].get_array();
+    CHECK(arr.has_value());
+    int count = 0;
+    for (auto item : *arr) {
+        auto rec = item.get_object();
+        CHECK(rec.has_value());
+        auto close_val = (*rec)["close"].get_double();
+        CHECK(close_val.has_value());
+        if (close_val) {
+            CHECK_EQ(*close_val, 100.5);
+        }
+        count++;
+    }
+    CHECK_EQ(count, 1);
+}
+
+// ---------------------------------------------------------------------------
+// 17. NASA Spaceflight-Grade Boundary & Escape Regression Tests
+//     (64B / 128B / 256B / 512B SIMD block boundaries + backslash chains)
+// ---------------------------------------------------------------------------
+
+static void test_simd_64b_boundary_quotes_and_escapes() {
+    // Test strings and escaped quotes positioned across every byte offset 0..140
+    // covering 64-byte and 128-byte SIMD register boundaries.
+    for (std::size_t pad = 0; pad <= 140; ++pad) {
+        std::string spaces(pad, ' ');
+        // Case A: Escaped quote inside string straddling boundary, with structural chars inside string
+        std::string json = spaces + R"({"key":"val\"ue{}:,[]end","num":12345,"ok":true})";
+
+        auto doc_dom = fastjson::turbo::parse(json, g_parser);
+        CHECK(doc_dom.has_value());
+        if (doc_dom.has_value()) {
+            auto obj = doc_dom->root().get_object();
+            CHECK(obj.has_value());
+            if (obj.has_value()) {
+                auto k = obj->find_field("key");
+                CHECK(k.has_value());
+                if (k.has_value()) {
+                    CHECK_EQ(k->as_string(), std::string_view(R"(val\"ue{}:,[]end)"));
+                }
+                auto n = obj->find_field("num");
+                CHECK(n.has_value());
+                if (n.has_value()) {
+                    auto nv = n->get_int64();
+                    CHECK(nv.has_value());
+                    if (nv.has_value()) CHECK_EQ(*nv, static_cast<std::int64_t>(12345));
+                }
+                auto ok = obj->find_field("ok");
+                CHECK(ok.has_value());
+                if (ok.has_value()) {
+                    auto okv = ok->get_bool();
+                    CHECK(okv.has_value());
+                    if (okv.has_value()) CHECK_EQ(*okv, true);
+                }
+            }
+        }
+
+        auto doc_iter = fastjson::turbo::iterate(json, g_parser);
+        CHECK(doc_iter.has_value());
+        if (doc_iter.has_value()) {
+            auto obj = doc_iter->root().get_object();
+            CHECK(obj.has_value());
+            if (obj.has_value()) {
+                auto k = obj->find_field("key");
+                CHECK(k.has_value());
+                if (k.has_value()) {
+                    CHECK_EQ(k->as_string(), std::string_view(R"(val\"ue{}:,[]end)"));
+                }
+                auto n = obj->find_field("num");
+                CHECK(n.has_value());
+                if (n.has_value()) {
+                    auto nv = n->get_int64();
+                    CHECK(nv.has_value());
+                    if (nv.has_value()) CHECK_EQ(*nv, static_cast<std::int64_t>(12345));
+                }
+                auto ok = obj->find_field("ok");
+                CHECK(ok.has_value());
+                if (ok.has_value()) {
+                    auto okv = ok->get_bool();
+                    CHECK(okv.has_value());
+                    if (okv.has_value()) CHECK_EQ(*okv, true);
+                }
+            }
+        }
+    }
+
+    // Case B: Chains of 1..16 consecutive backslashes before a quote across 64B boundaries
+    for (int bs_count = 1; bs_count <= 16; ++bs_count) {
+        for (std::size_t pad = 48; pad <= 72; ++pad) {
+            std::string spaces(pad, ' ');
+            std::string slashes(static_cast<std::size_t>(bs_count), '\\');
+            std::string json;
+            std::string expected_s;
+            if (bs_count % 2 == 1) {
+                // Odd number of backslashes: the quote after slashes is ESCAPED, so we add a closing quote
+                expected_s = "abc" + slashes + "\"def";
+                json = spaces + R"({"s":")" + expected_s + R"(","after":77})";
+            } else {
+                // Even number of backslashes: all backslashes are escaped, so the quote CLOSES the string
+                expected_s = "abc" + slashes;
+                json = spaces + R"({"s":")" + expected_s + R"(","after":77})";
+            }
+
+            auto doc_iter = fastjson::turbo::iterate(json, g_parser);
+            CHECK(doc_iter.has_value());
+            if (doc_iter.has_value()) {
+                auto obj = doc_iter->root().get_object();
+                CHECK(obj.has_value());
+                if (obj.has_value()) {
+                    auto s = obj->find_field("s");
+                    CHECK(s.has_value());
+                    if (s.has_value()) CHECK_EQ(s->as_string(), std::string_view(expected_s));
+                    auto after = obj->find_field("after");
+                    CHECK(after.has_value());
+                    if (after.has_value()) {
+                        auto av = after->get_int64();
+                        CHECK(av.has_value());
+                        if (av.has_value()) CHECK_EQ(*av, static_cast<std::int64_t>(77));
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 18. Key Prefix Collision, Empty String, and Nested Container Cursor Safety
+// ---------------------------------------------------------------------------
+
+static void test_key_prefix_and_nested_cursor_safety() {
+    // 1. Key prefix collision safety: "id_long", "id_2", "", "id"
+    const char* prefix_json = R"({"id_long":111,"id_2":222,"":333,"id":444})";
+    for (int mode = 0; mode < 2; ++mode) {
+        auto doc = (mode == 0) ? parse(prefix_json) : iterate(prefix_json);
+        CHECK(doc.has_value());
+        auto obj = doc->root().get_object();
+        CHECK(obj.has_value());
+        auto id_val = obj->find_field("id");
+        CHECK(id_val.has_value());
+        if (id_val.has_value()) {
+            auto v = id_val->get_int64();
+            CHECK(v.has_value());
+            if (v.has_value()) CHECK_EQ(*v, static_cast<std::int64_t>(444));
+        }
+    }
+
+    // 2. Empty strings as keys and values
+    const char* empty_str_json = R"({"a":"","b":"nonempty","c":""})";
+    for (int mode = 0; mode < 2; ++mode) {
+        auto doc = (mode == 0) ? parse(empty_str_json) : iterate(empty_str_json);
+        CHECK(doc.has_value());
+        auto obj = doc->root().get_object();
+        CHECK(obj.has_value());
+        auto a = obj->find_field("a");
+        CHECK(a.has_value());
+        if (a.has_value()) CHECK_EQ(a->as_string(), std::string_view(""));
+        auto b = obj->find_field("b");
+        CHECK(b.has_value());
+        if (b.has_value()) CHECK_EQ(b->as_string(), std::string_view("nonempty"));
+        auto c = obj->find_field("c");
+        CHECK(c.has_value());
+        if (c.has_value()) CHECK_EQ(c->as_string(), std::string_view(""));
+    }
+
+    // 3. Accessing a nested container field inside an array of objects, then advancing
+    //    both to a sibling field in the same object AND to the next element in the outer array.
+    const char* nested_arr_json = R"({
+        "records": [
+            {"id": 1, "features": [1.0, 2.0, 3.0], "meta": {"k": "v1"}, "tail": 10},
+            {"id": 2, "features": [4.0, 5.0, 6.0], "meta": {"k": "v2"}, "tail": 20},
+            {"id": 3, "features": [7.0, 8.0, 9.0], "meta": {"k": "v3"}, "tail": 30}
+        ]
+    })";
+    for (int mode = 0; mode < 2; ++mode) {
+        auto doc = (mode == 0) ? parse(nested_arr_json) : iterate(nested_arr_json);
+        CHECK(doc.has_value());
+        auto root_obj = doc->root().get_object();
+        CHECK(root_obj.has_value());
+        auto arr = (*root_obj)["records"].get_array();
+        CHECK(arr.has_value());
+
+        int idx = 0;
+        double feat_sum = 0.0;
+        std::int64_t tail_sum = 0;
+        for (auto elem : *arr) {
+            auto rec = elem.get_object();
+            CHECK(rec.has_value());
+            // Access nested array "features" without exhausting it, then advance to next record
+            auto feats = (*rec)["features"].get_array();
+            CHECK(feats.has_value());
+            if (feats.has_value()) {
+                for (auto f : *feats) {
+                    auto fv = f.get_double();
+                    CHECK(fv.has_value());
+                    if (fv.has_value()) feat_sum += *fv;
+                }
+            }
+            auto tail = (*rec)["tail"].get_int64();
+            CHECK(tail.has_value());
+            if (tail.has_value()) tail_sum += *tail;
+            idx++;
+        }
+        CHECK_EQ(idx, 3);
+        CHECK(std::abs(feat_sum - 45.0) < 1e-9);
+        CHECK_EQ(tail_sum, static_cast<std::int64_t>(60));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 19. Numeric Boundary & Error Handling Regression Tests
+// ---------------------------------------------------------------------------
+
+static void test_numeric_boundaries_and_errors() {
+    // INT64_MAX and large negative integers
+    {
+        auto doc = iterate("9223372036854775807");
+        CHECK(doc.has_value());
+        auto v = doc->root().get_int64();
+        CHECK(v.has_value());
+        if (v.has_value()) CHECK_EQ(*v, std::numeric_limits<std::int64_t>::max());
+    }
+    {
+        auto doc = iterate("-9223372036854775807");
+        CHECK(doc.has_value());
+        auto v = doc->root().get_int64();
+        CHECK(v.has_value());
+        if (v.has_value()) CHECK_EQ(*v, -std::numeric_limits<std::int64_t>::max());
+    }
+    // Scientific notation and high-precision floats
+    {
+        auto doc = iterate(R"([0.0, -0.0, 1e5, 1.5e-3, -2.5E+4, 3.141592653589793])");
+        CHECK(doc.has_value());
+        auto arr = doc->root().get_array();
+        CHECK(arr.has_value());
+        std::vector<double> vals;
+        for (auto item : *arr) {
+            auto d = item.get_double();
+            CHECK(d.has_value());
+            if (d.has_value()) vals.push_back(*d);
+        }
+        CHECK_EQ(vals.size(), static_cast<std::size_t>(6));
+        if (vals.size() == 6) {
+            CHECK_EQ(vals[0], 0.0);
+            CHECK_EQ(vals[1], 0.0);
+            CHECK(std::abs(vals[2] - 1e5) < 1e-6);
+            CHECK(std::abs(vals[3] - 1.5e-3) < 1e-12);
+            CHECK(std::abs(vals[4] - (-25000.0)) < 1e-6);
+            CHECK(std::abs(vals[5] - 3.141592653589793) < 1e-14);
+        }
+    }
+    // Malformed scalar rejection
+    {
+        auto doc = iterate("123.");
+        CHECK(doc.has_value());
+        auto d = doc->root().get_double();
+        CHECK(!d.has_value());
+    }
+    {
+        auto doc = iterate("tru");
+        CHECK(doc.has_value());
+        auto b = doc->root().get_bool();
+        CHECK(!b.has_value());
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 20. Lazy LINQ Transducer Pipeline Verification (Zero Intermediate Allocations)
+// ---------------------------------------------------------------------------
+
+static void test_lazy_linq_transducer_pipeline() {
+    std::vector<int> data(10000);
+    for (int i = 0; i < 10000; ++i) data[static_cast<std::size_t>(i)] = i + 1;
+
+    // 1. Verify lazy composition does ZERO work before terminal operation
+    int where_calls = 0;
+    int select_calls = 0;
+    fastjson::mr::query_result<int> q(&data);
+    auto pipeline = q.where([&](int x) {
+                         ++where_calls;
+                         return x % 2 == 0;
+                     })
+                     .select([&](int x) {
+                         ++select_calls;
+                         return x * 10;
+                     })
+                     .take(3);
+
+    CHECK(pipeline.is_lazy());
+    CHECK_EQ(where_calls, 0);
+    CHECK_EQ(select_calls, 0);
+
+    // 2. Consuming take(3) evaluates ONLY the first 6 elements (2, 4, 6) and stops!
+    auto top3 = pipeline.to_vector();
+    CHECK_EQ(top3.size(), static_cast<std::size_t>(3));
+    CHECK_EQ(top3[0], 20);
+    CHECK_EQ(top3[1], 40);
+    CHECK_EQ(top3[2], 60);
+    CHECK_EQ(where_calls, 6);
+    CHECK_EQ(select_calls, 3);
+
+    // 3. Early termination on first(), any(), all(), find_index(), single()
+    int pred_calls = 0;
+    auto first_match = q.where([&](int x) {
+                            ++pred_calls;
+                            return x == 5;
+                        }).first();
+    CHECK(first_match.has_value());
+    CHECK_EQ(*first_match, 5);
+    CHECK_EQ(pred_calls, 5);
+
+    int any_calls = 0;
+    bool has_ten = q.any([&](int x) {
+        ++any_calls;
+        return x == 10;
+    });
+    CHECK(has_ten);
+    CHECK_EQ(any_calls, 10);
+
+    int all_calls = 0;
+    bool all_lt_5 = q.all([&](int x) {
+        ++all_calls;
+        return x < 5;
+    });
+    CHECK(!all_lt_5);
+    CHECK_EQ(all_calls, 5);
+
+    // 4. Lazy flat_map + take early termination
+    int outer_calls = 0;
+    auto flattened = q.flat_map([&](int x) {
+                          ++outer_calls;
+                          return std::vector<int>{x, x * 100};
+                      })
+                      .take(5)
+                      .to_vector();
+    CHECK_EQ(flattened.size(), static_cast<std::size_t>(5));
+    CHECK_EQ(outer_calls, 3); // 3 outer items produce 6 inner items; stops on 5th!
 }
 
 // ---------------------------------------------------------------------------
@@ -542,17 +949,23 @@ int main() {
     test_many_keys();
     test_whitespace();
     test_structural_index_n10();
+    test_iterate_cases();
+    test_iterate_large_record();
+    test_simd_64b_boundary_quotes_and_escapes();
+    test_key_prefix_and_nested_cursor_safety();
+    test_numeric_boundaries_and_errors();
+    test_lazy_linq_transducer_pipeline();
 
-    std::printf("\n========================================\n");
-    std::printf("Tests run:    %d\n", g_tests_run);
-    std::printf("Tests passed: %d\n", g_tests_passed);
-    std::printf("Tests failed: %d\n", g_tests_failed);
-    std::printf("========================================\n");
+    std::println("\n========================================");
+    std::println("Tests run:    {}", g_tests_run);
+    std::println("Tests passed: {}", g_tests_passed);
+    std::println("Tests failed: {}", g_tests_failed);
+    std::println("========================================");
 
     if (g_tests_failed > 0) {
-        std::printf("RESULT: FAIL\n");
+        std::println("RESULT: FAIL");
         return 1;
     }
-    std::printf("RESULT: PASS\n");
+    std::println("RESULT: PASS");
     return 0;
 }

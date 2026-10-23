@@ -1,12 +1,12 @@
 # fastjson conformance: what is accepted, what a number is, how to write JSON
 
 Gate: `tests/conformance/fastjson_conformance_test.cpp` (no external framework). Sensen registers it as
-`test_fastjson_conformance_scalar`, `_avx2` and `_best`, one ctest case per string-scan tier (`FASTJSON_SIMD`), and
+test_fastjson_conformance_scalar, test_fastjson_conformance_avx2 and test_fastjson_conformance_best, one ctest case per string-scan tier (`FASTJSON_SIMD`), and
 every tier must give the same answers.
 
 ## Parsing is strict (RFC 8259)
 
-`fastjson::parse(text)` returns the value or a `json_error{code, message, line, column}`. It never returns a partial
+`fastjson::parse(text)` returns the value or a `json_error` (with fields `code`, `message`, `line`, `column`). It never returns a partial
 value. These are errors:
 
 | Input | Code |
@@ -44,7 +44,7 @@ Reading a number:
 
 | Call | Answers |
 |---|---|
-| `get_int64()`, `get_uint64()` | the exact integer (from `1`, `1.0`, `1e3` or a 128-bit integer in range), or a `json_error` (`not an integer`, `outside the requested range`, `not a number`). Never throws. Use for anything from outside. |
+| `get_int64()`, `get_uint64()` | the exact integer (from 1, 1.0, 1e3 or a 128-bit integer in range), or a `json_error` ("not an integer", "outside the requested range", "not a number"). Never throws. Use for anything from outside. |
 | `get_double()` | any finite number at its nearest double, or a `json_error` |
 | `as_number()`, `as_float64()` | the nearest double (NaN for a non-number, as documented) |
 | `as_int64()`, `as_uint64()`, `as_int128()`, `as_uint128()` | truncates a float toward zero; throws `std::out_of_range` for a value outside the type (this was undefined behaviour for floats and a silent wrap for 128-bit integers) |

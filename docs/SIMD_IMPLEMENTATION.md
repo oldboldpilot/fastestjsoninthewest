@@ -333,8 +333,8 @@ enclosing function's target attribute, so an AVX-512 intrinsic inside one fails 
 - **Fixed: the AVX2 string scan stopped at the first byte of every string.** The unsigned `< 0x20` test
   flipped each byte's sign bit but not the limit's; with the limit `0x20` instead of `0x20 ^ 0x80`, every
   printable byte read as a control character, so `parse_string_simd`'s fast path never ran.
-- **Fixed: AVX-512 control tests compared SIGNED** (`_mm512_cmplt_epi8_mask`), flagging every UTF-8 byte;
-  now `_mm512_cmplt_epu8_mask` (also in `fastjson_simd_multiregister_complex.cpp`).
+- **Fixed: AVX-512 control tests compared SIGNED** (using signed byte comparisons), flagging every UTF-8 byte;
+  now `_mm512_cmplt_epu8_mask` (also in `modules/fastjson_simd_multiregister_complex.cpp`).
 - **Fixed: parsed strings dangled.** The fast path stored a `string_view` into the caller's input, so
   `auto v = parse(readFile(p));` left every unescaped string pointing at freed memory. Live on every scalar
   build (cl.exe, ARM) all along; on x86 only hidden by the AVX2 defect above. The fast path now copies once
@@ -353,7 +353,7 @@ enclosing function's target attribute, so an AVX-512 intrinsic inside one fails 
 - Reviewed adversarially (agy Gemini 3.8 Flash High, cursor GPT-5.6 Sol High); false positives dropped after
   checking (e.g. `read_xcr0` is inside the x86-only block).
 
-Gate: sensen's `test_fastjson_simd` (every tier; mutation-checked against each defect). Measured on a 5 MB
+Gate: sensen's test_fastjson_simd (every tier; mutation-checked against each defect). Measured on a 5 MB
 tool-result-shaped document (Xeon, AVX-512): scalar 134, AVX2 146, AVX-512 150 MB/s. Parse time here is
 dominated by building the DOM (allocation, copies, map inserts), not by the scan; larger wins need the tape /
 structural-index design (`fastjson_turbo`).
@@ -362,7 +362,7 @@ structural-index design (`fastjson_turbo`).
 
 `fastjson::find_first_of_simd(const char* data, size_t size, std::string_view set) -> const char*` returns the
 first byte of `[data, data + size)` equal to ANY byte of `set`, or `data + size` (also for an empty set). It
-exists for text scanners that stop at a handful of delimiters (`&`, `<`, a backtick, `"`/`\`/`{`/`}`) and is
+exists for text scanners that stop at a handful of delimiters ('&', '<', a backtick, '"', '\\', '{', '}') and is
 built exactly like the string-end kernels: AVX-512F+BW 8× zmm (512 B/iteration, 1× zmm loop, ONE masked
 final load) → AVX2 8× ymm (256 B/iteration, 1× ymm loop, bounded byte tail) → scalar, chosen at run time;
 `FASTJSON_SIMD=scalar|avx2` caps it and `string_scan_tier()` names the tier.
@@ -380,7 +380,7 @@ final load) → AVX2 8× ymm (256 B/iteration, 1× ymm loop, bounded byte tail) 
   bytes is never over-read.
 - **One needle: do not use this.** `std::string_view::find(char)` reaches glibc's SIMD `memchr`, which is as
   good; the set scanner is for 2..8 needles.
-- Gate: `agent/tests/test_fastjson_simd.cpp` (run per tier by `test_fastjson_simd_{scalar,avx2,best}`) checks
+- Gate: sensen's agent/tests/test_fastjson_simd.cpp (run per tier by test_fastjson_simd_{scalar,avx2,best}) checks
   every byte value at offsets across the 32/64/256/512 boundaries for set sizes 0..9, every length 0..1100
   absent and last-byte, earliest-of-two, UTF-8, exact-length vectors, and 4000 randomized cases against a
   scalar oracle.
@@ -400,7 +400,7 @@ inside JSON). The scans were not the cost; three things around them were:
   `push_back` per byte (91% of the time of parsing a 1 MiB escaped argument). The scalar loop now copies each run up to
   the next quote/backslash/control byte in one `append`, the run's end found by the same `find_string_end_simd`; a clean
   run holds no newline so only the column advances. Escapes and every error are still decoded by the per-byte code.
-- Gate: sensen's `agent/tests/test_fastjson_simd.cpp` (per tier): the integer path against the old strtod+round-trip
+- Gate: sensen's agent/tests/test_fastjson_simd.cpp (per tier): the integer path against the old strtod+round-trip
   algorithm (1,691 cases), 1,500 whitespace-padded documents against their compact twins, padded error positions and 4,000
   escaped strings (independent decoder) + 360 malformed shapes, positions pinned by digests recorded from the parser before
   the change.

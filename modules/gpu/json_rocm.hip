@@ -6,7 +6,7 @@
 #ifdef __HIP__
 #include "json_gpu.h"
 #include <hip/hip_runtime.h>
-#include <cstdio>
+#include <iostream>
 #include <chrono>
 
 namespace fastjson {
@@ -21,8 +21,8 @@ namespace rocm {
     do { \
         hipError_t err = call; \
         if (err != hipSuccess) { \
-            fprintf(stderr, "HIP error in %s:%d: %s\n", __FILE__, __LINE__, \
-                    hipGetErrorString(err)); \
+            std::cerr << "HIP error in " << __FILE__ << ":" << __LINE__ << ": " \
+                      << hipGetErrorString(err) << "\n"; \
             return false; \
         } \
     } while(0)
@@ -31,8 +31,8 @@ namespace rocm {
     do { \
         hipError_t err = call; \
         if (err != hipSuccess) { \
-            fprintf(stderr, "HIP error in %s:%d: %s\n", __FILE__, __LINE__, \
-                    hipGetErrorString(err)); \
+            std::cerr << "HIP error in " << __FILE__ << ":" << __LINE__ << ": " \
+                      << hipGetErrorString(err) << "\n"; \
             return ret; \
         } \
     } while(0)

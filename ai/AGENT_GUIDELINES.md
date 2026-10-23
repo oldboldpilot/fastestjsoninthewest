@@ -23,28 +23,26 @@ git config --unset user.email  # Privacy - NO email
 
 **All agents MUST follow this policy. Non-compliance is a critical error.**
 
-## ⚠️ CRITICAL: Compiler and Build System (NEVER FORGET!)
+## ⚠️ CRITICAL: Compiler and Build System
 
-### Exact Toolchain Paths - MEMORIZE THESE!
+### Exact Toolchain Paths
 ```bash
-C++ COMPILER:  /opt/clang-21/bin/clang++    # Clang 21.1.5 (built from source)
-C COMPILER:    /opt/clang-21/bin/clang      # DO NOT use linuxbrew compilers!
-NINJA:         /usr/local/bin/ninja         # Version 1.13.1 (built from source)
-CMAKE:         /usr/bin/cmake               # System CMake 3.28.3
+C++ COMPILER:  /home/linuxbrew/.linuxbrew/bin/clang++  # Clang 23.1.4 (with C++23 std modules)
+C COMPILER:    /home/linuxbrew/.linuxbrew/bin/clang    # Clang 23.1.4
+NINJA:         /usr/local/bin/ninja                    # Version 1.13.1
+CMAKE:         /usr/bin/cmake                          # System CMake >= 3.28
 ```
 
-### ❌ FORBIDDEN: Do NOT Use These Paths
-- `/home/linuxbrew/.linuxbrew/bin/clang++` (BROKEN - missing headers)
-- Any Homebrew/Linuxbrew compilers
-- System package clang without full path
-- Default `clang++` in PATH
+### Compiler Baseline
+- Default `clang++` (version 23.1.4) or explicit `/home/linuxbrew/.linuxbrew/bin/clang++`
+- Uses installed libc++ C++23 module interface (`std.cppm` from libc++ 23)
+- Guarded by `cmake/ToolchainBMIGuard.cmake` (invalidates module BMIs if toolchain changes)
 
 ### Required Build Configuration
 ```cmake
-# MANDATORY for all CMakeLists.txt files:
-cmake_minimum_required(VERSION 3.20)
-set(CMAKE_CXX_COMPILER /opt/clang-21/bin/clang++)
-set(CMAKE_C_COMPILER /opt/clang-21/bin/clang)
+cmake_minimum_required(VERSION 3.28)
+set(CMAKE_CXX_COMPILER /home/linuxbrew/.linuxbrew/bin/clang++)
+set(CMAKE_C_COMPILER /home/linuxbrew/.linuxbrew/bin/clang)
 set(CMAKE_MAKE_PROGRAM /usr/local/bin/ninja)
 set(CMAKE_CXX_STANDARD 23)
 

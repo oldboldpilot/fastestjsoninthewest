@@ -1,20 +1,9 @@
-#include <stdlib.h>
-#include <math.h>
-#include <string.h>
-#include <stdlib.h>
-#include <math.h>
-#include <string.h>
-#include <stdlib.h>
-#include <string.h>
-#include <math.h>
-#include <stdlib.h>
-#include <string.h>
-#include <math.h>
 /**
  * FastJSON vs simdjson Head-to-Head Benchmark
  *
  * Compares parsing, serialization, field access, array iteration,
- * and throughput using trading-relevant JSON payloads.
+ * and throughput using trading-relevant JSON payloads across both
+ * OnDemand (streaming/indexed) and DOM (materialized) architectures.
  *
  * Build: cmake target fastjson_vs_simdjson_benchmark in parent project
  * Run:   ./fastjson_vs_simdjson_benchmark --benchmark_counters_tabular=true
@@ -28,12 +17,13 @@
 
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <vector>
 
-// Forward-declare fastjson types (from the module)
-// The build system compiles this with -fprebuilt-module-path pointing to fastjson.pcm
+// Forward-declare fastjson types (from the modules)
 import fastjson;
 import fastjson_multiregister_parser;
+import fastjson_turbo;
 
 namespace {
 
@@ -104,19 +94,20 @@ const simdjson::padded_string g_medium_padded{g_medium};
 const simdjson::padded_string g_large_padded{g_large};
 
 // ============================================================================
-// Parse Benchmarks
+// 1. OnDemand / Streaming Parse Benchmarks (FastJSON Turbo vs SimdJSON OnDemand)
 // ============================================================================
 
-void BM_Parse_FastJSON_Small(benchmark::State& state) {
+void BM_Parse_FastJSON_Turbo_Small(benchmark::State& state) {
+    fastjson::turbo::turbo_parser parser;
     for (auto _ : state) {
-        auto result = fastjson::mr::parse(g_small);
-        benchmark::DoNotOptimize(result);
+        auto doc = fastjson::turbo::iterate(g_small, parser);
+        benchmark::DoNotOptimize(doc);
     }
     state.SetBytesProcessed(static_cast<int64_t>(state.iterations() * g_small.size()));
 }
-BENCHMARK(BM_Parse_FastJSON_Small);
+BENCHMARK(BM_Parse_FastJSON_Turbo_Small);
 
-void BM_Parse_SimdJSON_Small(benchmark::State& state) {
+void BM_Parse_SimdJSON_OnDemand_Small(benchmark::State& state) {
     simdjson::ondemand::parser parser;
     for (auto _ : state) {
         auto doc = parser.iterate(g_small_padded);
@@ -124,18 +115,19 @@ void BM_Parse_SimdJSON_Small(benchmark::State& state) {
     }
     state.SetBytesProcessed(static_cast<int64_t>(state.iterations() * g_small.size()));
 }
-BENCHMARK(BM_Parse_SimdJSON_Small);
+BENCHMARK(BM_Parse_SimdJSON_OnDemand_Small);
 
-void BM_Parse_FastJSON_Medium(benchmark::State& state) {
+void BM_Parse_FastJSON_Turbo_Medium(benchmark::State& state) {
+    fastjson::turbo::turbo_parser parser;
     for (auto _ : state) {
-        auto result = fastjson::mr::parse(g_medium);
-        benchmark::DoNotOptimize(result);
+        auto doc = fastjson::turbo::iterate(g_medium, parser);
+        benchmark::DoNotOptimize(doc);
     }
     state.SetBytesProcessed(static_cast<int64_t>(state.iterations() * g_medium.size()));
 }
-BENCHMARK(BM_Parse_FastJSON_Medium);
+BENCHMARK(BM_Parse_FastJSON_Turbo_Medium);
 
-void BM_Parse_SimdJSON_Medium(benchmark::State& state) {
+void BM_Parse_SimdJSON_OnDemand_Medium(benchmark::State& state) {
     simdjson::ondemand::parser parser;
     for (auto _ : state) {
         auto doc = parser.iterate(g_medium_padded);
@@ -143,18 +135,19 @@ void BM_Parse_SimdJSON_Medium(benchmark::State& state) {
     }
     state.SetBytesProcessed(static_cast<int64_t>(state.iterations() * g_medium.size()));
 }
-BENCHMARK(BM_Parse_SimdJSON_Medium);
+BENCHMARK(BM_Parse_SimdJSON_OnDemand_Medium);
 
-void BM_Parse_FastJSON_Large(benchmark::State& state) {
+void BM_Parse_FastJSON_Turbo_Large(benchmark::State& state) {
+    fastjson::turbo::turbo_parser parser;
     for (auto _ : state) {
-        auto result = fastjson::mr::parse(g_large);
-        benchmark::DoNotOptimize(result);
+        auto doc = fastjson::turbo::iterate(g_large, parser);
+        benchmark::DoNotOptimize(doc);
     }
     state.SetBytesProcessed(static_cast<int64_t>(state.iterations() * g_large.size()));
 }
-BENCHMARK(BM_Parse_FastJSON_Large);
+BENCHMARK(BM_Parse_FastJSON_Turbo_Large);
 
-void BM_Parse_SimdJSON_Large(benchmark::State& state) {
+void BM_Parse_SimdJSON_OnDemand_Large(benchmark::State& state) {
     simdjson::ondemand::parser parser;
     for (auto _ : state) {
         auto doc = parser.iterate(g_large_padded);
@@ -162,11 +155,68 @@ void BM_Parse_SimdJSON_Large(benchmark::State& state) {
     }
     state.SetBytesProcessed(static_cast<int64_t>(state.iterations() * g_large.size()));
 }
-BENCHMARK(BM_Parse_SimdJSON_Large);
+BENCHMARK(BM_Parse_SimdJSON_OnDemand_Large);
 
 // ============================================================================
-// Arena Parse Benchmarks (monotonic_buffer_resource)
+// 2. DOM Parse Benchmarks (FastJSON MR vs SimdJSON DOM vs FastJSON Arena)
 // ============================================================================
+
+void BM_Parse_FastJSON_DOM_Small(benchmark::State& state) {
+    for (auto _ : state) {
+        auto result = fastjson::mr::parse(g_small);
+        benchmark::DoNotOptimize(result);
+    }
+    state.SetBytesProcessed(static_cast<int64_t>(state.iterations() * g_small.size()));
+}
+BENCHMARK(BM_Parse_FastJSON_DOM_Small);
+
+void BM_Parse_SimdJSON_DOM_Small(benchmark::State& state) {
+    simdjson::dom::parser parser;
+    for (auto _ : state) {
+        auto doc = parser.parse(g_small_padded);
+        benchmark::DoNotOptimize(doc);
+    }
+    state.SetBytesProcessed(static_cast<int64_t>(state.iterations() * g_small.size()));
+}
+BENCHMARK(BM_Parse_SimdJSON_DOM_Small);
+
+void BM_Parse_FastJSON_DOM_Medium(benchmark::State& state) {
+    for (auto _ : state) {
+        auto result = fastjson::mr::parse(g_medium);
+        benchmark::DoNotOptimize(result);
+    }
+    state.SetBytesProcessed(static_cast<int64_t>(state.iterations() * g_medium.size()));
+}
+BENCHMARK(BM_Parse_FastJSON_DOM_Medium);
+
+void BM_Parse_SimdJSON_DOM_Medium(benchmark::State& state) {
+    simdjson::dom::parser parser;
+    for (auto _ : state) {
+        auto doc = parser.parse(g_medium_padded);
+        benchmark::DoNotOptimize(doc);
+    }
+    state.SetBytesProcessed(static_cast<int64_t>(state.iterations() * g_medium.size()));
+}
+BENCHMARK(BM_Parse_SimdJSON_DOM_Medium);
+
+void BM_Parse_FastJSON_DOM_Large(benchmark::State& state) {
+    for (auto _ : state) {
+        auto result = fastjson::mr::parse(g_large);
+        benchmark::DoNotOptimize(result);
+    }
+    state.SetBytesProcessed(static_cast<int64_t>(state.iterations() * g_large.size()));
+}
+BENCHMARK(BM_Parse_FastJSON_DOM_Large);
+
+void BM_Parse_SimdJSON_DOM_Large(benchmark::State& state) {
+    simdjson::dom::parser parser;
+    for (auto _ : state) {
+        auto doc = parser.parse(g_large_padded);
+        benchmark::DoNotOptimize(doc);
+    }
+    state.SetBytesProcessed(static_cast<int64_t>(state.iterations() * g_large.size()));
+}
+BENCHMARK(BM_Parse_SimdJSON_DOM_Large);
 
 void BM_Parse_FastJSON_Arena_Small(benchmark::State& state) {
     for (auto _ : state) {
@@ -196,7 +246,7 @@ void BM_Parse_FastJSON_Arena_Large(benchmark::State& state) {
 BENCHMARK(BM_Parse_FastJSON_Arena_Large);
 
 // ============================================================================
-// Serialization Benchmarks (FastJSON only — simdjson is read-only)
+// 3. Serialization Benchmarks (FastJSON only — simdjson is read-only)
 // ============================================================================
 
 void BM_Serialize_FastJSON_Small(benchmark::State& state) {
@@ -230,10 +280,11 @@ void BM_Serialize_FastJSON_Large(benchmark::State& state) {
 BENCHMARK(BM_Serialize_FastJSON_Large);
 
 // ============================================================================
-// Field Access Benchmarks
+// 4. Field Access Benchmarks
 // ============================================================================
 
-void BM_FieldAccess_FastJSON(benchmark::State& state) {
+// DOM Field Access (materialized AST)
+void BM_FieldAccess_FastJSON_DOM(benchmark::State& state) {
     auto val = fastjson::mr::parse(g_small).value();
     for (auto _ : state) {
         double o = val["o"].as_float().value_or(0.0);
@@ -244,9 +295,40 @@ void BM_FieldAccess_FastJSON(benchmark::State& state) {
         benchmark::DoNotOptimize(o + h + l + c + v);
     }
 }
-BENCHMARK(BM_FieldAccess_FastJSON);
+BENCHMARK(BM_FieldAccess_FastJSON_DOM);
 
-void BM_FieldAccess_SimdJSON(benchmark::State& state) {
+void BM_FieldAccess_SimdJSON_DOM(benchmark::State& state) {
+    simdjson::dom::parser parser;
+    auto doc = parser.parse(g_small_padded).value();
+    for (auto _ : state) {
+        double o = doc["o"].get_double().value();
+        double h = doc["h"].get_double().value();
+        double l = doc["l"].get_double().value();
+        double c = doc["c"].get_double().value();
+        double v = doc["v"].get_double().value();
+        benchmark::DoNotOptimize(o + h + l + c + v);
+    }
+}
+BENCHMARK(BM_FieldAccess_SimdJSON_DOM);
+
+// Streaming / OnDemand Field Access (Parse + Query)
+void BM_FieldAccess_FastJSON_Turbo(benchmark::State& state) {
+    fastjson::turbo::turbo_parser parser;
+    for (auto _ : state) {
+        auto doc = fastjson::turbo::iterate(g_small, parser).value();
+        auto root = doc.root();
+        auto obj = root.get_object().value();
+        double o = obj["o"].get_double().value();
+        double h = obj["h"].get_double().value();
+        double l = obj["l"].get_double().value();
+        double c = obj["c"].get_double().value();
+        double v = obj["v"].get_double().value();
+        benchmark::DoNotOptimize(o + h + l + c + v);
+    }
+}
+BENCHMARK(BM_FieldAccess_FastJSON_Turbo);
+
+void BM_FieldAccess_SimdJSON_OnDemand(benchmark::State& state) {
     simdjson::ondemand::parser parser;
     for (auto _ : state) {
         auto doc = parser.iterate(g_small_padded);
@@ -258,13 +340,14 @@ void BM_FieldAccess_SimdJSON(benchmark::State& state) {
         benchmark::DoNotOptimize(o + h + l + c + v);
     }
 }
-BENCHMARK(BM_FieldAccess_SimdJSON);
+BENCHMARK(BM_FieldAccess_SimdJSON_OnDemand);
 
 // ============================================================================
-// Array Iteration Benchmarks
+// 5. Array Iteration Benchmarks
 // ============================================================================
 
-void BM_ArrayIteration_FastJSON(benchmark::State& state) {
+// Materialized DOM Array Iteration
+void BM_ArrayIteration_FastJSON_DOM(benchmark::State& state) {
     auto val = fastjson::mr::parse(g_large).value();
     for (auto _ : state) {
         double sum = 0.0;
@@ -277,9 +360,40 @@ void BM_ArrayIteration_FastJSON(benchmark::State& state) {
         benchmark::DoNotOptimize(sum);
     }
 }
-BENCHMARK(BM_ArrayIteration_FastJSON);
+BENCHMARK(BM_ArrayIteration_FastJSON_DOM);
 
-void BM_ArrayIteration_SimdJSON(benchmark::State& state) {
+void BM_ArrayIteration_SimdJSON_DOM(benchmark::State& state) {
+    simdjson::dom::parser parser;
+    auto doc = parser.parse(g_large_padded).value();
+    for (auto _ : state) {
+        double sum = 0.0;
+        for (auto record : doc["records"].get_array()) {
+            sum += record["close"].get_double().value();
+        }
+        benchmark::DoNotOptimize(sum);
+    }
+}
+BENCHMARK(BM_ArrayIteration_SimdJSON_DOM);
+
+// Streaming / OnDemand Array Iteration (Parse + Iterate)
+void BM_ArrayIteration_FastJSON_Turbo(benchmark::State& state) {
+    fastjson::turbo::turbo_parser parser;
+    for (auto _ : state) {
+        double sum = 0.0;
+        auto doc = fastjson::turbo::iterate(g_large, parser).value();
+        auto root = doc.root();
+        auto obj = root.get_object().value();
+        auto arr = obj["records"].get_array().value();
+        for (auto item : arr) {
+            auto rec = item.get_object().value();
+            sum += rec["close"].get_double().value();
+        }
+        benchmark::DoNotOptimize(sum);
+    }
+}
+BENCHMARK(BM_ArrayIteration_FastJSON_Turbo);
+
+void BM_ArrayIteration_SimdJSON_OnDemand(benchmark::State& state) {
     simdjson::ondemand::parser parser;
     for (auto _ : state) {
         double sum = 0.0;
@@ -290,45 +404,40 @@ void BM_ArrayIteration_SimdJSON(benchmark::State& state) {
         benchmark::DoNotOptimize(sum);
     }
 }
-BENCHMARK(BM_ArrayIteration_SimdJSON);
+BENCHMARK(BM_ArrayIteration_SimdJSON_OnDemand);
 
 // ============================================================================
-// Ondemand Benchmarks
+// 6. Single Field Lookup from Large Document (10,000 Records, 1.3 MB)
 // ============================================================================
 
-void BM_FieldAccess_Ondemand(benchmark::State& state) {
+void BM_SingleField_FastJSON_Turbo_Large(benchmark::State& state) {
+    fastjson::turbo::turbo_parser parser;
     for (auto _ : state) {
-        auto doc = fastjson::parse_ondemand(std::string(g_small));
-        auto root = doc->root();
+        auto doc = fastjson::turbo::iterate(g_large, parser).value();
+        auto root = doc.root();
         auto obj = root.get_object().value();
-        double o = obj["o"].value().get_double().value();
-        double h = obj["h"].value().get_double().value();
-        double l = obj["l"].value().get_double().value();
-        double c = obj["c"].value().get_double().value();
-        double v = obj["v"].value().get_double().value();
-        benchmark::DoNotOptimize(o + h + l + c + v);
-    }
-}
-BENCHMARK(BM_FieldAccess_Ondemand);
-
-void BM_SingleField_Ondemand_Large(benchmark::State& state) {
-    // Access 1 field from a 5000-record array without full DOM parse
-    for (auto _ : state) {
-        auto doc = fastjson::parse_ondemand(std::string(g_large));
-        auto root = doc->root();
-        auto obj = root.get_object().value();
-        auto records = obj["records"].value().get_array().value();
-        auto first = records.at(0).value();
+        auto records = obj["records"].get_array().value();
+        auto first = *records.begin();
         auto inner = first.get_object().value();
-        auto close_val = inner["close"].value().get_double().value();
+        auto close_val = inner["close"].get_double().value();
         benchmark::DoNotOptimize(close_val);
     }
     state.SetBytesProcessed(static_cast<int64_t>(state.iterations() * g_large.size()));
 }
-BENCHMARK(BM_SingleField_Ondemand_Large);
+BENCHMARK(BM_SingleField_FastJSON_Turbo_Large);
 
-void BM_SingleField_FullParse_Large(benchmark::State& state) {
-    // Same access pattern but with full DOM construction
+void BM_SingleField_SimdJSON_OnDemand_Large(benchmark::State& state) {
+    simdjson::ondemand::parser parser;
+    for (auto _ : state) {
+        auto doc = parser.iterate(g_large_padded);
+        double close_val = doc["records"].at(0)["close"].get_double().value();
+        benchmark::DoNotOptimize(close_val);
+    }
+    state.SetBytesProcessed(static_cast<int64_t>(state.iterations() * g_large.size()));
+}
+BENCHMARK(BM_SingleField_SimdJSON_OnDemand_Large);
+
+void BM_SingleField_FastJSON_DOM_Large(benchmark::State& state) {
     for (auto _ : state) {
         auto val = fastjson::mr::parse(g_large).value();
         auto close_val = val["records"].as_array()->at(0)["close"].as_float().value_or(0.0);
@@ -336,25 +445,26 @@ void BM_SingleField_FullParse_Large(benchmark::State& state) {
     }
     state.SetBytesProcessed(static_cast<int64_t>(state.iterations() * g_large.size()));
 }
-BENCHMARK(BM_SingleField_FullParse_Large);
+BENCHMARK(BM_SingleField_FastJSON_DOM_Large);
 
 // ============================================================================
-// Throughput Benchmarks (sustained parse, GB/s)
+// 7. Throughput Benchmarks (sustained parse, GB/s)
 // ============================================================================
 
-void BM_Throughput_FastJSON(benchmark::State& state) {
+void BM_Throughput_FastJSON_Turbo(benchmark::State& state) {
+    fastjson::turbo::turbo_parser parser;
     for (auto _ : state) {
         for (int i = 0; i < 100; ++i) {
-            auto result = fastjson::mr::parse(g_medium);
-            benchmark::DoNotOptimize(result);
+            auto doc = fastjson::turbo::iterate(g_medium, parser);
+            benchmark::DoNotOptimize(doc);
         }
     }
     state.SetBytesProcessed(static_cast<int64_t>(state.iterations() * g_medium.size() * 100));
     state.SetLabel(std::to_string(g_medium.size() / 1024) + "KB x 100");
 }
-BENCHMARK(BM_Throughput_FastJSON);
+BENCHMARK(BM_Throughput_FastJSON_Turbo);
 
-void BM_Throughput_SimdJSON(benchmark::State& state) {
+void BM_Throughput_SimdJSON_OnDemand(benchmark::State& state) {
     simdjson::ondemand::parser parser;
     for (auto _ : state) {
         for (int i = 0; i < 100; ++i) {
@@ -365,7 +475,32 @@ void BM_Throughput_SimdJSON(benchmark::State& state) {
     state.SetBytesProcessed(static_cast<int64_t>(state.iterations() * g_medium.size() * 100));
     state.SetLabel(std::to_string(g_medium.size() / 1024) + "KB x 100");
 }
-BENCHMARK(BM_Throughput_SimdJSON);
+BENCHMARK(BM_Throughput_SimdJSON_OnDemand);
+
+void BM_Throughput_FastJSON_DOM(benchmark::State& state) {
+    for (auto _ : state) {
+        for (int i = 0; i < 100; ++i) {
+            auto result = fastjson::mr::parse(g_medium);
+            benchmark::DoNotOptimize(result);
+        }
+    }
+    state.SetBytesProcessed(static_cast<int64_t>(state.iterations() * g_medium.size() * 100));
+    state.SetLabel(std::to_string(g_medium.size() / 1024) + "KB x 100");
+}
+BENCHMARK(BM_Throughput_FastJSON_DOM);
+
+void BM_Throughput_SimdJSON_DOM(benchmark::State& state) {
+    simdjson::dom::parser parser;
+    for (auto _ : state) {
+        for (int i = 0; i < 100; ++i) {
+            auto doc = parser.parse(g_medium_padded);
+            benchmark::DoNotOptimize(doc);
+        }
+    }
+    state.SetBytesProcessed(static_cast<int64_t>(state.iterations() * g_medium.size() * 100));
+    state.SetLabel(std::to_string(g_medium.size() / 1024) + "KB x 100");
+}
+BENCHMARK(BM_Throughput_SimdJSON_DOM);
 
 }  // namespace
 

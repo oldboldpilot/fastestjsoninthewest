@@ -231,6 +231,62 @@ void test_real_world_sales_cumulative() {
     std::cout << "✓ Cumulative revenue over 5 months: $7,500" << std::endl;
 }
 
+void test_lazy_transducer_and_parallel_race_freedom() {
+    std::cout << "\n=== Test: Lazy Transducer & Parallel Race-Freedom ===" << std::endl;
+
+    std::vector<int> data(100000);
+    for (int i = 0; i < 100000; ++i) data[static_cast<size_t>(i)] = i + 1;
+
+    // 1. Lazy pipeline early termination
+    int filter_evals = 0;
+    int map_evals = 0;
+    auto lazy_q = from(data)
+                      .where([&](int x) {
+                          ++filter_evals;
+                          return x % 3 == 0;
+                      })
+                      .select([&](int x) {
+                          ++map_evals;
+                          return x * 2;
+                      })
+                      .take(4);
+
+    assert(lazy_q.is_lazy());
+    assert(filter_evals == 0 && map_evals == 0);
+
+    auto res = lazy_q.to_vector();
+    assert(res == (std::vector<int>{6, 12, 18, 24}));
+    assert(filter_evals == 12);
+    assert(map_evals == 4);
+
+    // 2. Lazy distinct, zip, concat, intersect, except
+    std::vector<int> a = {3, 1, 2, 3, 2, 4, 1};
+    std::vector<int> b = {2, 4, 6};
+    assert(from(a).distinct().to_vector() == (std::vector<int>{3, 1, 2, 4}));
+    assert(from(a).intersect(from(b)).to_vector() == (std::vector<int>{2, 4}));
+    assert(from(a).except(from(b)).to_vector() == (std::vector<int>{3, 1}));
+
+    int zip_evals = 0;
+    auto zipped = from(data)
+                      .zip(b, [&](int x, int y) {
+                          ++zip_evals;
+                          return x + y;
+                      })
+                      .take(2)
+                      .to_vector();
+    assert(zipped == (std::vector<int>{3, 6}));
+    assert(zip_evals == 2);
+
+    // 3. Parallel where race-freedom on 100,000 elements (formerly UB with std::vector<bool>)
+    auto par_evens = from_parallel(data).where([](int x) { return (x & 1) == 0; }).to_vector();
+    assert(par_evens.size() == 50000);
+    for (size_t i = 0; i < par_evens.size(); ++i) {
+        assert(par_evens[i] == static_cast<int>((i + 1) * 2));
+    }
+
+    std::cout << "✓ Lazy transducer early-termination and 100k-element parallel_query_result verified" << std::endl;
+}
+
 int main() {
     std::cout << "========================================" << std::endl;
     std::cout << "   PREFIX_SUM / SCAN OPERATIONS TEST" << std::endl;
@@ -264,6 +320,7 @@ int main() {
         // Real-world scenarios
         test_running_average();
         test_real_world_sales_cumulative();
+        test_lazy_transducer_and_parallel_race_freedom();
 
         std::cout << "\n========================================" << std::endl;
         std::cout << "   ALL PREFIX_SUM TESTS PASSED ✓" << std::endl;

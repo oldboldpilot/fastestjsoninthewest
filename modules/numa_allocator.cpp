@@ -7,23 +7,14 @@
 #include <dlfcn.h>
 #endif
 
-#ifdef _MSC_VER
-#include <malloc.h>
 inline auto portable_aligned_alloc(size_t alignment, size_t size) -> void* {
-    return _aligned_malloc(size, alignment);
+    return ::operator new(size, std::align_val_t{alignment});
 }
-inline auto portable_aligned_free(void* ptr) -> void {
-    _aligned_free(ptr);
+inline auto portable_aligned_free(void* ptr, size_t alignment = 64) -> void {
+    if (ptr) {
+        ::operator delete(ptr, std::align_val_t{alignment});
+    }
 }
-#else
-#include <cstdlib>
-inline auto portable_aligned_alloc(size_t alignment, size_t size) -> void* {
-    return std::aligned_alloc(alignment, size);
-}
-inline auto portable_aligned_free(void* ptr) -> void {
-    std::free(ptr);
-}
-#endif
 
 #ifdef __linux__
     #include <pthread.h>

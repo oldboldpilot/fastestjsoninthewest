@@ -100,7 +100,7 @@ uv pip install nanobind pytest numpy
 NANOBIND_CMAKE_DIR=$(.venv/bin/python -c "import nanobind; print(nanobind.cmake_dir())")
 mkdir build && cd build
 cmake .. -GNinja \
-  -DCMAKE_CXX_COMPILER=/opt/clang-21/bin/clang++ \
+  -DCMAKE_CXX_COMPILER=/home/linuxbrew/.linuxbrew/bin/clang++ \
   -DPython_EXECUTABLE=$(pwd)/../.venv/bin/python \
   -DCMAKE_PREFIX_PATH="$NANOBIND_CMAKE_DIR" \
   -DCMAKE_BUILD_TYPE=Release

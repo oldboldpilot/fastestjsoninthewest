@@ -1,7 +1,7 @@
 // NUMA Awareness Test
 // Author: Olumuyiwa Oluwasanmi
 
-#include <cstring>
+#include <algorithm>
 #include <iomanip>
 #include <iostream>
 
@@ -60,7 +60,7 @@ auto main() -> int {
         std::cout << "  Success! Allocated at: " << local_ptr << "\n";
 
         // Touch the memory to ensure it's actually allocated
-        ::memset(local_ptr, 0xAA, test_size);
+        std::fill_n(static_cast<unsigned char*>(local_ptr), test_size, static_cast<unsigned char>(0xAA));
 
         std::cout << "  Statistics:\n";
         for (int i = 0; i < allocator.get_num_nodes(); ++i) {
@@ -83,7 +83,7 @@ auto main() -> int {
     void* interleaved_ptr = allocator.allocate_interleaved(test_size);
     if (interleaved_ptr) {
         std::cout << "  Success! Allocated at: " << interleaved_ptr << "\n";
-        ::memset(interleaved_ptr, 0xBB, test_size);
+        std::fill_n(static_cast<unsigned char*>(interleaved_ptr), test_size, static_cast<unsigned char>(0xBB));
         allocator.deallocate(interleaved_ptr, test_size);
         std::cout << "  Deallocated successfully\n\n";
     } else {
@@ -97,7 +97,7 @@ auto main() -> int {
             void* node_ptr = allocator.allocate(test_size, node);
             if (node_ptr) {
                 std::cout << "  Node " << node << ": Success at " << node_ptr << "\n";
-                ::memset(node_ptr, 0xCC, test_size);
+                std::fill_n(static_cast<unsigned char*>(node_ptr), test_size, static_cast<unsigned char>(0xCC));
                 allocator.deallocate(node_ptr, test_size);
             } else {
                 std::cout << "  Node " << node << ": Failed\n";

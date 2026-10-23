@@ -62,6 +62,14 @@ if(NOT EXISTS "${LIBCXX_SHARE}/std/algorithm.inc")
     endif()
 endif()
 
+if(EXISTS "${LIBCXX_SHARE}/std.cppm")
+    set(FASTJSON_STD_CPPM "${LIBCXX_SHARE}/std.cppm")
+    set(FASTJSON_STD_BASE_DIR "${LIBCXX_SHARE}")
+else()
+    set(FASTJSON_STD_CPPM "${CMAKE_CURRENT_SOURCE_DIR}/../external/std/std.cppm")
+    set(FASTJSON_STD_BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../external/std")
+endif()
+
 add_library(std_module STATIC)
 target_include_directories(std_module PUBLIC 
     ${LIBCXX_INC}
@@ -70,8 +78,8 @@ target_include_directories(std_module PUBLIC
 )
 target_sources(std_module PUBLIC
     FILE_SET CXX_MODULES 
-    BASE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/../external/std
-    FILES ${CMAKE_CURRENT_SOURCE_DIR}/../external/std/std.cppm
+    BASE_DIRS ${FASTJSON_STD_BASE_DIR}
+    FILES ${FASTJSON_STD_CPPM}
 )
 target_compile_features(std_module PUBLIC cxx_std_23)
 target_compile_options(std_module PRIVATE -Wno-error)
@@ -89,6 +97,7 @@ nanobind_add_module(fastjson
     ${FASTJSON_MODULES_DIR}/numa_allocator.cpp
     ${FASTJSON_MODULES_DIR}/fastjson_simd_api.cpp
     ${FASTJSON_MODULES_DIR}/fastjson_simd_multiregister.cpp
+    ${FASTJSON_MODULES_DIR}/gpu/json_gpu.cpp
 )
 
 # Enable C++23 modules for the target
@@ -128,8 +137,8 @@ target_compile_options(fastjson PRIVATE
 
 # Embed RPATH so libomp.so is found without LD_LIBRARY_PATH
 set_target_properties(fastjson PROPERTIES
-    BUILD_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
-    INSTALL_RPATH "/opt/clang-21/lib/x86_64-unknown-linux-gnu"
+    BUILD_RPATH "${LIBCXX_LIB_DIR};${LIBCXX_LIB_DIR}/x86_64-unknown-linux-gnu"
+    INSTALL_RPATH "${LIBCXX_LIB_DIR};${LIBCXX_LIB_DIR}/x86_64-unknown-linux-gnu"
     BUILD_WITH_INSTALL_RPATH TRUE
 )
 
@@ -193,10 +202,6 @@ if(ENABLE_CUDA)
         CUDA::cudart
         CUDA::cublas
         CUDA::cuda_driver
-    )
-    
-    target_sources(fastjson PRIVATE
-        ${FASTJSON_MODULES_DIR}/gpu/json_gpu.cpp
     )
     
     target_compile_definitions(fastjson PRIVATE FASTJSON_ENABLE_CUDA)

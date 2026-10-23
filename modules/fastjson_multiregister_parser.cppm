@@ -1498,50 +1498,73 @@ inline namespace literals {
 // Functional programming style operations for JSON data manipulation
 // ============================================================================
 
-// Query result container for lazy evaluation chains
+// Query result container for lazy evaluation chains (push-transducer pipeline)
 // [C++ Core Guidelines T.1: Use templates for generality]
 template <typename T>
 class query_result {
-private:
-    std::vector<T> data_;
-
 public:
     using value_type = T;
     using iterator = typename std::vector<T>::iterator;
     using const_iterator = typename std::vector<T>::const_iterator;
+    using sink_fn = std::function<bool(const T&)>;
+    using stream_fn = std::function<void(const sink_fn&)>;
 
     query_result() = default;
-    explicit query_result(std::vector<T>&& data) : data_(std::move(data)) {}
-    explicit query_result(const std::vector<T>& data) : data_(data) {}
+    explicit query_result(std::vector<T>&& data)
+        : data_(std::make_shared<std::vector<T>>(std::move(data))) {}
+    explicit query_result(const std::vector<T>& data)
+        : data_(std::make_shared<std::vector<T>>(data)) {}
+    explicit query_result(const std::vector<T>* ext_ref) noexcept
+        : ext_data_(ext_ref) {}
+    explicit query_result(stream_fn generator) noexcept
+        : generator_(std::move(generator)) {}
+
+    template <typename Sink>
+    auto consume(Sink&& sink) const -> void {
+        if (generator_) {
+            generator_(sink_fn(std::forward<Sink>(sink)));
+        } else if (ext_data_) {
+            for (const auto& item : *ext_data_) {
+                if (!sink(item)) break;
+            }
+        } else if (data_) {
+            for (const auto& item : *data_) {
+                if (!sink(item)) break;
+            }
+        }
+    }
+
+    [[nodiscard]] auto is_lazy() const noexcept -> bool { return static_cast<bool>(generator_); }
 
     // Iterator support (C++ Core Guidelines: T.43 - Prefer alias over typedef)
-    [[nodiscard]] auto begin() noexcept -> iterator { return data_.begin(); }
-    [[nodiscard]] auto end() noexcept -> iterator { return data_.end(); }
-    [[nodiscard]] auto begin() const noexcept -> const_iterator { return data_.begin(); }
-    [[nodiscard]] auto end() const noexcept -> const_iterator { return data_.end(); }
-    [[nodiscard]] auto cbegin() const noexcept -> const_iterator { return data_.cbegin(); }
-    [[nodiscard]] auto cend() const noexcept -> const_iterator { return data_.cend(); }
+    [[nodiscard]] auto begin() -> iterator { return ensure_mutable().begin(); }
+    [[nodiscard]] auto end() -> iterator { return ensure_mutable().end(); }
+    [[nodiscard]] auto begin() const -> const_iterator { return ensure_materialized().begin(); }
+    [[nodiscard]] auto end() const -> const_iterator { return ensure_materialized().end(); }
+    [[nodiscard]] auto cbegin() const -> const_iterator { return ensure_materialized().cbegin(); }
+    [[nodiscard]] auto cend() const -> const_iterator { return ensure_materialized().cend(); }
 
     // Size and access
-    [[nodiscard]] auto size() const noexcept -> std::size_t { return data_.size(); }
-    [[nodiscard]] auto empty() const noexcept -> bool { return data_.empty(); }
-    [[nodiscard]] auto operator[](std::size_t idx) -> T& { return data_[idx]; }
-    [[nodiscard]] auto operator[](std::size_t idx) const -> const T& { return data_[idx]; }
+    [[nodiscard]] auto size() const -> std::size_t { return count(); }
+    [[nodiscard]] auto empty() const -> bool { return !any(); }
+    [[nodiscard]] auto operator[](std::size_t idx) -> T& { return ensure_mutable()[idx]; }
+    [[nodiscard]] auto operator[](std::size_t idx) const -> const T& { return ensure_materialized()[idx]; }
 
     // -------------------------------------------------------------------------
-    // WHERE / FILTER - Select elements matching a predicate
+    // WHERE / FILTER - Select elements matching a predicate (lazy!)
     // [C++ Core Guidelines F.21: Use function templates for generic functions]
     // -------------------------------------------------------------------------
     template <typename Predicate>
     [[nodiscard]] auto where(Predicate pred) const -> query_result<T> {
-        std::vector<T> result;
-        result.reserve(data_.size());
-        for (const auto& item : data_) {
-            if (pred(item)) {
-                result.push_back(item);
-            }
-        }
-        return query_result<T>(std::move(result));
+        auto self = *this;
+        return query_result<T>(stream_fn([self, pred = std::move(pred)](const sink_fn& downstream) {
+            self.consume([&](const T& item) -> bool {
+                if (pred(item)) {
+                    return downstream(item);
+                }
+                return true;
+            });
+        }));
     }
 
     // Alias: filter (functional programming style)
@@ -1551,18 +1574,19 @@ public:
     }
 
     // -------------------------------------------------------------------------
-    // SELECT / MAP - Transform each element
+    // SELECT / MAP - Transform each element (lazy!)
     // -------------------------------------------------------------------------
     template <typename Func>
     [[nodiscard]] auto select(Func func) const 
         -> query_result<std::invoke_result_t<Func, const T&>> {
         using R = std::invoke_result_t<Func, const T&>;
-        std::vector<R> result;
-        result.reserve(data_.size());
-        for (const auto& item : data_) {
-            result.push_back(func(item));
-        }
-        return query_result<R>(std::move(result));
+        auto self = *this;
+        return query_result<R>(typename query_result<R>::stream_fn(
+            [self, func = std::move(func)](const typename query_result<R>::sink_fn& downstream) {
+                self.consume([&](const T& item) -> bool {
+                    return downstream(func(item));
+                });
+            }));
     }
 
     // Alias: map (functional programming style)
@@ -1573,20 +1597,23 @@ public:
     }
 
     // -------------------------------------------------------------------------
-    // FLAT_MAP / SELECT_MANY - Transform and flatten
+    // FLAT_MAP / SELECT_MANY - Transform and flatten (lazy!)
     // -------------------------------------------------------------------------
     template <typename Func>
     [[nodiscard]] auto flat_map(Func func) const 
         -> query_result<typename std::invoke_result_t<Func, const T&>::value_type> {
         using Inner = typename std::invoke_result_t<Func, const T&>::value_type;
-        std::vector<Inner> result;
-        for (const auto& item : data_) {
-            auto inner = func(item);
-            for (auto&& elem : inner) {
-                result.push_back(std::forward<decltype(elem)>(elem));
-            }
-        }
-        return query_result<Inner>(std::move(result));
+        auto self = *this;
+        return query_result<Inner>(typename query_result<Inner>::stream_fn(
+            [self, func = std::move(func)](const typename query_result<Inner>::sink_fn& downstream) {
+                self.consume([&](const T& item) -> bool {
+                    auto inner = func(item);
+                    for (const auto& elem : inner) {
+                        if (!downstream(elem)) return false;
+                    }
+                    return true;
+                });
+            }));
     }
 
     // Alias: select_many (LINQ style)
@@ -1597,100 +1624,232 @@ public:
     }
 
     // -------------------------------------------------------------------------
-    // ORDER BY - Sort by key selector
+    // ORDER BY - Sort by key selector (deferred until consumed)
     // -------------------------------------------------------------------------
     template <typename KeySelector>
     [[nodiscard]] auto order_by(KeySelector key_selector) const -> query_result<T> {
-        std::vector<T> result = data_;
-        std::sort(result.begin(), result.end(), 
-            [&key_selector](const T& a, const T& b) {
-                return key_selector(a) < key_selector(b);
-            });
-        return query_result<T>(std::move(result));
+        auto self = *this;
+        return query_result<T>(stream_fn([self, key_selector = std::move(key_selector)](const sink_fn& downstream) {
+            std::vector<T> sorted = self.to_vector();
+            std::sort(sorted.begin(), sorted.end(), 
+                [&key_selector](const T& a, const T& b) {
+                    return key_selector(a) < key_selector(b);
+                });
+            for (const auto& item : sorted) {
+                if (!downstream(item)) break;
+            }
+        }));
     }
 
     template <typename KeySelector>
     [[nodiscard]] auto order_by_descending(KeySelector key_selector) const -> query_result<T> {
-        std::vector<T> result = data_;
-        std::sort(result.begin(), result.end(), 
-            [&key_selector](const T& a, const T& b) {
-                return key_selector(a) > key_selector(b);
-            });
-        return query_result<T>(std::move(result));
+        auto self = *this;
+        return query_result<T>(stream_fn([self, key_selector = std::move(key_selector)](const sink_fn& downstream) {
+            std::vector<T> sorted = self.to_vector();
+            std::sort(sorted.begin(), sorted.end(), 
+                [&key_selector](const T& a, const T& b) {
+                    return key_selector(a) > key_selector(b);
+                });
+            for (const auto& item : sorted) {
+                if (!downstream(item)) break;
+            }
+        }));
     }
 
     // -------------------------------------------------------------------------
-    // FIRST / LAST / SINGLE - Element access
+    // FIRST / LAST / SINGLE - Element access (early-terminating!)
     // -------------------------------------------------------------------------
     [[nodiscard]] auto first() const -> std::optional<T> {
-        if (data_.empty()) return std::nullopt;
-        return data_.front();
+        if (!generator_) {
+            const auto& vec = ensure_materialized();
+            if (vec.empty()) return std::nullopt;
+            return vec.front();
+        }
+        std::optional<T> res;
+        consume([&res](const T& item) -> bool {
+            res.emplace(item);
+            return false;
+        });
+        return res;
     }
 
     [[nodiscard]] auto first_or_default(const T& default_value) const -> T {
-        return data_.empty() ? default_value : data_.front();
+        auto res = first();
+        return res.has_value() ? *res : default_value;
     }
 
     template <typename Predicate>
     [[nodiscard]] auto first(Predicate pred) const -> std::optional<T> {
-        for (const auto& item : data_) {
-            if (pred(item)) return item;
-        }
-        return std::nullopt;
+        std::optional<T> res;
+        consume([&](const T& item) -> bool {
+            if (pred(item)) {
+                res.emplace(item);
+                return false;
+            }
+            return true;
+        });
+        return res;
     }
 
     [[nodiscard]] auto last() const -> std::optional<T> {
-        if (data_.empty()) return std::nullopt;
-        return data_.back();
+        if (!generator_) {
+            const auto& vec = ensure_materialized();
+            if (vec.empty()) return std::nullopt;
+            return vec.back();
+        }
+        std::optional<T> res;
+        consume([&res](const T& item) -> bool {
+            res = item;
+            return true;
+        });
+        return res;
     }
 
     template <typename Predicate>
     [[nodiscard]] auto last(Predicate pred) const -> std::optional<T> {
-        for (auto it = data_.rbegin(); it != data_.rend(); ++it) {
-            if (pred(*it)) return *it;
+        if (!generator_) {
+            const auto& vec = ensure_materialized();
+            for (auto it = vec.rbegin(); it != vec.rend(); ++it) {
+                if (pred(*it)) return *it;
+            }
+            return std::nullopt;
         }
-        return std::nullopt;
+        std::optional<T> res;
+        consume([&](const T& item) -> bool {
+            if (pred(item)) res = item;
+            return true;
+        });
+        return res;
     }
 
     [[nodiscard]] auto single() const -> std::optional<T> {
-        if (data_.size() != 1) return std::nullopt;
-        return data_.front();
+        if (!generator_) {
+            const auto& vec = ensure_materialized();
+            if (vec.size() != 1) return std::nullopt;
+            return vec.front();
+        }
+        std::optional<T> res;
+        std::size_t seen = 0;
+        consume([&](const T& item) -> bool {
+            ++seen;
+            if (seen == 1) {
+                res.emplace(item);
+                return true;
+            }
+            res.reset();
+            return false;
+        });
+        return seen == 1 ? res : std::nullopt;
+    }
+
+    template <typename Predicate>
+    [[nodiscard]] auto find(Predicate pred) const -> std::optional<T> {
+        return first(std::move(pred));
+    }
+
+    template <typename Predicate>
+    [[nodiscard]] auto find_index(Predicate pred) const -> std::optional<std::size_t> {
+        std::optional<std::size_t> found_idx;
+        std::size_t idx = 0;
+        consume([&](const T& item) -> bool {
+            if (pred(item)) {
+                found_idx = idx;
+                return false;
+            }
+            ++idx;
+            return true;
+        });
+        return found_idx;
     }
 
     // -------------------------------------------------------------------------
-    // ANY / ALL / COUNT - Predicates
+    // ANY / ALL / COUNT - Predicates (early-terminating!)
     // -------------------------------------------------------------------------
     template <typename Predicate>
     [[nodiscard]] auto any(Predicate pred) const -> bool {
-        return std::any_of(data_.begin(), data_.end(), pred);
+        bool found = false;
+        consume([&](const T& item) -> bool {
+            if (pred(item)) {
+                found = true;
+                return false;
+            }
+            return true;
+        });
+        return found;
     }
 
-    [[nodiscard]] auto any() const noexcept -> bool { return !data_.empty(); }
+    [[nodiscard]] auto any() const -> bool {
+        if (!generator_) {
+            return !ensure_materialized().empty();
+        }
+        bool found = false;
+        consume([&](const T&) -> bool {
+            found = true;
+            return false;
+        });
+        return found;
+    }
 
     template <typename Predicate>
     [[nodiscard]] auto all(Predicate pred) const -> bool {
-        return std::all_of(data_.begin(), data_.end(), pred);
+        bool all_match = true;
+        consume([&](const T& item) -> bool {
+            if (!pred(item)) {
+                all_match = false;
+                return false;
+            }
+            return true;
+        });
+        return all_match;
     }
 
     template <typename Predicate>
     [[nodiscard]] auto count(Predicate pred) const -> std::size_t {
-        return static_cast<std::size_t>(std::count_if(data_.begin(), data_.end(), pred));
+        std::size_t c = 0;
+        consume([&](const T& item) -> bool {
+            if (pred(item)) ++c;
+            return true;
+        });
+        return c;
     }
 
-    [[nodiscard]] auto count() const noexcept -> std::size_t { return data_.size(); }
+    [[nodiscard]] auto count() const -> std::size_t {
+        if (!generator_) {
+            return ensure_materialized().size();
+        }
+        std::size_t c = 0;
+        consume([&](const T&) -> bool {
+            ++c;
+            return true;
+        });
+        return c;
+    }
 
     // -------------------------------------------------------------------------
     // AGGREGATE / REDUCE / FOLD - Combine elements
     // -------------------------------------------------------------------------
     template <typename Func>
     [[nodiscard]] auto aggregate(Func func) const -> std::optional<T> {
-        if (data_.empty()) return std::nullopt;
-        return std::accumulate(data_.begin() + 1, data_.end(), data_[0], func);
+        std::optional<T> acc;
+        consume([&](const T& item) -> bool {
+            if (!acc.has_value()) {
+                acc.emplace(item);
+            } else {
+                acc = func(*acc, item);
+            }
+            return true;
+        });
+        return acc;
     }
 
     template <typename Seed, typename Func>
     [[nodiscard]] auto aggregate(Seed seed, Func func) const -> Seed {
-        return std::accumulate(data_.begin(), data_.end(), seed, func);
+        Seed acc = std::move(seed);
+        consume([&](const T& item) -> bool {
+            acc = func(acc, item);
+            return true;
+        });
+        return acc;
     }
 
     // Alias: reduce (functional programming style)
@@ -1716,9 +1875,10 @@ public:
     // -------------------------------------------------------------------------
     template <typename Action>
     auto for_each(Action action) const -> void {
-        for (const auto& item : data_) {
+        consume([&](const T& item) -> bool {
             action(item);
-        }
+            return true;
+        });
     }
 
     // -------------------------------------------------------------------------
@@ -1728,114 +1888,166 @@ public:
     [[nodiscard]] auto sum(Selector selector) const 
         -> std::invoke_result_t<Selector, const T&> {
         using R = std::invoke_result_t<Selector, const T&>;
-        return std::accumulate(data_.begin(), data_.end(), R{},
-            [&selector](R acc, const T& item) { return acc + selector(item); });
+        R acc{};
+        consume([&](const T& item) -> bool {
+            acc = acc + selector(item);
+            return true;
+        });
+        return acc;
     }
 
     template <typename Selector>
     [[nodiscard]] auto min(Selector selector) const 
         -> std::optional<std::invoke_result_t<Selector, const T&>> {
-        if (data_.empty()) return std::nullopt;
         using R = std::invoke_result_t<Selector, const T&>;
-        R min_val = selector(data_[0]);
-        for (std::size_t i = 1; i < data_.size(); ++i) {
-            R val = selector(data_[i]);
-            if (val < min_val) min_val = val;
-        }
+        std::optional<R> min_val;
+        consume([&](const T& item) -> bool {
+            R val = selector(item);
+            if (!min_val.has_value() || val < *min_val) {
+                min_val.emplace(std::move(val));
+            }
+            return true;
+        });
         return min_val;
     }
 
     template <typename Selector>
     [[nodiscard]] auto max(Selector selector) const 
         -> std::optional<std::invoke_result_t<Selector, const T&>> {
-        if (data_.empty()) return std::nullopt;
         using R = std::invoke_result_t<Selector, const T&>;
-        R max_val = selector(data_[0]);
-        for (std::size_t i = 1; i < data_.size(); ++i) {
-            R val = selector(data_[i]);
-            if (val > max_val) max_val = val;
-        }
+        std::optional<R> max_val;
+        consume([&](const T& item) -> bool {
+            R val = selector(item);
+            if (!max_val.has_value() || val > *max_val) {
+                max_val.emplace(std::move(val));
+            }
+            return true;
+        });
         return max_val;
     }
 
     template <typename Selector>
     [[nodiscard]] auto average(Selector selector) const -> std::optional<double> {
-        if (data_.empty()) return std::nullopt;
-        auto sum_val = sum(selector);
-        return static_cast<double>(sum_val) / static_cast<double>(data_.size());
+        double sum_val = 0.0;
+        std::size_t cnt = 0;
+        consume([&](const T& item) -> bool {
+            sum_val += static_cast<double>(selector(item));
+            ++cnt;
+            return true;
+        });
+        if (cnt == 0) return std::nullopt;
+        return sum_val / static_cast<double>(cnt);
     }
 
     // -------------------------------------------------------------------------
-    // TAKE / SKIP - Pagination
+    // TAKE / SKIP - Pagination (lazy with early termination!)
     // -------------------------------------------------------------------------
     [[nodiscard]] auto take(std::size_t n) const -> query_result<T> {
-        std::size_t cnt = std::min(n, data_.size());
-        std::vector<T> result(data_.begin(), data_.begin() + static_cast<std::ptrdiff_t>(cnt));
-        return query_result<T>(std::move(result));
+        auto self = *this;
+        return query_result<T>(stream_fn([self, n](const sink_fn& downstream) {
+            if (n == 0) return;
+            std::size_t taken = 0;
+            self.consume([&](const T& item) -> bool {
+                if (!downstream(item)) return false;
+                return ++taken < n;
+            });
+        }));
     }
 
     [[nodiscard]] auto skip(std::size_t n) const -> query_result<T> {
-        if (n >= data_.size()) return query_result<T>();
-        std::vector<T> result(data_.begin() + static_cast<std::ptrdiff_t>(n), data_.end());
-        return query_result<T>(std::move(result));
+        auto self = *this;
+        return query_result<T>(stream_fn([self, n](const sink_fn& downstream) {
+            std::size_t skipped = 0;
+            self.consume([&](const T& item) -> bool {
+                if (skipped < n) {
+                    ++skipped;
+                    return true;
+                }
+                return downstream(item);
+            });
+        }));
     }
 
     template <typename Predicate>
     [[nodiscard]] auto take_while(Predicate pred) const -> query_result<T> {
-        std::vector<T> result;
-        for (const auto& item : data_) {
-            if (!pred(item)) break;
-            result.push_back(item);
-        }
-        return query_result<T>(std::move(result));
+        auto self = *this;
+        return query_result<T>(stream_fn([self, pred = std::move(pred)](const sink_fn& downstream) {
+            self.consume([&](const T& item) -> bool {
+                if (!pred(item)) return false;
+                return downstream(item);
+            });
+        }));
     }
 
     template <typename Predicate>
     [[nodiscard]] auto skip_while(Predicate pred) const -> query_result<T> {
-        std::vector<T> result;
-        bool skipping = true;
-        for (const auto& item : data_) {
-            if (skipping && pred(item)) continue;
-            skipping = false;
-            result.push_back(item);
-        }
-        return query_result<T>(std::move(result));
+        auto self = *this;
+        return query_result<T>(stream_fn([self, pred = std::move(pred)](const sink_fn& downstream) {
+            bool skipping = true;
+            self.consume([&](const T& item) -> bool {
+                if (skipping) {
+                    if (pred(item)) return true;
+                    skipping = false;
+                }
+                return downstream(item);
+            });
+        }));
     }
 
     // -------------------------------------------------------------------------
-    // DISTINCT - Unique elements
+    // DISTINCT - Unique elements (lazy, order-preserving)
     // -------------------------------------------------------------------------
     [[nodiscard]] auto distinct() const -> query_result<T> {
-        std::vector<T> result;
-        for (const auto& item : data_) {
-            if (std::find(result.begin(), result.end(), item) == result.end()) {
-                result.push_back(item);
-            }
-        }
-        return query_result<T>(std::move(result));
+        auto self = *this;
+        return query_result<T>(stream_fn([self](const sink_fn& downstream) {
+            std::vector<T> seen;
+            self.consume([&](const T& item) -> bool {
+                if (std::find(seen.begin(), seen.end(), item) == seen.end()) {
+                    seen.push_back(item);
+                    return downstream(item);
+                }
+                return true;
+            });
+        }));
     }
 
     template <typename KeySelector>
     [[nodiscard]] auto distinct_by(KeySelector key_selector) const -> query_result<T> {
-        std::vector<T> result;
-        std::vector<std::invoke_result_t<KeySelector, const T&>> seen;
-        for (const auto& item : data_) {
-            auto key = key_selector(item);
-            if (std::find(seen.begin(), seen.end(), key) == seen.end()) {
-                seen.push_back(key);
-                result.push_back(item);
-            }
-        }
-        return query_result<T>(std::move(result));
+        using K = std::invoke_result_t<KeySelector, const T&>;
+        auto self = *this;
+        return query_result<T>(stream_fn([self, key_selector = std::move(key_selector)](const sink_fn& downstream) {
+            std::vector<K> seen;
+            self.consume([&](const T& item) -> bool {
+                auto key = key_selector(item);
+                if (std::find(seen.begin(), seen.end(), key) == seen.end()) {
+                    seen.push_back(std::move(key));
+                    return downstream(item);
+                }
+                return true;
+            });
+        }));
     }
 
     // -------------------------------------------------------------------------
-    // CONCAT / UNION - Combine sequences
+    // CONCAT / UNION - Combine sequences (lazy!)
     // -------------------------------------------------------------------------
     [[nodiscard]] auto concat(const query_result<T>& other) const -> query_result<T> {
-        std::vector<T> result = data_;
-        result.insert(result.end(), other.begin(), other.end());
-        return query_result<T>(std::move(result));
+        auto self = *this;
+        return query_result<T>(stream_fn([self, other](const sink_fn& downstream) {
+            bool keep_going = true;
+            self.consume([&](const T& item) -> bool {
+                if (!downstream(item)) {
+                    keep_going = false;
+                    return false;
+                }
+                return true;
+            });
+            if (keep_going) {
+                other.consume([&](const T& item) -> bool {
+                    return downstream(item);
+                });
+            }
+        }));
     }
 
     [[nodiscard]] auto union_with(const query_result<T>& other) const -> query_result<T> {
@@ -1843,19 +2055,25 @@ public:
     }
 
     // -------------------------------------------------------------------------
-    // ZIP - Combine two sequences element-wise
+    // ZIP - Combine two sequences element-wise (lazy with early termination!)
     // -------------------------------------------------------------------------
     template <typename TOther, typename ResultSelector>
     [[nodiscard]] auto zip(const query_result<TOther>& other, ResultSelector result_selector) const
         -> query_result<std::invoke_result_t<ResultSelector, const T&, const TOther&>> {
         using R = std::invoke_result_t<ResultSelector, const T&, const TOther&>;
-        std::vector<R> result;
-        std::size_t min_size = std::min(data_.size(), other.size());
-        result.reserve(min_size);
-        for (std::size_t i = 0; i < min_size; ++i) {
-            result.push_back(result_selector(data_[i], other[i]));
-        }
-        return query_result<R>(std::move(result));
+        auto self = *this;
+        return query_result<R>(typename query_result<R>::stream_fn(
+            [self, other, result_selector = std::move(result_selector)](
+                const typename query_result<R>::sink_fn& downstream) {
+                const auto& other_vec = other.ensure_materialized();
+                if (other_vec.empty()) return;
+                std::size_t idx = 0;
+                self.consume([&](const T& item) -> bool {
+                    if (idx >= other_vec.size()) return false;
+                    if (!downstream(result_selector(item, other_vec[idx]))) return false;
+                    return ++idx < other_vec.size();
+                });
+            }));
     }
 
     template <typename TOther>
@@ -1874,25 +2092,85 @@ public:
         -> std::unordered_map<std::invoke_result_t<KeySelector, const T&>, std::vector<T>> {
         using K = std::invoke_result_t<KeySelector, const T&>;
         std::unordered_map<K, std::vector<T>> groups;
-        for (const auto& item : data_) {
+        consume([&](const T& item) -> bool {
             groups[key_selector(item)].push_back(item);
-        }
+            return true;
+        });
         return groups;
     }
 
     // -------------------------------------------------------------------------
-    // REVERSE - Reverse order
+    // REVERSE - Reverse order (deferred until consumed)
     // -------------------------------------------------------------------------
     [[nodiscard]] auto reverse() const -> query_result<T> {
-        std::vector<T> result(data_.rbegin(), data_.rend());
-        return query_result<T>(std::move(result));
+        auto self = *this;
+        return query_result<T>(stream_fn([self](const sink_fn& downstream) {
+            const auto& vec = self.ensure_materialized();
+            for (auto it = vec.rbegin(); it != vec.rend(); ++it) {
+                if (!downstream(*it)) break;
+            }
+        }));
     }
 
     // -------------------------------------------------------------------------
     // Conversion
     // -------------------------------------------------------------------------
-    [[nodiscard]] auto to_vector() const -> std::vector<T> { return data_; }
-    [[nodiscard]] auto to_vector() -> std::vector<T>&& { return std::move(data_); }
+    [[nodiscard]] auto to_vector() const -> std::vector<T> {
+        if (!generator_) {
+            if (ext_data_) return *ext_data_;
+            if (data_) return *data_;
+            return {};
+        }
+        std::vector<T> result;
+        consume([&result](const T& item) -> bool {
+            result.push_back(item);
+            return true;
+        });
+        return result;
+    }
+
+    [[nodiscard]] auto ensure_materialized() const -> const std::vector<T>& {
+        if (!data_) {
+            if (ext_data_ && !generator_) {
+                return *ext_data_;
+            }
+            auto vec = std::make_shared<std::vector<T>>();
+            if (generator_) {
+                generator_([&vec](const T& item) -> bool {
+                    vec->push_back(item);
+                    return true;
+                });
+                generator_ = nullptr;
+            }
+            data_ = std::move(vec);
+        }
+        return *data_;
+    }
+
+private:
+    auto ensure_mutable() -> std::vector<T>& {
+        if (!data_) {
+            auto vec = std::make_shared<std::vector<T>>();
+            if (generator_) {
+                generator_([&vec](const T& item) -> bool {
+                    vec->push_back(item);
+                    return true;
+                });
+                generator_ = nullptr;
+            } else if (ext_data_) {
+                *vec = *ext_data_;
+                ext_data_ = nullptr;
+            }
+            data_ = std::move(vec);
+        } else if (data_.use_count() > 1) {
+            data_ = std::make_shared<std::vector<T>>(*data_);
+        }
+        return *data_;
+    }
+
+    mutable std::shared_ptr<std::vector<T>> data_;
+    mutable const std::vector<T>* ext_data_ = nullptr;
+    mutable stream_fn generator_;
 };
 
 // ============================================================================
@@ -2018,23 +2296,20 @@ public:
     // [C++ Core Guidelines CP.2: Avoid data races]
     template <typename Predicate>
     [[nodiscard]] auto where(Predicate pred) const -> parallel_query_result<T> {
-        std::vector<std::atomic<bool>> keep(data_.size());
+        if (data_.empty()) {
+            return parallel_query_result<T>(std::vector<T>{});
+        }
+        auto keep = std::make_unique_for_overwrite<uint8_t[]>(data_.size());
         
-        // Parallel predicate evaluation
-        const std::size_t chunk_size = std::max(std::size_t{1}, 
-            data_.size() / get_thread_count());
-        
-        // Note: Real OpenMP would use #pragma omp parallel for
-        // This is a sequential fallback for portability
         for (std::size_t i = 0; i < data_.size(); ++i) {
-            keep[i].store(pred(data_[i]), std::memory_order_relaxed);
+            keep[i] = pred(data_[i]) ? uint8_t{1} : uint8_t{0};
         }
         
         // Sequential compaction (must be sequential for correctness)
         std::vector<T> result;
         result.reserve(data_.size());
         for (std::size_t i = 0; i < data_.size(); ++i) {
-            if (keep[i].load(std::memory_order_relaxed)) {
+            if (keep[i] != 0) {
                 result.push_back(data_[i]);
             }
         }
