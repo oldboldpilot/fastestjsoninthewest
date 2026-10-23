@@ -1,6 +1,7 @@
 #include <chrono>
 #include <fstream>
 #include <iostream>
+#include <print>
 #include <string>
 #include <vector>
 
@@ -109,7 +110,7 @@ int main(int argc, char* argv[]) {
             speedup = baseline_time / time_ms;
         }
 
-        printf("%7d   %9.2f   %7.2f    %.2fx\n", threads, time_ms, throughput, speedup);
+        std::println("{:7d}   {:9.2f}   {:7.2f}    {:.2f}x", threads, time_ms, throughput, speedup);
     }
 
     std::cout << "\n=== Summary ===\n";

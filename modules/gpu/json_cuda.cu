@@ -10,7 +10,7 @@
 #include <cuda.h>
 #include <cstdint>
 #include <cstddef>
-#include <cstdio>
+#include <iostream>
 #include <chrono>
 
 namespace fastjson {
@@ -25,8 +25,8 @@ namespace cuda {
     do { \
         cudaError_t err = call; \
         if (err != cudaSuccess) { \
-            fprintf(stderr, "CUDA error in %s:%d: %s\n", __FILE__, __LINE__, \
-                    cudaGetErrorString(err)); \
+            std::cerr << "CUDA error in " << __FILE__ << ":" << __LINE__ << ": " \
+                      << cudaGetErrorString(err) << "\n"; \
             return false; \
         } \
     } while(0)
@@ -35,8 +35,8 @@ namespace cuda {
     do { \
         cudaError_t err = call; \
         if (err != cudaSuccess) { \
-            fprintf(stderr, "CUDA error in %s:%d: %s\n", __FILE__, __LINE__, \
-                    cudaGetErrorString(err)); \
+            std::cerr << "CUDA error in " << __FILE__ << ":" << __LINE__ << ": " \
+                      << cudaGetErrorString(err) << "\n"; \
             return ret; \
         } \
     } while(0)

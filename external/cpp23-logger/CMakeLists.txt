@@ -108,14 +108,6 @@ elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     if(WIN32)
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++23")
     else()
-        # -stdlib=libc++ is required here: this vendored copy is compiled as
-        # part of the fastestjsoninthewest STANDALONE build, which links a
-        # libc++-built std_module target and mixes badly with the system
-        # default (libstdc++) ABI if this TU is compiled without it -- see
-        # the "let the parent project's stdlib win" comment history; removing
-        # it broke the standalone build's link step (undefined libstdc++
-        # locale symbols pulled in by a plain-libstdc++-compiled logger.cppm.o
-        # linked into a libc++ executable).
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++23 -stdlib=libc++")
     endif()
 

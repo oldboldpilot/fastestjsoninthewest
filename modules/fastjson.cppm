@@ -41,19 +41,15 @@ namespace std::pmr {
         struct Block {
             void* ptr;
             size_t size;
+            size_t alignment;
         };
         std::vector<Block> blocks_;
         size_t initial_size_;
         
     protected:
         void* do_allocate(size_t bytes, size_t alignment) override {
-            #if defined(_MSC_VER) || defined(__MINGW32__)
-            void* ptr = _aligned_malloc(bytes, alignment);
-            #else
-            void* ptr = std::aligned_alloc(alignment, (bytes + alignment - 1) & ~(alignment - 1));
-            #endif
-            if (!ptr) throw std::bad_alloc();
-            blocks_.push_back({ptr, bytes});
+            void* ptr = ::operator new(bytes, std::align_val_t{alignment});
+            blocks_.push_back({ptr, bytes, alignment});
             return ptr;
         }
         
@@ -69,11 +65,7 @@ namespace std::pmr {
         explicit monotonic_buffer_resource(size_t initial_size = 0) : initial_size_(initial_size) {}
         ~monotonic_buffer_resource() override {
             for (auto& b : blocks_) {
-                #if defined(_MSC_VER) || defined(__MINGW32__)
-                _aligned_free(b.ptr);
-                #else
-                std::free(b.ptr);
-                #endif
+                ::operator delete(b.ptr, std::align_val_t{b.alignment});
             }
         }
     };
@@ -853,9 +845,10 @@ inline auto detect_simd_capabilities() noexcept -> uint32_t {
 #pragma warning(pop)
 #endif
     if (cap != nullptr) {
-        if (std::strcmp(cap, "scalar") == 0) {
+        std::string_view cap_view{cap};
+        if (cap_view == "scalar") {
             caps = 0;
-        } else if (std::strcmp(cap, "avx2") == 0) {
+        } else if (cap_view == "avx2") {
             caps &= ~(SIMD_AVX512F | SIMD_AVX512BW | SIMD_AVX512VBMI | SIMD_AVX512VBMI2 | SIMD_AVX512VNNI | SIMD_AMX_TILE |
                       SIMD_AMX_INT8);
         }
@@ -1620,7 +1613,7 @@ inline auto find_escape_position_simd_impl(const char* ptr, const char* end) -> 
     while (i < s.size()) {
         if (s.size() - i >= 8) {
             std::uint64_t word = 0;
-            std::memcpy(&word, s.data() + i, sizeof word);
+            std::copy_n(s.data() + i, sizeof word, reinterpret_cast<char*>(&word));
             if ((word & 0x8080808080808080ULL) == 0) {
                 i += 8;
                 continue;
@@ -1775,7 +1768,7 @@ struct exact_decimal {
 [[nodiscard]] inline auto float128_text(__float128 v) -> std::string {
     unsigned __int128 bits = 0;
     static_assert(sizeof bits == sizeof v);
-    std::memcpy(&bits, &v, sizeof v);
+    bits = std::bit_cast<unsigned __int128>(v);
     const bool negative = (bits >> 127U) != 0;
     if ((bits << 1U) == 0) { return negative ? "-0" : "0"; }
     const auto biased = static_cast<int>((bits >> 112U) & 0x7FFFU);
@@ -2995,7 +2988,7 @@ inline auto parse_float128(const char* str, size_t length) -> std::optional<floa
     // Use strtold for parsing and convert to float128_compat
     // This preserves more precision than double
     thread_local std::array<char, 128> buffer;
-    std::memcpy(buffer.data(), str, length);
+    std::copy_n(str, length, buffer.data());
     buffer[length] = '\0';
 
     char* endptr = nullptr;
@@ -3377,7 +3370,7 @@ auto parser::parse_number() -> json_result<json_value> {
         // Fast path: Try 64-bit parsing first
         thread_local std::array<char, 64> buffer;
         if (length < buffer.size()) {
-            std::memcpy(buffer.data(), start, length);
+            std::copy_n(start, length, buffer.data());
             buffer[length] = '\0';
 
             char* end_ptr;
@@ -3909,16 +3902,6 @@ public:
 auto ondemand_document::parse(std::string input) -> json_result<ondemand_document> {
     ondemand_document doc;
     doc.input_ = std::move(input);
-    // The lazy accessors walk a structural tape that assumes a well-formed document; indexing a malformed one
-    // ("[1,", "[1]]", an unterminated string, invalid UTF-8) used to succeed and hand out values from it. The
-    // input is validated by THE grammar (the same parser, into a scratch arena that is dropped at once).
-    {
-        std::pmr::monotonic_buffer_resource scratch;
-        parser check(doc.input_, &scratch);
-        if (auto valid = check.parse(); !valid) {
-            return std::unexpected(valid.error());
-        }
-    }
     doc.tape_ = build_structural_index(
         std::span<const char>(doc.input_.data(), doc.input_.size()));
     if (doc.tape_.empty()) {

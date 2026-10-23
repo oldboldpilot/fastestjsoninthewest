@@ -74,34 +74,20 @@ private:
     static auto detect_capabilities() -> Capabilities;
 };
 
-#ifdef _MSC_VER
-#include <malloc.h>
-inline auto portable_free(void* ptr) -> void {
-    _aligned_free(ptr);
-}
-#else
-#include <cstdlib>
-inline auto portable_free(void* ptr) -> void {
-    std::free(ptr);
-}
-#endif
-
 template<size_t Alignment = 64>
 class AlignedBuffer {
+    struct AlignedDeleter {
+        void operator()(void* ptr) const noexcept {
+            if (ptr) {
+                ::operator delete(ptr, std::align_val_t{Alignment});
+            }
+        }
+    };
+
 public:
     explicit AlignedBuffer(size_t size) 
         : size_(size)
-        , data_(
-#ifdef _MSC_VER
-            _aligned_malloc(((size + Alignment - 1) / Alignment) * Alignment, Alignment),
-#else
-            std::aligned_alloc(Alignment, ((size + Alignment - 1) / Alignment) * Alignment),
-#endif
-            portable_free
-        ) {
-        if (!data_) {
-            throw std::bad_alloc{};
-        }
+        , data_(::operator new(((size + Alignment - 1) / Alignment) * Alignment, std::align_val_t{Alignment})) {
     }
 
     // Non-copyable, moveable
@@ -131,7 +117,7 @@ public:
 
 private:
     size_t size_;
-    std::unique_ptr<void, decltype(&portable_free)> data_;
+    std::unique_ptr<void, AlignedDeleter> data_;
 };
 
 // ============================================================================

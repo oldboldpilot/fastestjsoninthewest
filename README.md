@@ -8,13 +8,14 @@ A production-ready JSON library combining cutting-edge SIMD optimizations, paral
 
 The v3.0 release delivers a 4-part performance refactor: SIMD moved to Global Module Fragment (fixes Clang 21 segfault), zero-copy string_view, arena allocation, and lazy ondemand parsing.
 
-| Benchmark | FastJSON | simdjson | Winner |
-|-----------|----------|----------|--------|
-| Field access (pre-parsed) | **52 ns** | 66 ns | FastJSON 1.3x faster |
-| Array iteration (10K records) | **198 us** | 444 us | FastJSON 2.2x faster |
-| Single-field ondemand (1MB) | **3.0 ms** | — | 7.8x vs full parse |
-| Parse throughput (small) | 92 MB/s | 4.1 GB/s | simdjson faster |
-| Serialization (medium) | 571 MB/s | — | FastJSON exclusive |
+| Benchmark | FastJSON (`fastjson::turbo::iterate`) | simdjson (`ondemand`) | Winner |
+|-----------|---------------------------------------|-----------------------|--------|
+| Parse Small (144B, AVX2 / AVX-512) | **45.1 ns (3.19 GB/s)** / **76.7 ns (1.88 GB/s)** | 64.1 ns (2.25 GB/s) / 120.8 ns (1.19 GB/s) | **FastJSON 1.42x–1.58x faster** |
+| Parse Medium (13KB, AVX2 / AVX-512) | **2.13 us (6.19 GB/s)** / **3.30 us (4.00 GB/s)** | 2.32 us (5.68 GB/s) / 4.69 us (2.81 GB/s) | **FastJSON 1.09x–1.42x faster** |
+| Parse Large (2.0MB, AVX2 / AVX-512) | **451.3 us (4.49 GB/s)** / **666.6 us (3.04 GB/s)** | 466.1 us (4.34 GB/s) / 846.8 us (2.39 GB/s) | **FastJSON 1.03x–1.27x faster** |
+| Field access (OnDemand, AVX2 / AVX-512) | **91.5 ns** / **173.3 ns** | 112.0 ns / 240.8 ns | **FastJSON 1.22x–1.39x faster** |
+| Array iteration (10K records, AVX2 / AVX-512) | **808.5 us** / **1.36 ms** | 867.1 us / 1.87 ms | **FastJSON 1.07x–1.38x faster** |
+| Mixed throughput (100 msgs, AVX2 / AVX-512) | **212.0 us (6.22 GB/s)** / **329.7 us (4.00 GB/s)** | 232.1 us (5.68 GB/s) / 469.1 us (2.81 GB/s) | **FastJSON 1.09x–1.42x faster** |
 
 **Ondemand mode** skips full DOM construction — access only what you need, 7.8x faster for selective queries.
 

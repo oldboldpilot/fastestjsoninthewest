@@ -611,6 +611,8 @@ if(NOT MSVC OR CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "GNU")
     )
     set(BENCHMARK_LINK_FLAGS
         -stdlib=libc++
+        -L/home/linuxbrew/.linuxbrew/lib
+        -Wl,-rpath,/home/linuxbrew/.linuxbrew/lib
     )
     set(TEST_COMPILE_FLAGS
         -std=c++23
@@ -724,8 +726,10 @@ set_target_properties(json_linq PROPERTIES
     CXX_EXTENSIONS OFF
 )
 
-# Link OpenMP if enabled
-if(ENABLE_OPENMP)
+# Link parallel libraries if enabled
+if(ENABLE_PARALLEL_STL)
+    target_link_libraries(json_linq PUBLIC TBB::tbb)
+elseif(ENABLE_OPENMP)
     target_link_libraries(json_linq PUBLIC OpenMP::OpenMP_CXX)
 endif()
 
@@ -1301,6 +1305,13 @@ target_compile_options(test_turbo_correctness PRIVATE
 target_link_options(test_turbo_correctness PRIVATE ${TEST_LINK_FLAGS})
 add_dependencies(test_turbo_correctness std_module fastjson_multiregister_parser)
 
+if(ENABLE_PARALLEL_STL AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/prefix_sum_test.cpp")
+    add_executable(test_linq_prefix_sum tests/prefix_sum_test.cpp)
+    target_link_libraries(test_linq_prefix_sum PRIVATE TBB::tbb Threads::Threads)
+    target_compile_options(test_linq_prefix_sum PRIVATE ${TEST_COMPILE_FLAGS})
+    target_link_options(test_linq_prefix_sum PRIVATE ${TEST_LINK_FLAGS})
+endif()
+
 # ============================================================================
 # Tests registered with CTest
 # ============================================================================
@@ -1317,6 +1328,11 @@ if(PROJECT_IS_TOP_LEVEL)
 
     add_test(NAME test_turbo_correctness COMMAND test_turbo_correctness)
     set_tests_properties(test_turbo_correctness PROPERTIES TIMEOUT 300)
+
+    if(TARGET test_linq_prefix_sum)
+        add_test(NAME test_linq_prefix_sum COMMAND test_linq_prefix_sum)
+        set_tests_properties(test_linq_prefix_sum PROPERTIES TIMEOUT 120)
+    endif()
 
     # THE DOCUMENTATION CITATION GATE'S OWN GATE.
     #

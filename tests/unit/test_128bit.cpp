@@ -6,6 +6,7 @@ import fastjson;
 
 #include <cassert>
 #include <cmath>
+#include <format>
 #include <iostream>
 #include <limits>
 #include <string>
@@ -15,9 +16,7 @@ import fastjson;
 std::string float128_to_string(__float128 value) {
     // Convert to long double for string representation
     long double ld_value = static_cast<long double>(value);
-    char buffer[128];
-    int len = snprintf(buffer, sizeof(buffer), "%.36Lg", ld_value);
-    return std::string(buffer, len);
+    return std::format("{:.36g}", ld_value);
 }
 
 // Helper to convert __int128 to string

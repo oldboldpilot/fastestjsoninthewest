@@ -829,7 +829,7 @@ __attribute__((target("sse2"))) static auto match_literal_sse2(std::span<const c
     }
 
     // Fallback for longer strings
-    return std::memcmp(data.data() + pos, literal, len) == 0;
+    return std::string_view(data.data() + pos, len) == std::string_view(literal, len);
 }
 
 // FMA-accelerated number parsing for simple integers
@@ -1179,7 +1179,7 @@ static auto match_literal_sse2(std::span<const char> data, size_t pos, const cha
     if (pos + len > data.size()) {
         return false;
     }
-    return std::memcmp(data.data() + pos, literal, len) == 0;
+    return std::string_view(data.data() + pos, len) == std::string_view(literal, len);
 }
 
 #endif
@@ -1439,7 +1439,7 @@ auto parser::parse_number() -> json_result<json_value> {
         // Try parsing as 128-bit integer
         thread_local std::array<char, 128> int_buffer;
         size_t int_len = std::min(length, int_buffer.size() - 1);
-        std::memcpy(int_buffer.data(), input_.data() + start_pos, int_len);
+        std::copy_n(input_.data() + start_pos, int_len, int_buffer.data());
         int_buffer[int_len] = '\0';
 
         // Parse manually for 128-bit
@@ -1473,7 +1473,7 @@ auto parser::parse_number() -> json_result<json_value> {
 
     thread_local std::array<char, 64> buffer;
     size_t buf_len = std::min(length, buffer.size() - 1);
-    std::memcpy(buffer.data(), input_.data() + start_pos, buf_len);
+    std::copy_n(input_.data() + start_pos, buf_len, buffer.data());
     buffer[buf_len] = '\0';
 
     char* end_ptr;
