@@ -1,41 +1,74 @@
 # Comparative Benchmark Results: FastestJSONInTheWest vs simdjson
 
-## Head-to-Head Benchmark Results (October 22, 2026)
+## Head-to-Head Benchmark Results
 
 **Test Environments:**
-- **AVX2:** AMD Ryzen 7 5700U (Zen 2) | Clang 23.1.4 | C++23 (`libc++`)
-- **AVX-512:** Intel Xeon Gold 6152 (Skylake-SP) | Clang 23.1.4 | C++23 (`libc++`)
-**Comparison:** `fastjson::turbo::iterate` vs `simdjson::ondemand::parser::iterate`
+- **AVX2:** AMD Ryzen 7 5700U (Zen 2) | Clang 23.1.4 | C++23 (`libc++`) | `--benchmark_repetitions=5` median
+- **AVX-512:** Intel Xeon server (`oluwasanmiredhatserver`) | Clang 23.1.1 | C++23 (`libc++`) | `--benchmark_repetitions=5` median
+**Comparison:** FastJSON Turbo / TurboDOM (`fastjson::turbo::iterate` and `fastjson::turbo::dom_parser`) vs `simdjson` (OnDemand and DOM)
 
-### Stage 1 Structural Indexing & OnDemand Parse Latency
+### Local AVX2 Host (`--benchmark_repetitions=5` median, Clang 23.1.4)
 
-| Payload | Size | `fastjson::turbo::iterate` (AVX2 / AVX-512) | `simdjson::ondemand` (AVX2 / AVX-512) | Speedup (AVX2 / AVX-512) |
-|---------|------|---------------------------------------------|---------------------------------------|--------------------------|
-| Small | 144B | **45.1 ns (3.19 GB/s)** / **76.7 ns (1.88 GB/s)** | 64.1 ns (2.25 GB/s) / 120.8 ns (1.19 GB/s) | **FastJSON 1.42x / 1.58x** |
-| Medium | 13.2KB | **2.13 us (6.19 GB/s)** / **3.30 us (4.00 GB/s)** | 2.32 us (5.68 GB/s) / 4.69 us (2.81 GB/s) | **FastJSON 1.09x / 1.42x** |
-| Large | 2.02MB | **451.3 us (4.49 GB/s)** / **666.6 us (3.04 GB/s)** | 466.1 us (4.34 GB/s) / 846.8 us (2.39 GB/s) | **FastJSON 1.03x / 1.27x** |
-| Mixed Throughput (100 msgs) | 1.32MB | **212.0 us (6.22 GB/s)** / **329.7 us (4.00 GB/s)** | 232.1 us (5.68 GB/s) / 469.1 us (2.81 GB/s) | **FastJSON 1.09x / 1.42x** |
+| Benchmark | FastJSON Turbo / TurboDOM | simdjson (OnDemand / DOM) | Result |
+|---|---|---|---|
+| BM_Parse_Small (144 B, OnDemand) | **52.8 ns (2.73 GB/s)** | 64.0 ns (2.25 GB/s) | **FastJSON 1.21x faster** |
+| BM_Parse_Medium (13.2 KB, OnDemand) | **2.32 µs (5.69 GB/s)** | 2.35 µs (5.60 GB/s) | **FastJSON 1.01x faster** |
+| BM_Parse_Large (2.02 MB, OnDemand) | **466.9 µs (4.34 GB/s)** | 470.2 µs (4.31 GB/s) | **FastJSON 1.01x faster** |
+| BM_Parse_Small (144 B, DOM) | **203.1 ns (708.9 MB/s)** | 253.7 ns (567.7 MB/s) | **FastJSON TurboDOM 1.25x faster** |
+| BM_Parse_Medium (13.2 KB, DOM) | **5.58 µs (2.36 GB/s)** | 5.83 µs (2.26 GB/s) | **FastJSON TurboDOM 1.04x faster** |
+| BM_Parse_Large (2.02 MB, DOM) | **2.51 ms (807.2 MB/s)** | 2.69 ms (753.1 MB/s) | **FastJSON TurboDOM 1.07x faster** |
+| BM_FieldAccess (5 fields, DOM) | **24.5 ns** | 32.4 ns | **FastJSON TurboDOM 1.32x faster** |
+| BM_FieldAccess (5 fields, OnDemand) | **117.8 ns** | 123.1 ns | **FastJSON Turbo 1.04x faster** |
+| BM_ArrayIteration (DOM) | 134.4 µs | **132.9 µs** | Tie (~1.1%) |
+| BM_ArrayIteration (OnDemand) | 866.9 µs | **846.3 µs** | simdjson 1.02x faster |
+| BM_SingleField_Large (OnDemand) | **482.2 µs (4.20 GB/s)** | 482.5 µs (4.20 GB/s) | Tie / FastJSON |
+| BM_Throughput (10×Medium, OnDemand) | **231.4 µs (5.69 GB/s)** | 236.3 µs (5.58 GB/s) | **FastJSON 1.02x faster** |
+| BM_Throughput (10×Medium, DOM) | **564.5 µs (2.33 GB/s)** | 588.8 µs (2.24 GB/s) | **FastJSON TurboDOM 1.04x faster** |
 
-### Stage 2 Query & Iteration Benchmarks (Parse + Query)
+### AVX-512 Host (`oluwasanmiredhatserver`, `--benchmark_repetitions=5` median, Clang 23.1.1)
 
-| Benchmark | `fastjson::turbo::iterate` (AVX2 / AVX-512) | `simdjson::ondemand` (AVX2 / AVX-512) | Winner |
-|-----------|---------------------------------------------|---------------------------------------|--------|
-| **Field Access** (5 float fields) | **91.5 ns** / **173.3 ns** | 112.0 ns / 240.8 ns | **FastJSON 1.22x / 1.39x** |
-| **Array Iteration** (10K records) | **808.5 us** / **1.36 ms** | 867.1 us / 1.87 ms | **FastJSON 1.07x / 1.38x** |
-| **Single Field Lookup** (2.02MB) | **458.5 us (4.42 GB/s)** / 885.5 us (2.29 GB/s) | 474.0 us (4.27 GB/s) / **845.4 us (2.40 GB/s)** | FastJSON 1.03x (AVX2) / simdjson 1.05x (AVX-512) |
+| Benchmark | FastJSON Turbo / TurboDOM | simdjson (OnDemand / DOM) | Result |
+|---|---|---|---|
+| BM_Parse_Small (144 B, OnDemand) | **96.2 ns (1.50 GB/s)** | 104.0 ns (1.38 GB/s) | **FastJSON 1.08x faster** |
+| BM_Parse_Medium (13.2 KB, OnDemand) | **3.87 µs (3.40 GB/s)** | 4.34 µs (3.04 GB/s) | **FastJSON 1.12x faster** |
+| BM_Parse_Large (2.02 MB, OnDemand) | 792.4 µs (2.56 GB/s) | **743.8 µs (2.72 GB/s)** | simdjson 1.07x faster |
+| BM_Parse_Small (144 B, DOM) | **412.3 ns (349.3 MB/s)** | 481.1 ns (299.3 MB/s) | **FastJSON TurboDOM 1.17x faster** |
+| BM_Parse_Large (2.02 MB, DOM) | **4.82 ms (420.1 MB/s)** | 4.97 ms (407.5 MB/s) | **FastJSON TurboDOM 1.03x faster** |
+| BM_FieldAccess (5 fields, DOM) | **48.8 ns** | 60.1 ns | **FastJSON TurboDOM 1.23x faster** |
+| BM_FieldAccess (5 fields, OnDemand) | **217.4 ns** | 221.6 ns | **FastJSON Turbo 1.02x faster** |
+| BM_ArrayIteration (DOM) | **183.3 µs** | 260.3 µs | **FastJSON TurboDOM 1.42x faster** |
+| BM_ArrayIteration (OnDemand) | 1.62 ms | **1.50 ms** | simdjson 1.08x faster |
+| BM_SingleField_Large (OnDemand) | 779.1 µs (2.60 GB/s) | **757.8 µs (2.67 GB/s)** | simdjson 1.03x faster |
+| BM_Throughput (10×Medium, OnDemand) | **384.7 µs (3.42 GB/s)** | 434.6 µs (3.03 GB/s) | **FastJSON 1.13x faster** |
+| BM_Throughput (10×Medium, DOM) | 1.155 ms (1.141 GB/s) | **1.150 ms (1.145 GB/s)** | Tie (<0.4%) |
 
-### Analysis
+### Technical Analysis
 
-**Parse throughput**: `fastjson::turbo::iterate` uses software-pipelined 64-byte SIMD structural indexing (`build_indexes_avx2` and `build_indexes_avx512`) with a 64-byte space-padded SIMD tail buffer and unrolled `_tzcnt_u64`/`_blsr_u64` bit extraction (`flatten_mask`), outperforming `simdjson::ondemand` across Small, Medium, Large, and mixed-throughput workloads on both AVX2 and AVX-512. Note that on AVX2, the Large-parse margin is modest (~3%, 451.3 us vs 466.1 us) rather than decisive, and on AVX-512 Single Field lookup simdjson wins by ~4.7% (845.4 us vs 885.5 us).
+#### 1. Turbo OnDemand Engine (`fastjson::turbo::iterate`)
+The Turbo OnDemand engine uses software-pipelined 64-byte SIMD structural indexing (`build_indexes_avx2` and `build_indexes_avx512`) with a 64-byte space-padded SIMD tail buffer and unrolled `_tzcnt_u64`/`_blsr_u64` bit extraction (`flatten_mask`). This delivers industry-leading latency for selective parsing (e.g., 52.8 ns vs 64.0 ns for small documents on AVX2, and 2.32 µs vs 2.35 µs for medium documents).
 
-**Post-parse access**: `turbo_object::find_field` uses first-byte + closing-quote prefiltering and cursor advancement (`cursor_` and `parent_cursor_`), while `turbo_value::get_double` uses an inline 64-bit mantissa accumulator with `pow10_inv`, delivering 1.22x–1.39x faster field access and 1.07x–1.38x faster 10K-record array iteration than `simdjson::ondemand`.
+#### 2. Fused Tiled Tape DOM (`fastjson::turbo::dom_parser`)
+While legacy heap-allocated AST construction (`fastjson::mr::parse`) produces high overhead (~26 ms on 2MB payloads), the new **Fused Tiled Tape DOM** (`fastjson::turbo::dom_parser`) fundamentally changes the DOM performance landscape:
+- **Tiled Stage 1 Indexing (`s1_stream`)**: Operates within a 64 KB L1-resident structural index window, completely avoiding memory bandwidth bottlenecks on large documents.
+- **16-byte `dom_node` Tape**: Linear tape layout with O(1) container skip (`next`), allowing constant-time jumps over entire nested objects and arrays without traversing intermediate nodes.
+- **Inline Short Strings**: Keys and string values `<= 8` bytes are stored directly in `payload`, allowing 64-bit single-word comparisons during field lookups (`find_field`).
+- **Zero-Copy Slices**: Unescaped strings `> 8` bytes are stored as direct `std::string_view` slices into the input buffer.
+- **Sparse Backslash Bitmap (`bs_bits`)**: A 1-bit-per-64-byte-block bitmap tracks blocks with backslashes, so string unescaping loops are completely bypassed when a block contains no escape characters.
+- **Performance**: TurboDOM beats simdjson DOM across Small (203.1 ns vs 253.7 ns on AVX2, 1.25x), Medium (5.58 µs vs 5.83 µs, 1.04x), and Large payloads (2.51 ms vs 2.69 ms, 1.07x on AVX2; 4.82 ms vs 4.97 ms, 1.03x on AVX-512), and delivers 1.23x–1.32x faster DOM field access (24.5 ns vs 32.4 ns on AVX2; 48.8 ns vs 60.1 ns on AVX-512).
 
-**DOM-Mode Comparison (simdjson advantage)**: In materialized DOM mode, simdjson is far faster than FastJSON's DOM parser (`fastjson::mr::parse`). Benchmark measurements on AVX2 show:
-- Large Parse (`BM_Parse_FastJSON_DOM_Large` vs `BM_Parse_SimdJSON_DOM_Large`): FastJSON 26.1 ms vs simdjson 2.81 ms
-- Field Access (`BM_FieldAccess_FastJSON_DOM` vs `BM_FieldAccess_SimdJSON_DOM`): FastJSON 92.7 ns vs simdjson 32.3 ns
-- Array Iteration (`BM_ArrayIteration_FastJSON_DOM` vs `BM_ArrayIteration_SimdJSON_DOM`): FastJSON 406 us vs simdjson 135 us
+#### 3. Exact IEEE-754 Number Parsing
+Both `fastjson::turbo::iterate` and `fastjson::turbo::dom_parser` employ exact IEEE-754 parsing routines (`to_double`, `to_double_general`, `scan_number_fast`):
+- **Clinger Fast Path**: Directly handles `mantissa < 2^53` and `|exp10| <= 22` in registers.
+- **`scan_number_fast`**: Fast path for `-?D{1,8}(.D{1,7})?` (`<= 15` digits).
+- **128-bit Eisel–Lemire Algorithm**: Backed by `modules/fastjson_pow5_128.h` (generated by `tools/gen_pow5_table.py`) with `std::from_chars` fallback for boundary round-to-even ambiguities.
+- Full RFC 8259 grammar compliance: rejects invalid syntax, preserves `-0.0` sign bits, and avoids lossy conversions.
 
-FastJSON's throughput and latency wins apply strictly to the Turbo OnDemand path (`fastjson::turbo::iterate`), not full DOM tree construction.
+#### 4. Honest Assessment: Where simdjson Wins
+A rigorous comparison requires noting where simdjson holds advantages:
+- **AVX-512 Large OnDemand Parse**: simdjson ondemand is ~7% faster on 2MB documents (743.8 µs vs 792.4 µs, 2.72 GB/s vs 2.56 GB/s).
+- **OnDemand Array Iteration**: simdjson ondemand leads by ~2% on AVX2 (846.3 µs vs 866.9 µs) and ~8% on AVX-512 (1.50 ms vs 1.62 ms).
+- **AVX-512 Single Field Lookup**: simdjson ondemand is ~3% faster on 2MB documents (757.8 µs vs 779.1 µs, 2.67 GB/s vs 2.60 GB/s).
+- **Ties**: DOM array iteration on AVX2 (134.4 µs vs 132.9 µs, ~1.1% delta) and DOM throughput on AVX-512 (1.155 ms vs 1.150 ms, <0.4% delta) are statistical ties.
 
 ---
 

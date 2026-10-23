@@ -16,6 +16,8 @@
 #include <iomanip>
 #include <numeric>
 #include <algorithm>
+#include <regex>
+#include <cstdlib>
 
 namespace benchmark {
 
@@ -178,7 +180,31 @@ public:
     static ::benchmark::BenchmarkRegisterer* benchmark_reg_##FixtureClass_##TestName = \
         (new ::benchmark::BenchmarkRegisterer(#FixtureClass "/" #TestName, FixtureClass_##TestName##_Benchmark_Wrapper))
 
+// Command-line options (subset of Google Benchmark's):
+//   --benchmark_filter=REGEX       run only benchmarks whose name matches (std::regex_search)
+//   --benchmark_repetitions=N      run each benchmark N times, report the median
+struct Options {
+    std::string filter;
+    int repetitions = 1;
+};
+inline Options& GetOptions() {
+    static Options opts;
+    return opts;
+}
+inline void Initialize(int argc, char** argv) {
+    for (int i = 1; i < argc; ++i) {
+        const std::string a = argv[i];
+        const std::string f = "--benchmark_filter=";
+        const std::string r = "--benchmark_repetitions=";
+        if (a.rfind(f, 0) == 0) GetOptions().filter = a.substr(f.size());
+        else if (a.rfind(r, 0) == 0) GetOptions().repetitions = std::max(1, std::atoi(a.c_str() + r.size()));
+    }
+}
+
 inline void RunAllBenchmarks() {
+    const Options& opts = GetOptions();
+    const bool use_filter = !opts.filter.empty() && opts.filter != "." && opts.filter != "all";
+    const std::regex filter_re(use_filter ? opts.filter : std::string("."));
     std::cout << std::left 
               << std::setw(55) << "Benchmark" 
               << std::setw(15) << "Time" 
@@ -188,6 +214,7 @@ inline void RunAllBenchmarks() {
     std::cout << std::string(105, '-') << std::endl;
 
     for (const auto& reg : GetRegistry()) {
+        if (use_filter && !std::regex_search(reg.name, filter_re)) continue;
         std::vector<std::vector<int64_t>> runs;
         if (reg.has_range) {
             for (int64_t r = reg.range_start; r <= reg.range_end; r *= 8) {
@@ -221,10 +248,17 @@ inline void RunAllBenchmarks() {
                 iters *= 10;
             }
 
-            // Step 2: Run benchmark
-            State state(iters, run_args);
-            reg.fn(state);
-            double total_seconds = state.GetDurationSeconds();
+            // Step 2: Run benchmark (median of --benchmark_repetitions runs)
+            std::vector<std::pair<double, State>> reps;
+            for (int rep = 0; rep < opts.repetitions; ++rep) {
+                State s(iters, run_args);
+                reg.fn(s);
+                reps.emplace_back(s.GetDurationSeconds(), s);
+            }
+            std::sort(reps.begin(), reps.end(),
+                      [](const auto& a, const auto& b) { return a.first < b.first; });
+            const State& state = reps[reps.size() / 2].second;
+            double total_seconds = reps[reps.size() / 2].first;
             double ns_per_iter = (total_seconds / state.iterations()) * 1e9;
             
             std::cout << std::left << std::setw(55) << benchmark_name;
@@ -261,7 +295,8 @@ inline void RunAllBenchmarks() {
 } // namespace benchmark
 
 #define BENCHMARK_MAIN() \
-    int main(int, char**) { \
+    int main(int argc, char** argv) { \
+        ::benchmark::Initialize(argc, argv); \
         ::benchmark::RunAllBenchmarks(); \
         return 0; \
     }

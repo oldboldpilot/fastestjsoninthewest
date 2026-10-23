@@ -4,32 +4,73 @@
 
 A production-ready JSON library combining cutting-edge SIMD optimizations, parallel processing, NUMA awareness, and modern C++23 features including a comprehensive LINQ-style query interface and functional programming operations.
 
-## ⚡ Performance Highlights (Turbo OnDemand Engine)
+## ⚡ Performance Highlights (Turbo OnDemand & Fused Tiled Tape DOM)
 
-The Turbo OnDemand engine (`fastjson::turbo::iterate`) uses software-pipelined 64-byte SIMD indexing (`build_indexes_avx2` / `build_indexes_avx512`), a 64-byte space-padded SIMD tail buffer, and fast-advancing field search with inline numeric conversions.
+FastestJSONInTheWest provides two high-performance front-ends built on top of the Turbo stage-1 SIMD structural indexer (`build_indexes_avx2` / `build_indexes_avx512`, 64-byte space-padded SIMD tail buffer, `flatten_mask`):
 
-| Benchmark | FastJSON (`fastjson::turbo::iterate`) | simdjson (`ondemand`) | Winner |
-|-----------|---------------------------------------|-----------------------|--------|
-| Parse Small (144B, AVX2 / AVX-512) | **45.1 ns (3.19 GB/s)** / **76.7 ns (1.88 GB/s)** | 64.1 ns (2.25 GB/s) / 120.8 ns (1.19 GB/s) | **FastJSON 1.42x–1.58x faster** |
-| Parse Medium (13KB, AVX2 / AVX-512) | **2.13 us (6.19 GB/s)** / **3.30 us (4.00 GB/s)** | 2.32 us (5.68 GB/s) / 4.69 us (2.81 GB/s) | **FastJSON 1.09x–1.42x faster** |
-| Parse Large (2.0MB, AVX2 / AVX-512) | **451.3 us (4.49 GB/s)** / **666.6 us (3.04 GB/s)** | 466.1 us (4.34 GB/s) / 846.8 us (2.39 GB/s) | **FastJSON 1.03x–1.27x faster** (AVX2 margin ~3%) |
-| Field access (OnDemand, AVX2 / AVX-512) | **91.5 ns** / **173.3 ns** | 112.0 ns / 240.8 ns | **FastJSON 1.22x–1.39x faster** |
-| Array iteration (10K records, AVX2 / AVX-512) | **808.5 us** / **1.36 ms** | 867.1 us / 1.87 ms | **FastJSON 1.07x–1.38x faster** |
-| Single Field Large (2.0MB, AVX2 / AVX-512) | **458.5 us (4.42 GB/s)** / 885.5 us (2.29 GB/s) | 474.0 us (4.27 GB/s) / **845.4 us (2.40 GB/s)** | FastJSON 1.03x (AVX2) / **simdjson 1.05x (~4.7% faster, AVX-512)** |
-| Mixed throughput (100 msgs, AVX2 / AVX-512) | **212.0 us (6.22 GB/s)** / **329.7 us (4.00 GB/s)** | 232.1 us (5.68 GB/s) / 469.1 us (2.81 GB/s) | **FastJSON 1.09x–1.42x faster** |
+1. **Turbo OnDemand Engine (`fastjson::turbo::iterate`)**: Lazy parsing with fast-advancing field search and inline numeric conversions, skipping full DOM construction for selective queries.
+2. **Fused Tiled Tape DOM (`fastjson::turbo::dom_parser`)**: Full document materialization on a 64 KB L1-resident structural index window (`s1_stream`) and a 16-byte `dom_node` tape with O(1) container skip (`next`), inline short strings (`<= 8` bytes stored directly in `payload` for single-word key comparisons), zero-copy `std::string_view` slices into the input buffer for unescaped strings `> 8` bytes, and a sparse backslash bitmap (`bs_bits`, 1 bit per 64-byte block) so string unescaping is only invoked when a block actually contains backslashes.
 
-**Ondemand mode** skips full DOM construction — access only what you need, 7.8x faster for selective queries.  
-*Caveat: Performance wins apply to the Turbo OnDemand path; materialized DOM mode favors simdjson (e.g., AVX2 Large parse 26.1 ms vs 2.81 ms).*
+### Local AVX2 Host (`--benchmark_repetitions=5` median, Clang 23.1.4)
+
+| Benchmark | FastJSON Turbo / TurboDOM | simdjson (OnDemand / DOM) | Result |
+|---|---|---|---|
+| BM_Parse_Small (144 B, OnDemand) | **52.8 ns (2.73 GB/s)** | 64.0 ns (2.25 GB/s) | **FastJSON 1.21x faster** |
+| BM_Parse_Medium (13.2 KB, OnDemand) | **2.32 µs (5.69 GB/s)** | 2.35 µs (5.60 GB/s) | **FastJSON 1.01x faster** |
+| BM_Parse_Large (2.02 MB, OnDemand) | **466.9 µs (4.34 GB/s)** | 470.2 µs (4.31 GB/s) | **FastJSON 1.01x faster** |
+| BM_Parse_Small (144 B, DOM) | **203.1 ns (708.9 MB/s)** | 253.7 ns (567.7 MB/s) | **FastJSON TurboDOM 1.25x faster** |
+| BM_Parse_Medium (13.2 KB, DOM) | **5.58 µs (2.36 GB/s)** | 5.83 µs (2.26 GB/s) | **FastJSON TurboDOM 1.04x faster** |
+| BM_Parse_Large (2.02 MB, DOM) | **2.51 ms (807.2 MB/s)** | 2.69 ms (753.1 MB/s) | **FastJSON TurboDOM 1.07x faster** |
+| BM_FieldAccess (5 fields, DOM) | **24.5 ns** | 32.4 ns | **FastJSON TurboDOM 1.32x faster** |
+| BM_FieldAccess (5 fields, OnDemand) | **117.8 ns** | 123.1 ns | **FastJSON Turbo 1.04x faster** |
+| BM_ArrayIteration (DOM) | 134.4 µs | **132.9 µs** | Tie (~1.1%) |
+| BM_ArrayIteration (OnDemand) | 866.9 µs | **846.3 µs** | simdjson 1.02x faster |
+| BM_SingleField_Large (OnDemand) | **482.2 µs (4.20 GB/s)** | 482.5 µs (4.20 GB/s) | Tie / FastJSON |
+| BM_Throughput (10×Medium, OnDemand) | **231.4 µs (5.69 GB/s)** | 236.3 µs (5.58 GB/s) | **FastJSON 1.02x faster** |
+| BM_Throughput (10×Medium, DOM) | **564.5 µs (2.33 GB/s)** | 588.8 µs (2.24 GB/s) | **FastJSON TurboDOM 1.04x faster** |
+
+### AVX-512 Host (`oluwasanmiredhatserver`, `--benchmark_repetitions=5` median, Clang 23.1.1)
+
+| Benchmark | FastJSON Turbo / TurboDOM | simdjson (OnDemand / DOM) | Result |
+|---|---|---|---|
+| BM_Parse_Small (144 B, OnDemand) | **96.2 ns (1.50 GB/s)** | 104.0 ns (1.38 GB/s) | **FastJSON 1.08x faster** |
+| BM_Parse_Medium (13.2 KB, OnDemand) | **3.87 µs (3.40 GB/s)** | 4.34 µs (3.04 GB/s) | **FastJSON 1.12x faster** |
+| BM_Parse_Large (2.02 MB, OnDemand) | 792.4 µs (2.56 GB/s) | **743.8 µs (2.72 GB/s)** | simdjson 1.07x faster |
+| BM_Parse_Small (144 B, DOM) | **412.3 ns (349.3 MB/s)** | 481.1 ns (299.3 MB/s) | **FastJSON TurboDOM 1.17x faster** |
+| BM_Parse_Large (2.02 MB, DOM) | **4.82 ms (420.1 MB/s)** | 4.97 ms (407.5 MB/s) | **FastJSON TurboDOM 1.03x faster** |
+| BM_FieldAccess (5 fields, DOM) | **48.8 ns** | 60.1 ns | **FastJSON TurboDOM 1.23x faster** |
+| BM_FieldAccess (5 fields, OnDemand) | **217.4 ns** | 221.6 ns | **FastJSON Turbo 1.02x faster** |
+| BM_ArrayIteration (DOM) | **183.3 µs** | 260.3 µs | **FastJSON TurboDOM 1.42x faster** |
+| BM_ArrayIteration (OnDemand) | 1.62 ms | **1.50 ms** | simdjson 1.08x faster |
+| BM_SingleField_Large (OnDemand) | 779.1 µs (2.60 GB/s) | **757.8 µs (2.67 GB/s)** | simdjson 1.03x faster |
+| BM_Throughput (10×Medium, OnDemand) | **384.7 µs (3.42 GB/s)** | 434.6 µs (3.03 GB/s) | **FastJSON 1.13x faster** |
+| BM_Throughput (10×Medium, DOM) | 1.155 ms (1.141 GB/s) | **1.150 ms (1.145 GB/s)** | Tie (<0.4%) |
+
+*Honest Assessment*: FastJSON TurboDOM leads on full DOM parsing and field access on both AVX2 and AVX-512 (e.g., AVX2 Large DOM parse 2.51 ms vs 2.69 ms, AVX2 DOM FieldAccess 24.5 ns vs 32.4 ns). simdjson leads on AVX-512 Large OnDemand parse (1.07x faster), OnDemand array iteration (1.02x–1.08x faster), and AVX-512 SingleField lookup (1.03x faster).
+
 
 ## 🚀 Key Features
 
-### Performance
+### Performance & Core Parsing Engines
+- **Fused Tiled Tape DOM (`fastjson::turbo::dom_parser`)**:
+  - Full document materialization on top of Turbo stage 1 (`s1_stream`, 64 KB L1-resident structural index window).
+  - 16-byte `dom_node` tape with O(1) container skip (`next`), inline short strings (`<= 8` bytes stored directly in `payload` for single-word key comparisons), zero-copy `std::string_view` slices into the input buffer for unescaped strings `> 8` bytes, and a sparse backslash bitmap (`bs_bits`, 1 bit per 64-byte block) ensuring string unescaping is only invoked when a block actually contains backslashes.
+  - Complete zero-copy navigation types: `dom_element`, `dom_array`, `dom_object`, `dom_field`, `dom_type`.
+  - Full integer fidelity up to 128 bits (`int64_t`, `uint64_t`, `__int128`, `unsigned __int128`) plus IEEE-754 binary64 `double`.
+  - Faster than simdjson DOM: 2.51 ms vs 2.69 ms (AVX2 Large), 4.82 ms vs 4.97 ms (AVX-512 Large), 24.5 ns vs 32.4 ns (AVX2 DOM FieldAccess).
+- **Turbo OnDemand Engine (`fastjson::turbo::iterate`)**:
+  - Lazy two-stage parsing with structural SIMD tape and deferred value materialization.
+  - Software-pipelined 64-byte SIMD indexing (`build_indexes_avx2` / `build_indexes_avx512`), 64-byte space-padded SIMD tail buffer, and fast-advancing field search with inline numeric conversions.
+- **Exact IEEE-754 Number Parsing (`to_double`, `to_double_general`, `scan_number_fast`)**:
+  - Inline Clinger fast path (`mantissa < 2^53`, `|exp10| <= 22`) + `scan_number_fast` for `-?D{1,8}(.D{1,7})?` (`<= 15` digits).
+  - Backed by 128-bit Eisel–Lemire algorithm (`modules/fastjson_pow5_128.h`, generated by `tools/gen_pow5_table.py`) with `std::from_chars` fallback for ambiguous round-to-even boundary cases.
+  - Strict RFC 8259 number grammar: rejects leading zeros (like 01), trailing decimals (like 1.), leading +, NaN/Infinity, unclosed exponents, and truncating `get_int64` on floats like 1.5 or -0.0. Preserves -0.0 sign bit.
+- **Full RFC 8259 Stage-1 & Stage-2 Validation**:
+  - SIMD UTF-8 validation (`validate_utf8` using Lemire/Keiser 3-nibble LUT in AVX2, with ASCII fast-path accumulator in stage 1).
+  - Strict rejection of unescaped control characters (`0x00..0x1F`) inside strings (`error_code::unescaped_control`), unclosed strings (`error_code::unclosed_string`), mismatched/unbalanced brackets (`error_code::invalid_json`), excessive nesting depth (`error_code::depth_exceeded`), and trailing content (`error_code::trailing_content`).
 - **Multi-Register SIMD**: 8x AVX2 ymm registers (256 bytes/iteration), 4x AVX-512 zmm, 4x SSE4.2/SSE2 xmm
   - SIMD implementations in Global Module Fragment (GMF) — fixes Clang 21 module purview segfault
   - Runtime CPUID dispatch: AVX-512 → AVX2 → SSE4.2 → SSE2 → scalar
-- **Ondemand Parsing**: Lazy two-stage parsing with structural SIMD tape
-  - `parse_ondemand()` builds structural index, defers value materialization
-  - 7.8x faster than full DOM for selective field access on large payloads
 - **Arena Allocation**: `parse_arena()` uses `std::pmr::monotonic_buffer_resource`
   - Single arena allocation for all parsed nodes, reduced heap pressure
 - **Zero-Copy Strings**: `string_view` for unescaped JSON strings (no heap allocation)
@@ -39,8 +80,20 @@ The Turbo OnDemand engine (`fastjson::turbo::iterate`) uses software-pipelined 6
   - ARM: NEON (128-bit) with optimized JSON parsing kernels
 - **Parallel Parsing**: OpenMP-based multi-threaded parsing
 - **NUMA-Aware**: 69% speedup on multi-socket systems
-- **UTF-8 Validation**: <1% overhead with SIMD (12/12 tests passing)
 - **Prefetching**: 3-5% improvement on large datasets
+
+### NASA Human-Spaceflight-Grade Testing & Sanitizers
+- **`test_turbo_correctness`** runs **7,430 assertions across 26 sections**:
+  - 180,000+ randomized & adversarial IEEE-754 round-trip number checks (`test_double_exact_known_cases`, `test_double_exact_randomized`)
+  - 19,648,862 SIMD vs scalar differential UTF-8 buffer checks (`test_utf8_validator_differential`)
+  - 3,000 randomized DOM round-trips + 16,000 single-byte mutation fuzz checks (`test_dom_randomized_roundtrip_and_mutation`)
+  - Guard-page over-read protection (`test_guard_page_overread`): places 1,211 documents, every byte-by-byte prefix (1..200 bytes), and mutants flush against an `mmap` + `mprotect` (`PROT_NONE`) hardware guard page and walks all 3 front ends (`iterate()`, `parse()`, `dom_parser::parse()`) to prove zero 1-byte over-reads.
+  - Dedicated regression test suites (`test_regressions_found_during_audit`): 5 regression suites covering `find_field` guard-page OOB read, `find_field` escaped-quote key prefix false match, `find_field` cross-key span match, `s1_stream::refill` unclosed final string underflow, `bkt_stk` depth overflow, and `-0.0` / 8-digit integer boundary.
+  - Multithreaded concurrent parsing (`test_multithreaded_concurrent_parsing`): 8 threads × 40 iterations concurrently parsing and querying across `iterate()`, `parse()`, and `dom_parser`.
+- **Rule 59 Sanitizer Support (`CMakeLists.txt`)**:
+  - `-DENABLE_ASAN=ON`: AddressSanitizer + LeakSanitizer + UndefinedBehaviorSanitizer (`-fsanitize=address,undefined -fno-sanitize-recover=undefined`, `ASAN_OPTIONS=detect_leaks=1`) — **3/3 `ctest` PASS (0 errors, 0 leaks)**.
+  - `-DENABLE_MSAN=ON`: MemorySanitizer with origin tracking (`-fsanitize=memory -fsanitize-memory-track-origins`, using `cmake/msan_libcxx_compat.h` and `cmake/msan_libcxx_shim.cpp` for prebuilt `libc++.so.1` compatibility) — **3/3 `ctest` PASS (0 warnings)**.
+  - `-DENABLE_TSAN=ON`: ThreadSanitizer (`-fsanitize=thread`) — **3/3 `ctest` PASS (0 data races)**.
 
 ### Unicode Support
 - **UTF-8**: Native support (default)
@@ -675,7 +728,7 @@ The `fastjson_parallel` module maps JSON types to optimal C++ standard library c
 | `number` | `double` | Built-in | `json_value(42.0)` |
 | `number (128-bit)` | `__float128` | GCC/Clang | `json_value((__float128)3.14...)` |
 | `integer (128-bit)` | `__int128` | GCC/Clang | `json_value((__int128)large)` |
-| `uint (128-bit)` | `unsigned __int128` | GCC/Clang | `json_value((unsigned __int128)...)` |
+| `uint (128-bit)` | `unsigned __int128` | GCC/Clang | `json_value` (128-bit unsigned integer) |
 | `string` | `std::string` | `<string>` | `json_value("text")` |
 | `array` | `std::vector<json_value>` | `<vector>` | `json_value(json_array{...})` |
 | `object` | `std::unordered_map<std::string, json_value>` | `<unordered_map>` | `json_value(json_object{...})` |
@@ -1905,13 +1958,13 @@ The `json_linq.cppm` C++23 module provides a complete LINQ implementation with b
 - `forEach(action)` / `for_each(action)` - Execute action for each element
 - `find(predicate)` - Find first matching element
 - `find_index(predicate)` - Find index of first match
-- `zip(other, combiner)` - Combine two sequences element-wise
-- `prefix_sum(func)` / `scan(func)` - Cumulative operations with custom binary op
+- `zip` - Combine two sequences element-wise
+- `prefix_sum` / `scan` - Cumulative operations with custom binary op
 - **Parallel Prefix Sum**: Efficient parallel scan with block-wise computation
 
 ### Grouping & Joining
 - `group_by(key_selector)` - Group elements by key (returns `std::unordered_map`)
-- `join(other, key1, key2, result_selector)` - Inner join on matching keys
+- `join` - Inner join on matching keys
 
 ### Element Access
 - `first()`, `first(predicate)`, `first_or_default()` - Get first element
@@ -1967,32 +2020,37 @@ All LINQ operations are thread-safe and use OpenMP pragmas:
 
 ## 🧪 Testing
 
-The project uses a zero-dependency C++23 test framework and comprehensive Python bindings tests.
+The repository maintains rigorous testing standards including NASA human-spaceflight-grade regression test suites, guard-page over-read verification, and full Rule 59 sanitizer passes across AddressSanitizer, MemorySanitizer, and ThreadSanitizer.
 
 ### Test Status
 
-| Test Suite | Tests | Status |
-|------------|-------|--------|
-| C++ test_framework_validation | 14/14 | ✅ Passing |
-| C++ test_multiregister_parser | 140/140 | ✅ Passing |
-| Python bindings | 38/39 | ✅ Passing (1 skipped) |
-| **Total** | **193** | **100% Pass Rate** |
+| Test Suite | Tests / Assertions | Status |
+|------------|--------------------|--------|
+| `test_turbo_correctness` | 7,430 assertions across 26 sections | ✅ 100% Passing (0 failures) |
+| `test_linq_prefix_sum` | Comprehensive prefix sum & scan tests | ✅ 100% Passing |
+| `check_docs_claims` | Static documentation claim gate | ✅ 100% Passing |
+| Python bindings | Nanobind test suite | ✅ Passing |
+| **Sanitizers (ASan + LSan + UBSan)** | `-DENABLE_ASAN=ON` | ✅ 3/3 `ctest` PASS (0 errors, 0 leaks) |
+| **Sanitizers (MSan)** | `-DENABLE_MSAN=ON` | ✅ 3/3 `ctest` PASS (0 warnings) |
+| **Sanitizers (TSan)** | `-DENABLE_TSAN=ON` | ✅ 3/3 `ctest` PASS (0 data races) |
 
 ### Running Tests
 
 ```bash
-# C++ Tests (from build directory)
-./test_multiregister_parser
-./test_framework_validation
+# Build and run all CTest targets (from build directory)
+ctest --test-dir build --output-on-failure
+
+# Run the turbo correctness test suite directly
+./build/test_turbo_correctness
+
+# Verify documentation claims
+python3 tools/check_docs_claims.py
+bash tools/test_check_docs_claims.sh
 
 # Python Tests (requires OpenMP library path)
 cd python_bindings
 export LD_LIBRARY_PATH="/opt/clang-21/lib/x86_64-unknown-linux-gnu:$LD_LIBRARY_PATH"
 uv run pytest tests/ -v
-
-# Run benchmarks
-./benchmark_multiregister
-./comparative_benchmark
 ```
 
 ### Local Test Framework

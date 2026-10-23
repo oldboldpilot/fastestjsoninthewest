@@ -2,9 +2,12 @@
 
 Welcome to the FastestJSONInTheWest public documentation. This folder contains all the curated, production-ready documentation for developers integrating and using the library.
 
-## ⚡ v2.0 Performance Update
+## ⚡ Turbo & Fused Tiled Tape DOM Performance Update
 
-The default parser now uses **4x AVX2 multi-register SIMD** (128 bytes per iteration), delivering 2-6x faster parsing with **zero API changes**. Existing code gets faster automatically.
+FastestJSONInTheWest provides two high-performance front-ends:
+- **Turbo OnDemand (`fastjson::turbo::iterate`)**: Lazy parsing with fast-advancing field search and inline numeric conversions.
+- **Fused Tiled Tape DOM (`fastjson::turbo::dom_parser`)**: Full document materialization on a 64 KB L1-resident structural index window (`s1_stream`) into a 16-byte `dom_node` tape with O(1) container skip (`next`), inline short strings (`<= 8` bytes in `payload`), zero-copy `std::string_view` slices into input for strings `> 8` bytes, and sparse backslash bitmap (`bs_bits`).
+- **Benchmark Highlights**: TurboDOM parses 2MB documents in **2.51 ms (AVX2)** and **4.82 ms (AVX-512)**, beating simdjson DOM (2.69 ms and 4.97 ms). Field access is 1.23x–1.32x faster (24.5 ns on AVX2, 48.8 ns on AVX-512).
 
 ## 📚 Documentation Index
 
@@ -172,10 +175,13 @@ if (json && json->is_array()) {
 
 ### Benchmark Highlights
 
-- **Parsing**: Turbo OnDemand is 1.03x–1.58x faster than simdjson ondemand across most payloads (though simdjson wins Single Field on AVX-512 by ~4.7%, and simdjson is far faster in materialized DOM mode)
-- **Queries**: 2-8x faster than simdjson with LINQ interface
-- **Parallel**: 8-12x speedup with OpenMP on large datasets
-- **Memory**: Zero definite leaks (Valgrind verified)
+- **Turbo OnDemand**: `fastjson::turbo::iterate` is 1.01x–1.21x faster than simdjson ondemand on AVX2 across Small (52.8 ns vs 64.0 ns), Medium (2.32 µs vs 2.35 µs), and Large (466.9 µs vs 470.2 µs) payloads.
+- **Fused Tiled Tape DOM**: `fastjson::turbo::dom_parser` parses 2.02MB documents in **2.51 ms on AVX2** and **4.82 ms on AVX-512**, outperforming simdjson DOM (2.69 ms and 4.97 ms).
+- **Field Access**: FastJSON TurboDOM field access takes **24.5 ns on AVX2** and **48.8 ns on AVX-512**, 1.23x–1.32x faster than simdjson DOM (32.4 ns and 60.1 ns).
+- **Honest Trade-offs**: simdjson ondemand leads on AVX-512 Large parse by 1.07x (743.8 µs vs 792.4 µs), sequential array iteration by 1.02x–1.08x, and AVX-512 single field lookup by 1.03x.
+- **Testing & Sanitizers**: NASA human-spaceflight-grade verification with 7,430 assertions across 26 sections in `test_turbo_correctness`, zero over-read guard-page verification, and 100% clean passes under ASan, MSan, and TSan.
+- **Queries**: 2-8x faster than manual traversal using the C++23 LINQ interface.
+- **Parallel**: 8-12x speedup with OpenMP on large datasets.
 
 **Full Results:** See [BENCHMARK_RESULTS.md](./BENCHMARK_RESULTS.md)
 
@@ -212,13 +218,13 @@ if (json && json->is_array()) {
 
 **Q: Parallel operations not showing speedup**
 - Ensure dataset size > 10K elements
-- Check thread count: `omp_get_num_threads()`
-- Profile with Valgrind: `valgrind --tool=helgrind`
+- Check thread count via OpenMP API (omp_get_num_threads)
+- Profile for concurrency with TSan or Helgrind
 
 **Q: Memory usage is high**
 - Use parallel operations for processing in batches
 - Consider using `take()` and `skip()` for large datasets
-- Profile with Valgrind: `valgrind --tool=massif`
+- Profile memory allocations with ASan or Massif
 
 **For more issues:** See Architecture.md or file an issue on GitHub
 

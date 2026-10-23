@@ -77,6 +77,11 @@ target_sources(std_module
         ${FASTJSON_STD_COMPAT_CPPM}
 )
 
+if(ENABLE_MSAN AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/msan_libcxx_shim.cpp")
+    target_sources(std_module PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/msan_libcxx_shim.cpp")
+    target_link_libraries(std_module PUBLIC ${CMAKE_DL_LIBS})
+endif()
+
 message(STATUS "Dynamic libc++ detection:")
 message(STATUS "  Headers: ${LIBCXX_INC}")
 message(STATUS "  Share: ${LIBCXX_SHARE}")

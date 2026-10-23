@@ -44,6 +44,19 @@ option(USE_FETCHCONTENT_LOGGER "Use FetchContent to fetch cpp23-logger instead o
 option(ENABLE_NATIVE_OPTIMIZATIONS "Enable native CPU optimizations (AVX-512, AVX2, etc) to match parent project" OFF)
 option(ENABLE_OPENMP "Enable OpenMP parallel processing support (legacy)" OFF)
 option(ENABLE_PARALLEL_STL "Enable Parallel STL with Intel TBB (recommended for Clang)" ON)
+option(ENABLE_ASAN "Enable AddressSanitizer, LeakSanitizer, and UndefinedBehaviorSanitizer" OFF)
+option(ENABLE_MSAN "Enable MemorySanitizer (uninitialized memory read detection)" OFF)
+option(ENABLE_TSAN "Enable ThreadSanitizer (data race detection)" OFF)
+
+set(_fj_sanitizer_count 0)
+foreach(_fj_san ENABLE_ASAN ENABLE_MSAN ENABLE_TSAN)
+    if(${_fj_san})
+        math(EXPR _fj_sanitizer_count "${_fj_sanitizer_count} + 1")
+    endif()
+endforeach()
+if(_fj_sanitizer_count GREATER 1)
+    message(FATAL_ERROR "Only one of ENABLE_ASAN, ENABLE_MSAN, ENABLE_TSAN may be enabled per build directory.")
+endif()
 
 # Parent project CPU feature overrides (for WSL2/VM compatibility)
 # These allow parent projects to override auto-detection
@@ -116,6 +129,26 @@ if(NOT MSVC OR CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "GNU")
         -stdlib=libc++
         -pthread
     )
+
+    if(ENABLE_ASAN)
+        message(STATUS "✓ AddressSanitizer + LeakSanitizer + UndefinedBehaviorSanitizer enabled (-fsanitize=address,undefined)")
+        add_compile_options(-fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer)
+        add_link_options(-fsanitize=address,undefined)
+    elseif(ENABLE_MSAN)
+        message(STATUS "✓ MemorySanitizer enabled (-fsanitize=memory -fsanitize-memory-track-origins)")
+        add_compile_options(
+            -fsanitize=memory
+            -fsanitize-memory-track-origins
+            -fno-sanitize-memory-use-after-dtor
+            -fno-omit-frame-pointer
+            $<$<COMPILE_LANGUAGE:CXX>:-include${CMAKE_CURRENT_SOURCE_DIR}/cmake/msan_libcxx_compat.h>
+        )
+        add_link_options(-fsanitize=memory)
+    elseif(ENABLE_TSAN)
+        message(STATUS "✓ ThreadSanitizer enabled (-fsanitize=thread)")
+        add_compile_options(-fsanitize=thread -fno-omit-frame-pointer)
+        add_link_options(-fsanitize=thread)
+    endif()
 
     set(FASTJSON_OPTIMIZATION_FLAGS
         # -ffast-math is NOT here, by policy. config/cpp_details.txt rule 50 forbids it: it lets
@@ -622,6 +655,7 @@ if(NOT MSVC OR CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "GNU")
     set(TEST_LINK_FLAGS
         -stdlib=libc++
         -L/home/linuxbrew/.linuxbrew/lib
+        $<$<TARGET_EXISTS:TBB::tbb>:-Wl,-rpath,$<TARGET_FILE_DIR:TBB::tbb>>
         -Wl,-rpath,/home/linuxbrew/.linuxbrew/lib
     )
     target_compile_options(fastjson_multiregister_parser PRIVATE
@@ -1307,7 +1341,7 @@ add_dependencies(test_turbo_correctness std_module fastjson_multiregister_parser
 
 if(ENABLE_PARALLEL_STL AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/prefix_sum_test.cpp")
     add_executable(test_linq_prefix_sum tests/prefix_sum_test.cpp)
-    target_link_libraries(test_linq_prefix_sum PRIVATE TBB::tbb Threads::Threads)
+    target_link_libraries(test_linq_prefix_sum PRIVATE TBB::tbb Threads::Threads $<TARGET_NAME_IF_EXISTS:std_module>)
     target_compile_options(test_linq_prefix_sum PRIVATE ${TEST_COMPILE_FLAGS})
     target_link_options(test_linq_prefix_sum PRIVATE ${TEST_LINK_FLAGS})
 endif()
