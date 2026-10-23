@@ -76,17 +76,18 @@ Note: Python lambdas incur a GIL overhead. For maximum performance in tight loop
 
 ### Parallel LINQ Operations (`parallel_query_result<T>`)
 
-All parallel operations use OpenMP for thread-safe parallel execution:
+All parallel operations use OpenMP and Intel oneTBB for thread-safe parallel execution:
 
-- **`where(predicate)`** - Parallel filter with compaction
+- **`where(predicate)`** - Parallel filter with byte-array tracking to avoid bit-proxy data races
 - **`select(func)`** - Parallel map/transform
 - **`sum(selector)`** - Parallel sum with reduction
 - **`min(selector)`** - Parallel minimum with thread-local reduction
 - **`max(selector)`** - Parallel maximum with thread-local reduction
+- **`prefix_sum(func)`** / **`scan(func)`** - Parallel cumulative scan via `tbb::parallel_scan`
 - **`count(predicate)`** - Parallel count with reduction
 - **`any(predicate)`** - Parallel any with early exit
 - **`all(predicate)`** - Parallel all with early exit
-- **`order_by(key_selector)`** - Parallel sort
+- **`order_by(key_selector)`** - Parallel sort via `tbb::parallel_sort`
 - **`aggregate(seed, func)`** - Parallel aggregate with reduction
 - **`as_sequential()`** - Convert to sequential query for chaining
 
@@ -269,11 +270,30 @@ auto max = from_parallel(large_dataset).max([](int n) { return n; });
 - RAII for automatic cleanup
 - No memory leaks (verified with Valgrind Memcheck)
 
-### Lazy Evaluation
-- Operations are evaluated immediately (not lazy)
-- Each operation returns new `query_result`
-- Chaining creates temporary objects
-- Compiler optimizations (RVO, move semantics) reduce overhead
+### Lazy Push-Transducer Pipeline
+
+`query_result<T>` implements a lazy push-transducer pipeline where intermediate operations compose functionally without materializing intermediate `std::vector<T>` collections at each step. Intermediate transducers register downstream callback sinks (`sink_fn`) driven by a generator (`stream_fn`):
+
+- **Lazy Intermediate Operations**:
+  - Filtering: `where` / `filter`, `take_while`, `skip_while`, `skip`
+  - Mapping: `select` / `map`, `flat_map` / `select_many`
+  - Set & Sequence: `distinct` / `distinct_by`, `concat`, `union_with`, `intersect`, `except`, `zip`
+  - Cumulative: `prefix_sum` / `scan`
+  - Deferred Sorting: `order_by`, `order_by_descending` (nothing runs until the pipeline is consumed; when it is, the sort necessarily buffers the entire upstream sequence before emitting the first item)
+
+- **Short-Circuiting Terminal Operations**:
+  - `first`, `find`, `find_index`, `any`, `all`, `single`
+  These terminal consumers pull only the elements required to evaluate the result, short-circuiting upstream generation by returning false from downstream sink invocations. Intermediate `take(n)` similarly stops upstream generation early once `n` items have been emitted.
+
+- **Terminal Materialization & Aggregations**:
+  - `to_vector`, `to`, `count`, `sum`, `min`, `max`, `average`, `aggregate`
+
+### Parallel LINQ Race Fix and TBB Algorithms
+
+In `parallel_query_result<T>`:
+- **Thread-Safe Parallel `where`**: Writing concurrent boolean filter flags into `std::vector<bool>` produces undefined behavior and data races because vector-of-bool packs multiple bits into the same byte. The parallel filter resolves this by allocating an uninitialized byte array with `std::make_unique_for_overwrite<uint8_t[]>(data_.size())` where each thread writes an independent byte during `tbb::parallel_for`, followed by sequential compaction.
+- **Parallel Cumulative Scan (`tbb::parallel_scan`)**: `prefix_sum` and `scan` use `tbb::parallel_scan` with `tbb::blocked_range<size_t>` to execute two-pass parallel prefix scans. (std::inclusive_scan with std::execution::par is not available in LLVM libc++.)
+- **Parallel Sorting (`tbb::parallel_sort`)**: `order_by` leverages `tbb::parallel_sort` for high-throughput multi-threaded sorting.
 
 ## Files
 
@@ -337,15 +357,9 @@ Valgrind tests check:
 ## Future Enhancements
 
 ### Potential Improvements
-1. **True lazy evaluation**: Delay computation until materialization
-2. **Custom iterators**: Avoid intermediate vectors
-3. **SIMD optimizations**: Vectorize filter/transform operations
-4. **Expression templates**: Optimize chained operations at compile time
-5. **More operations**: 
-   - `zip()` - Combine two sequences
-   - `flat_map()` - Map and flatten
-   - `partition()` - Split by predicate
-   - `scan()` - Prefix sum/cumulative operations
+1. **Expression templates**: Optimize chained operations at compile time
+2. **SIMD optimizations**: Vectorize filter/transform operations
+3. **Partitioning**: Add partitioning by predicate
 
 ### Integration
 - Easy to integrate with existing `json_value` API
@@ -359,20 +373,20 @@ Valgrind tests check:
 - ✓ Similar API (where, select, aggregate, etc.)
 - ✓ Composable operations
 - ✓ Type safety
-- ✗ Not lazy (evaluates immediately)
+- ✓ Lazy push-transducer pipeline (intermediate ops compose without allocating intermediate vectors)
 - ✗ No query syntax (no equivalent to C# LINQ keywords)
 
 ### vs Java Streams
 - ✓ Similar functional style
 - ✓ Parallel support (`from_parallel()` vs `.parallel()`)
 - ✓ Terminal operations (sum, count, etc.)
-- ✗ Not lazy (evaluates immediately)
+- ✓ Lazy execution for intermediate pipeline stages
 - ✗ No spliterators
 
 ### vs C++ Ranges (C++20)
 - ✓ More familiar LINQ-style naming
 - ✓ Explicit parallel support
-- ✗ Not lazy (ranges are lazy by default)
+- ✓ Push-transducer pipeline is lazy like ranges, with explicit parallel execution support
 - ✗ Less composable (ranges have better composition)
 - ✓ Simpler to understand (no complex view types)
 

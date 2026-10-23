@@ -4,20 +4,22 @@
 
 A production-ready JSON library combining cutting-edge SIMD optimizations, parallel processing, NUMA awareness, and modern C++23 features including a comprehensive LINQ-style query interface and functional programming operations.
 
-## ⚡ Performance Highlights (v3.0 - SIMD GMF + Arena + Ondemand)
+## ⚡ Performance Highlights (Turbo OnDemand Engine)
 
-The v3.0 release delivers a 4-part performance refactor: SIMD moved to Global Module Fragment (fixes Clang 21 segfault), zero-copy string_view, arena allocation, and lazy ondemand parsing.
+The Turbo OnDemand engine (`fastjson::turbo::iterate`) uses software-pipelined 64-byte SIMD indexing (`build_indexes_avx2` / `build_indexes_avx512`), a 64-byte space-padded SIMD tail buffer, and fast-advancing field search with inline numeric conversions.
 
 | Benchmark | FastJSON (`fastjson::turbo::iterate`) | simdjson (`ondemand`) | Winner |
 |-----------|---------------------------------------|-----------------------|--------|
 | Parse Small (144B, AVX2 / AVX-512) | **45.1 ns (3.19 GB/s)** / **76.7 ns (1.88 GB/s)** | 64.1 ns (2.25 GB/s) / 120.8 ns (1.19 GB/s) | **FastJSON 1.42x–1.58x faster** |
 | Parse Medium (13KB, AVX2 / AVX-512) | **2.13 us (6.19 GB/s)** / **3.30 us (4.00 GB/s)** | 2.32 us (5.68 GB/s) / 4.69 us (2.81 GB/s) | **FastJSON 1.09x–1.42x faster** |
-| Parse Large (2.0MB, AVX2 / AVX-512) | **451.3 us (4.49 GB/s)** / **666.6 us (3.04 GB/s)** | 466.1 us (4.34 GB/s) / 846.8 us (2.39 GB/s) | **FastJSON 1.03x–1.27x faster** |
+| Parse Large (2.0MB, AVX2 / AVX-512) | **451.3 us (4.49 GB/s)** / **666.6 us (3.04 GB/s)** | 466.1 us (4.34 GB/s) / 846.8 us (2.39 GB/s) | **FastJSON 1.03x–1.27x faster** (AVX2 margin ~3%) |
 | Field access (OnDemand, AVX2 / AVX-512) | **91.5 ns** / **173.3 ns** | 112.0 ns / 240.8 ns | **FastJSON 1.22x–1.39x faster** |
 | Array iteration (10K records, AVX2 / AVX-512) | **808.5 us** / **1.36 ms** | 867.1 us / 1.87 ms | **FastJSON 1.07x–1.38x faster** |
+| Single Field Large (2.0MB, AVX2 / AVX-512) | **458.5 us (4.42 GB/s)** / 885.5 us (2.29 GB/s) | 474.0 us (4.27 GB/s) / **845.4 us (2.40 GB/s)** | FastJSON 1.03x (AVX2) / **simdjson 1.05x (~4.7% faster, AVX-512)** |
 | Mixed throughput (100 msgs, AVX2 / AVX-512) | **212.0 us (6.22 GB/s)** / **329.7 us (4.00 GB/s)** | 232.1 us (5.68 GB/s) / 469.1 us (2.81 GB/s) | **FastJSON 1.09x–1.42x faster** |
 
-**Ondemand mode** skips full DOM construction — access only what you need, 7.8x faster for selective queries.
+**Ondemand mode** skips full DOM construction — access only what you need, 7.8x faster for selective queries.  
+*Caveat: Performance wins apply to the Turbo OnDemand path; materialized DOM mode favors simdjson (e.g., AVX2 Large parse 26.1 ms vs 2.81 ms).*
 
 ## 🚀 Key Features
 
@@ -51,7 +53,7 @@ The v3.0 release delivers a 4-part performance refactor: SIMD moved to Global Mo
 - **Sequential & Parallel**: Automatic parallelization with OpenMP
 - **Functional Primitives**: map, filter, reduce, zip, find, forEach
 - **Scan Operations**: prefix_sum with custom binary operations
-- **Lazy Evaluation**: Efficient query composition
+- **Lazy Evaluation**: Lazy push-transducer pipeline where intermediate operations compose without materializing intermediate vectors and terminal operations short-circuit
 - **Method Chaining**: Fluent API design
 
 ### Modern C++23

@@ -1,18 +1,37 @@
-# FastestJSONInTheWest - Comprehensive Valgrind Testing Complete
+# FastestJSONInTheWest - Comprehensive Testing Summary
 
 ## Testing Summary
 
-✅ **All Memory Safety and Thread Safety Tests Passed**
-
-### Testing Completion Report
-
-**Date**: November 17, 2025  
-**Tests Run**: Comprehensive Valgrind analysis (Memcheck + Helgrind)  
-**Result**: CLEAN - Zero application-level memory leaks
+✅ **All current unit and correctness tests pass** (ctest, October 2026). The memory-safety and thread-safety results below come from the November 2025 Valgrind run and have not been re-run against the October 2026 code.
 
 ---
 
-## Valgrind Testing Results
+## Current Test Suite & CTest Inventory (October 2026)
+
+All 3 CMake test targets (ctest) pass 100%:
+
+1. **`test_turbo_correctness`** (`tests/test_turbo_correctness.cpp`):
+   - **6,007 assertions** passing (0 failures).
+   - **Coverage**:
+     - 64B and 128B SIMD boundary sweeps
+     - Backslash-escape chains straddling 64B chunk boundaries
+     - Key prefix collisions and nested cursor navigation safety
+     - Numeric and boolean edge cases (full literal verification, rejecting truncated tokens like "tru")
+     - Malformed scalar rejection
+     - Lazy LINQ push-transducer pipeline evaluation-count and early-exit checks
+     - `test_mr_integer_range_edges` testing `fastjson::mr::parse` at 128-bit integer boundaries: exact `INT128_MAX` and `INT128_MIN`, one below `INT128_MIN` promoting to double, `UINT128_MAX`, `UINT128_MAX` + 1 overflowing to double, 39-digit numbers that previously wrapped silently, and 401-digit numbers returning deterministic `invalid_number` errors. The underlying parser fix in `modules/fastjson_multiregister_parser.cppm` introduces exact pre-multiplication overflow detection, safe `INT128_MIN` handling without undefined behavior, and checks `from_chars` error codes on double fallbacks.
+
+2. **`test_linq_prefix_sum`** (`tests/prefix_sum_test.cpp`):
+   - Comprehensive test suite for sequential and parallel `prefix_sum` / `scan` operations
+   - 100,000-element parallel `where` check verifying correct, order-preserving results (a functional check; it does not by itself prove the absence of data races, which needs a tool such as ThreadSanitizer)
+   - Parallel scan on 10,000+ elements with custom associative operations (sum, product, running max)
+
+3. **`check_docs_claims`** (`tools/check_docs_claims.py`):
+   - Static documentation gate verifying that all cited code identifiers, flags, and file paths exist in tracked source files.
+
+---
+
+## Valgrind Testing Results (November 2025)
 
 ### 1. Memory Leak Detection (Memcheck)
 
