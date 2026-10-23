@@ -322,14 +322,10 @@ enum class simd_level {
 
 #### Parsing Speed
 
-| File Size | simdjson | FastestJSONInTheWest | Notes |
-|-----------|----------|----------------------|-------|
-| 1 KB | ~0.05 ms | ~0.08 ms | Overhead negligible |
-| 100 KB | ~1 ms | ~1.2 ms | Within margin |
-| 1 MB | ~10 ms | ~12 ms | SIMD effective |
-| 100 MB | ~1 sec | ~1.2 sec | Scaling good |
+Performance relative to simdjson depends fundamentally on the engine mode:
 
-**simdjson Advantage**: Slightly faster raw parsing (optimized for speed only)
+- **Turbo OnDemand (`fastjson::turbo::iterate` vs `simdjson::ondemand`)**: FastJSON leads on most structural indexing and ondemand parsing workloads across AVX2 and AVX-512 (e.g., Small 144B: 45.1 ns vs 64.1 ns on AVX2; Medium 13.2KB: 2.13 us vs 2.32 us; Large 2.02MB: 451.3 us vs 466.1 us, a modest ~3% margin on AVX2). However, on AVX-512 Single Field lookup, simdjson wins by ~4.7% (845.4 us vs 885.5 us).
+- **Materialized DOM Mode (`fastjson::mr::parse` vs `simdjson` DOM)**: simdjson is substantially faster at full AST materialization (e.g., AVX2 Large parse: FastJSON 26.1 ms vs simdjson 2.81 ms; Field Access: 92.7 ns vs 32.3 ns; Array Iteration: 406 us vs 135 us).
 
 #### With Data Processing
 
@@ -479,14 +475,10 @@ import fastjson;
 
 ## Performance Benchmarks
 
-### Parsing Performance (1M JSON objects, 1MB each)
+### Parsing Performance
 
-```
-simdjson:              ~1000 ms (baseline)
-FastestJSONInTheWest:  ~1100 ms (-10% overhead)
-
-Reason: Full document loading vs lazy parsing
-```
+- **Turbo OnDemand**: FastJSON (`fastjson::turbo::iterate`) is faster than `simdjson::ondemand` across Small (1.42x–1.58x), Medium (1.09x–1.42x), Large (1.03x–1.27x), and mixed throughput workloads, though simdjson leads on AVX-512 Single Field lookup (~4.7% faster).
+- **Materialized DOM**: simdjson is ~9.3x faster than FastJSON's DOM parser on large payloads (2.81 ms vs 26.1 ms on AVX2).
 
 ### Query Performance (1M items, filter + map)
 
@@ -556,10 +548,11 @@ Data Processing
 6. ✅ **Enterprise Ready**: High code quality, best practices
 
 ### Areas to Improve
-1. ⚠️ Parse speed: 10% slower than simdjson (trade-off for features)
-2. ⚠️ Memory usage: 2x for full document (necessary for queries)
-3. ⚠️ Compiler support: Requires Clang 21+ or GCC 13+
-4. ⚠️ Maturity: Newer than simdjson (but well-engineered)
+1. ⚠️ DOM parse speed: FastJSON DOM parsing is substantially slower than simdjson's DOM parser (~9.3x on the 2.02 MB AVX2 benchmark)
+2. ⚠️ AVX-512 Single Field: simdjson is ~4.7% faster on single-field extraction on AVX-512
+3. ⚠️ Memory usage: 2x for full document (necessary for queries)
+4. ⚠️ Compiler support: Requires Clang 21+ or GCC 13+
+5. ⚠️ Maturity: Newer than simdjson (but well-engineered)
 
 ### Marketing Angles
 1. "**Modern C++23 with LINQ queries**" - Developer experience
@@ -574,11 +567,12 @@ Data Processing
 
 | Dimension | Winner | Reason |
 |-----------|--------|--------|
-| **Raw Parsing Speed** | simdjson | Optimized for speed only |
-| **Query Interface** | FastestJSONInTheWest | 40+ LINQ operations |
+| **Turbo OnDemand Parsing** | FastestJSONInTheWest | Software-pipelined SIMD indexing (leads most workloads; simdjson wins AVX-512 Single Field) |
+| **Materialized DOM Parsing** | simdjson | Significantly faster AST tree construction (2.81 ms vs 26.1 ms) |
+| **Query Interface** | FastestJSONInTheWest | 40+ LINQ operations with lazy push transducers |
 | **Unicode Support** | FastestJSONInTheWest | UTF-16/32 included |
-| **Parallelization** | FastestJSONInTheWest | Built-in OpenMP |
-| **Memory Efficiency** | simdjson | On-demand parsing |
+| **Parallelization** | FastestJSONInTheWest | Built-in OpenMP and TBB |
+| **Memory Efficiency** | simdjson | Highly compact DOM tree |
 | **Code Simplicity** | simdjson | Header-only |
 | **Modern C++** | FastestJSONInTheWest | C++23 modules |
 | **Overall** | **Complementary** | Different use cases |
@@ -592,13 +586,13 @@ Data Processing
 - Offers **full Unicode support** (internationalization)
 - Includes **built-in parallelization** (multi-threaded workloads)
 
-**simdjson** remains the king of **raw parsing speed** and **memory efficiency**.
+**simdjson** remains the leader in **materialized DOM parsing speed** and **memory efficiency**.
 
-**FastestJSONInTheWest** is the king of **data processing workflows**.
+**FastestJSONInTheWest** leads in **Turbo OnDemand streaming**, **rich LINQ queries**, and **multi-format Unicode processing**.
 
 **Best Approach**: Use both!
-- simdjson for: Parsing speed-critical applications
-- FastestJSONInTheWest for: Data query and transformation workloads
+- simdjson for: Materialized DOM parsing and legacy environments
+- FastestJSONInTheWest for: Turbo OnDemand parsing, data query, and transformation workloads
 
 ---
 

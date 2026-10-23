@@ -119,7 +119,7 @@ cd .. && PYTHONPATH=build .venv/bin/pytest tests/ -v
 - **Turbo benchmark**: `benchmarks/turbo_benchmark.cpp`
 - **Comparative benchmark**: `benchmarks/comparative_benchmark.cpp`
 - **Python tests**: `python_bindings/tests/` (53 passed, Python 3.14.2)
-- **Turbo correctness tests**: `tests/test_turbo_correctness.cpp` (207/207)
+- **Turbo correctness tests**: `tests/test_turbo_correctness.cpp` (6,007 assertions)
 
 ## Architecture Notes
 - SIMD implementations live in `namespace fastjson::detail` inside the Global Module Fragment (before `export module fastjson;`)

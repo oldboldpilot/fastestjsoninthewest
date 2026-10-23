@@ -848,6 +848,112 @@ static void test_numeric_boundaries_and_errors() {
 }
 
 // ---------------------------------------------------------------------------
+// 19b. DOM parser (fastjson::mr::parse) 128-bit integer range edges
+//      Regression: the old `result < prev` overflow test missed wraps, negative
+//      magnitudes above |INT128_MIN| were negated into wrong positive values, and
+//      the double fallback returned an uninitialized value when from_chars failed.
+// ---------------------------------------------------------------------------
+
+static bool rel_close(double got, double want) {
+    return std::abs(got - want) <= std::abs(want) * 1e-12;
+}
+
+static void test_mr_integer_range_edges() {
+    const __int128 i128_max = static_cast<__int128>((static_cast<unsigned __int128>(1) << 127) - 1);
+    const __int128 i128_min = -i128_max - 1;
+    const unsigned __int128 u128_max = ~static_cast<unsigned __int128>(0);
+
+    {   // INT128_MAX stays a signed integer
+        auto v = fastjson::mr::parse("170141183460469231731687303715884105727");
+        CHECK(v.has_value());
+        if (v.has_value()) {
+            CHECK(v->is_int());
+            auto i = v->as_int();
+            CHECK(i.has_value() && *i == i128_max);
+        }
+    }
+    {   // INT128_MIN is exact (not UB from negating INT128_MAX + 1)
+        auto v = fastjson::mr::parse("-170141183460469231731687303715884105728");
+        CHECK(v.has_value());
+        if (v.has_value()) {
+            CHECK(v->is_int());
+            auto i = v->as_int();
+            CHECK(i.has_value() && *i == i128_min);
+        }
+    }
+    {   // One below INT128_MIN: must be a negative double, never a wrapped integer
+        auto v = fastjson::mr::parse("-170141183460469231731687303715884105729");
+        CHECK(v.has_value());
+        if (v.has_value()) {
+            CHECK(v->is_float());
+            auto d = v->as_float();
+            CHECK(d.has_value() && rel_close(*d, -1.7014118346046923e38));
+        }
+    }
+    {   // Previously negated into a wrong positive integer
+        auto v = fastjson::mr::parse("-200000000000000000000000000000000000000");
+        CHECK(v.has_value());
+        if (v.has_value()) {
+            CHECK(v->is_float());
+            auto d = v->as_float();
+            CHECK(d.has_value() && *d < 0.0 && rel_close(*d, -2e38));
+        }
+    }
+    {   // UINT128_MAX stays an unsigned integer
+        auto v = fastjson::mr::parse("340282366920938463463374607431768211455");
+        CHECK(v.has_value());
+        if (v.has_value()) {
+            CHECK(v->is_uint());
+            auto u = v->as_uint();
+            CHECK(u.has_value() && *u == u128_max);
+        }
+    }
+    {   // UINT128_MAX + 1 overflows to double
+        auto v = fastjson::mr::parse("340282366920938463463374607431768211456");
+        CHECK(v.has_value());
+        if (v.has_value()) {
+            CHECK(v->is_float());
+            auto d = v->as_float();
+            CHECK(d.has_value() && rel_close(*d, 3.402823669209385e38));
+        }
+    }
+    {   // Previously wrapped silently past the `result < prev` check
+        auto v = fastjson::mr::parse("400000000000000000000000000000000000000");
+        CHECK(v.has_value());
+        if (v.has_value()) {
+            CHECK(v->is_float());
+            auto d = v->as_float();
+            CHECK(d.has_value() && rel_close(*d, 4e38));
+        }
+    }
+    {   // Overflowing value inside a container must not derail the parse
+        auto v = fastjson::mr::parse("[400000000000000000000000000000000000000, 7]");
+        CHECK(v.has_value());
+        if (v.has_value()) {
+            auto* arr = v->as_array();
+            CHECK(arr != nullptr && arr->size() == 2);
+            if (arr != nullptr && arr->size() == 2) {
+                CHECK((*arr)[0].is_float());
+                auto seven = (*arr)[1].as_int();
+                CHECK(seven.has_value() && *seven == 7);
+            }
+        }
+    }
+    {   // Beyond double range: deterministic error, never an uninitialized value
+        const std::string huge_pos = "1" + std::string(400, '0');
+        const std::string huge_neg = "-" + huge_pos;
+        CHECK(!fastjson::mr::parse(huge_pos).has_value());
+        CHECK(!fastjson::mr::parse(huge_neg).has_value());
+    }
+    {   // Zero and negative zero remain integers
+        auto z = fastjson::mr::parse("0");
+        CHECK(z.has_value() && z->is_int() && z->as_int().value_or(1) == 0);
+        auto nz = fastjson::mr::parse("-0");
+        CHECK(nz.has_value() && nz->is_int() && nz->as_int().value_or(1) == 0);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // 20. Lazy LINQ Transducer Pipeline Verification (Zero Intermediate Allocations)
 // ---------------------------------------------------------------------------
 
@@ -954,6 +1060,7 @@ int main() {
     test_simd_64b_boundary_quotes_and_escapes();
     test_key_prefix_and_nested_cursor_safety();
     test_numeric_boundaries_and_errors();
+    test_mr_integer_range_edges();
     test_lazy_linq_transducer_pipeline();
 
     std::println("\n========================================");

@@ -1050,31 +1050,52 @@ private:
             uint128_compat result = 0;
             bool overflow = false;
             const char* end = num_str.data() + num_str.size();
-            
+
+            // Exact pre-multiplication overflow check. The previous `result < prev`
+            // test missed wraps where result * 10 lands above prev (for example
+            // 400000000000000000000000000000000000000 silently wrapped to a wrong value).
+            const uint128_compat k_umax      = static_cast<uint128_compat>(~static_cast<uint128_compat>(0));
+            const uint128_compat k_umax_div  = k_umax / static_cast<uint128_compat>(10);
+            const unsigned       k_umax_mod  = static_cast<unsigned>(k_umax % 10u);
+            const uint128_compat k_smax      = k_umax / static_cast<uint128_compat>(2);  // INT128_MAX magnitude
+
             while (p < end && *p >= '0' && *p <= '9') {
-                uint128_compat prev = result;
-                result = result * 10 + (*p - '0');
-                if (result < prev) { 
-                    overflow = true; 
-                    break; 
+                const unsigned digit = static_cast<unsigned>(*p - '0');
+                if (result > k_umax_div || (!(result < k_umax_div) && digit > k_umax_mod)) {
+                    overflow = true;
+                    break;
                 }
+                result = result * static_cast<uint128_compat>(10) + static_cast<uint128_compat>(digit);
                 p++;
             }
 
             if (!overflow) {
                 if (neg) {
-                    return json_value{static_cast<int128_compat>(-static_cast<int128_compat>(result))};
+                    if (!(result > k_smax)) {
+                        return json_value{static_cast<int128_compat>(-static_cast<int128_compat>(result))};
+                    }
+                    if (!(result > k_smax + static_cast<uint128_compat>(1))) {
+                        // Exactly |INT128_MIN|: negating INT128_MAX + 1 directly would be UB.
+                        return json_value{static_cast<int128_compat>(
+                            -static_cast<int128_compat>(k_smax) - static_cast<int128_compat>(1))};
+                    }
+                    // Magnitude below -INT128_MIN: fall through to the double fallback.
                 } else {
-                    if (result > static_cast<uint128_compat>(std::numeric_limits<int128_compat>::max())) {
+                    if (result > k_smax) {
                         return json_value{result}; // json_uint_128_128
                     }
                     return json_value{static_cast<int128_compat>(result)};
                 }
             }
-            
-            // On overflow, fallback to double
-            double value;
+
+            // Out of 128-bit range: fall back to double, and reject values a double
+            // cannot represent instead of returning an uninitialized value.
+            double value = 0.0;
             auto [ptr, ec] = std::from_chars(num_str.data(), num_str.data() + num_str.size(), value);
+            if (ec != std::errc{} || ptr != num_str.data() + num_str.size()) {
+                return std::unexpected(make_error(error_code::invalid_number,
+                                                 "Integer out of representable range"));
+            }
             return json_value{value};
         }
     }

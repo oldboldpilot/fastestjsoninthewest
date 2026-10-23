@@ -172,7 +172,7 @@ if (json && json->is_array()) {
 
 ### Benchmark Highlights
 
-- **Parsing**: 9-16% faster than simdjson on all workloads
+- **Parsing**: Turbo OnDemand is 1.03x–1.58x faster than simdjson ondemand across most payloads (though simdjson wins Single Field on AVX-512 by ~4.7%, and simdjson is far faster in materialized DOM mode)
 - **Queries**: 2-8x faster than simdjson with LINQ interface
 - **Parallel**: 8-12x speedup with OpenMP on large datasets
 - **Memory**: Zero definite leaks (Valgrind verified)

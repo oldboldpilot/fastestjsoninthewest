@@ -3,7 +3,7 @@
 ## Head-to-Head Benchmark Results (October 22, 2026)
 
 **Test Environments:**
-- **AVX2:** AMD Ryzen 7 5700U (Zen 3) | Clang 23.1.4 | C++23 (`libc++`)
+- **AVX2:** AMD Ryzen 7 5700U (Zen 2) | Clang 23.1.4 | C++23 (`libc++`)
 - **AVX-512:** Intel Xeon Gold 6152 (Skylake-SP) | Clang 23.1.4 | C++23 (`libc++`)
 **Comparison:** `fastjson::turbo::iterate` vs `simdjson::ondemand::parser::iterate`
 
@@ -22,13 +22,20 @@
 |-----------|---------------------------------------------|---------------------------------------|--------|
 | **Field Access** (5 float fields) | **91.5 ns** / **173.3 ns** | 112.0 ns / 240.8 ns | **FastJSON 1.22x / 1.39x** |
 | **Array Iteration** (10K records) | **808.5 us** / **1.36 ms** | 867.1 us / 1.87 ms | **FastJSON 1.07x / 1.38x** |
-| **Single Field Lookup** (2.02MB, AVX2) | **458.5 us (4.42 GB/s)** | 474.0 us (4.27 GB/s) | **FastJSON 1.03x** |
+| **Single Field Lookup** (2.02MB) | **458.5 us (4.42 GB/s)** / 885.5 us (2.29 GB/s) | 474.0 us (4.27 GB/s) / **845.4 us (2.40 GB/s)** | FastJSON 1.03x (AVX2) / simdjson 1.05x (AVX-512) |
 
 ### Analysis
 
-**Parse throughput**: `fastjson::turbo::iterate` uses software-pipelined 64-byte SIMD structural indexing (`build_indexes_avx2` and `build_indexes_avx512`) with a 64-byte space-padded SIMD tail buffer and unrolled `_tzcnt_u64`/`_blsr_u64` bit extraction (`flatten_mask`), outperforming `simdjson::ondemand` across Small, Medium, Large, and mixed-throughput workloads on both AVX2 and AVX-512.
+**Parse throughput**: `fastjson::turbo::iterate` uses software-pipelined 64-byte SIMD structural indexing (`build_indexes_avx2` and `build_indexes_avx512`) with a 64-byte space-padded SIMD tail buffer and unrolled `_tzcnt_u64`/`_blsr_u64` bit extraction (`flatten_mask`), outperforming `simdjson::ondemand` across Small, Medium, Large, and mixed-throughput workloads on both AVX2 and AVX-512. Note that on AVX2, the Large-parse margin is modest (~3%, 451.3 us vs 466.1 us) rather than decisive, and on AVX-512 Single Field lookup simdjson wins by ~4.7% (845.4 us vs 885.5 us).
 
 **Post-parse access**: `turbo_object::find_field` uses first-byte + closing-quote prefiltering and cursor advancement (`cursor_` and `parent_cursor_`), while `turbo_value::get_double` uses an inline 64-bit mantissa accumulator with `pow10_inv`, delivering 1.22x–1.39x faster field access and 1.07x–1.38x faster 10K-record array iteration than `simdjson::ondemand`.
+
+**DOM-Mode Comparison (simdjson advantage)**: In materialized DOM mode, simdjson is far faster than FastJSON's DOM parser (`fastjson::mr::parse`). Benchmark measurements on AVX2 show:
+- Large Parse (`BM_Parse_FastJSON_DOM_Large` vs `BM_Parse_SimdJSON_DOM_Large`): FastJSON 26.1 ms vs simdjson 2.81 ms
+- Field Access (`BM_FieldAccess_FastJSON_DOM` vs `BM_FieldAccess_SimdJSON_DOM`): FastJSON 92.7 ns vs simdjson 32.3 ns
+- Array Iteration (`BM_ArrayIteration_FastJSON_DOM` vs `BM_ArrayIteration_SimdJSON_DOM`): FastJSON 406 us vs simdjson 135 us
+
+FastJSON's throughput and latency wins apply strictly to the Turbo OnDemand path (`fastjson::turbo::iterate`), not full DOM tree construction.
 
 ---
 
@@ -75,7 +82,7 @@ simdjson:              1.030 ms  (9.709 M ops/s)
 Advantage: FJITW +16%
 ```
 
-**Finding:** FastestJSONInTheWest outperforms simdjson on all parsing benchmarks, showing 9-16% improvement.
+**Finding:** FastestJSONInTheWest outperforms simdjson on all parsing benchmarks, showing 9-16% improvement. *(Superseded by the October 2026 results above: Turbo OnDemand leads on most workloads, but simdjson wins Single Field on AVX-512 and is substantially faster in full DOM mode.)*
 
 ### 2. Nested Structure Parsing
 
@@ -137,7 +144,7 @@ Advantage: FJITW Parallel +1.7x faster
 
 ### Performance Characteristics
 
-#### 1. **Raw Parsing Speed** 
+#### 1. **Raw Parsing Speed** *(Superseded by the October 2026 results above)* 
 - **simdjson**: Traditionally faster at raw parsing
 - **FastestJSONInTheWest**: Shows 9-16% improvement in this benchmark
 - **Analysis**: C++23 module compilation and modern optimizations provide measurable benefits
@@ -227,7 +234,7 @@ This approach combines:
 
 ### Performance Verdict: 🏆 FastestJSONInTheWest
 
-**Across all tested workloads**, FastestJSONInTheWest demonstrates:
+**Across all tested workloads**, FastestJSONInTheWest demonstrates: *(Superseded by the October 2026 results above: wins apply to Turbo OnDemand; simdjson wins Single Field on AVX-512 and DOM parsing).*
 
 1. ✓ **Superior parsing performance** (+9-16%)
 2. ✓ **Exceptional query performance** (+2-8x for filtering)
