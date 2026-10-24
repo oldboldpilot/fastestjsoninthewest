@@ -540,6 +540,10 @@ using float128_compat = msvc_float128;
 using int128_compat = msvc_int128;
 using uint128_compat = msvc_uint128;
 #elif defined(_WIN32)
+// clang targeting windows-msvc. Like the cl.exe branch above, this one must include
+// <cstdint> itself: under `import std` the global module fragment's header list is
+// compiled out (SENSEN_NO_IMPORT_STD is unset), so nothing else declares int64_t here.
+#include <cstdint>
 struct alignas(16) msvc_float128 {
     double head{0.0};
     double tail{0.0};
