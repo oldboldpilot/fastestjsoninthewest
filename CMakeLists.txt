@@ -1339,6 +1339,11 @@ target_compile_options(test_turbo_correctness PRIVATE
 target_link_options(test_turbo_correctness PRIVATE ${TEST_LINK_FLAGS})
 add_dependencies(test_turbo_correctness std_module fastjson_multiregister_parser)
 
+add_executable(test_pg_jsonb tests/test_pg_jsonb.cpp)
+target_link_libraries(test_pg_jsonb PRIVATE fastjson)
+target_compile_options(test_pg_jsonb PRIVATE ${TEST_COMPILE_FLAGS})
+target_link_options(test_pg_jsonb PRIVATE ${TEST_LINK_FLAGS})
+
 if(ENABLE_PARALLEL_STL AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/prefix_sum_test.cpp")
     add_executable(test_linq_prefix_sum tests/prefix_sum_test.cpp)
     target_link_libraries(test_linq_prefix_sum PRIVATE TBB::tbb Threads::Threads $<TARGET_NAME_IF_EXISTS:std_module>)
@@ -1363,6 +1368,9 @@ if(PROJECT_IS_TOP_LEVEL)
     add_test(NAME test_turbo_correctness COMMAND test_turbo_correctness)
     set_tests_properties(test_turbo_correctness PROPERTIES TIMEOUT 300)
 
+    add_test(NAME test_pg_jsonb COMMAND test_pg_jsonb)
+    set_tests_properties(test_pg_jsonb PROPERTIES TIMEOUT 60)
+
     if(TARGET test_linq_prefix_sum)
         add_test(NAME test_linq_prefix_sum COMMAND test_linq_prefix_sum)
         set_tests_properties(test_linq_prefix_sum PROPERTIES TIMEOUT 120)
@@ -1383,6 +1391,12 @@ if(PROJECT_IS_TOP_LEVEL)
     #
     # No build target and no WORKING_DIRECTORY: the script resolves its own directory and builds
     # its fixtures under TMPDIR, so it passes from any cwd.
+    # Credential gate: no tracked file may carry a credential, since every AI assistant that
+    # indexes this repository would read it. Also the .githooks/pre-commit hook.
+    add_test(NAME check_no_secrets
+             COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_no_secrets.sh)
+    set_tests_properties(check_no_secrets PROPERTIES TIMEOUT 60 LABELS "policy")
+
     add_test(NAME check_docs_claims
              COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tools/test_check_docs_claims.sh)
     set_tests_properties(check_docs_claims PROPERTIES TIMEOUT 120 LABELS "docs;policy")

@@ -73,6 +73,9 @@ FastestJSONInTheWest provides two high-performance front-ends built on top of th
   - Runtime CPUID dispatch: AVX-512 → AVX2 → SSE4.2 → SSE2 → scalar
 - **Arena Allocation**: `parse_arena()` uses `std::pmr::monotonic_buffer_resource`
   - Single arena allocation for all parsed nodes, reduced heap pressure
+- **PostgreSQL `jsonb`**: `parse_pg_jsonb()` reads binary-mode `jsonb` values (`jsonb_send` wire format: version byte `0x01` + JSON text)
+  - Text-mode `jsonb` results are plain JSON text: pass them to `parse()` directly
+  - SQLite JSONB (a separate binary encoding) is not supported; select `json(col)` instead
 - **Zero-Copy Strings**: `string_view` for unescaped JSON strings (no heap allocation)
   - COW semantics via `json_string_data` — only allocates on mutation
 - **SIMD Acceleration**: Multi-platform support

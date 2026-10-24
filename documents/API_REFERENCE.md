@@ -851,6 +851,44 @@ for (size_t i = 0; i < total; i += batch_size) {
 
 ---
 
+## PostgreSQL `jsonb`
+
+### `fastjson::parse_pg_jsonb()`
+
+```cpp
+auto parse_pg_jsonb(std::string_view wire) -> json_result<json_value>;
+inline constexpr std::uint8_t pg_jsonb_wire_version = 1;
+```
+
+Parses a `jsonb` value in PostgreSQL's binary wire format (`jsonb_send` / `jsonb_recv`), which is what
+libpq returns for a `jsonb` column when results are requested in binary (`resultFormat = 1`) and what
+COPY in binary format writes. That format is one version byte (`pg_jsonb_wire_version`, currently 1)
+followed by the value as ordinary JSON text, so after the version check this is exactly `parse()`.
+
+Text-mode results already carry plain JSON text; pass them to `parse()` directly. Postgres's on-disk
+`jsonb` layout never reaches a client.
+
+| Input | Result |
+|---|---|
+| empty | `json_error_code::empty_input` |
+| first byte not `0x01` (including a text-mode value passed by mistake) | `json_error_code::unsupported_jsonb_version` |
+| `0x01` + JSON text | whatever `parse()` returns for that text |
+
+```cpp
+import fastjson;
+
+// PQgetvalue / PQgetlength on a binary-format jsonb column
+auto v = fastjson::parse_pg_jsonb({PQgetvalue(res, row, col),
+                                   static_cast<size_t>(PQgetlength(res, row, col))});
+if (v) {
+    double price = (*v)["price"].as_number();
+}
+```
+
+SQLite's JSONB is a different, genuinely binary encoding and is not supported; select `json(col)` to get text.
+
+---
+
 ## Arena Parsing
 
 ### `fastjson::parse_arena()`

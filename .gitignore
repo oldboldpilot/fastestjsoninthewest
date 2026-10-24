@@ -217,3 +217,18 @@ _deps/
 
 # Python Bindings build
 python_bindings/build/
+# Credentials: never commit (AI tools are also denied them via .claude/settings.json, .aiexclude,
+# .cursorignore, .codeiumignore and .copilotignore)
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+.netrc
+.pypirc
+.git-credentials
+**/secrets/
+**/credentials/
+*.tfvars
+*.tfstate

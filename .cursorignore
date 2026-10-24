@@ -1,0 +1,27 @@
+# Credential files: AI assistants must not read or index these.
+.env
+.env.*
+*.env
+**/.env
+**/.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+id_rsa*
+id_ed25519*
+id_ecdsa*
+.netrc
+.pypirc
+.npmrc
+.git-credentials
+**/secrets/**
+**/credentials/**
+*secret*.json
+*secret*.yaml
+*secret*.yml
+*credentials*.json
+*.tfvars
+*.tfstate

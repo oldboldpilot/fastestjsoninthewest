@@ -1909,7 +1909,8 @@ enum class json_error_code {
     invalid_string,
     invalid_escape,
     invalid_unicode,
-    invalid_writer_sequence  ///< fastjson::writer: a call order that does not describe one JSON value
+    invalid_writer_sequence,  ///< fastjson::writer: a call order that does not describe one JSON value
+    unsupported_jsonb_version ///< parse_pg_jsonb: the PostgreSQL jsonb wire version byte is not one this adapter knows
 };
 
 struct json_error {
@@ -3816,6 +3817,24 @@ auto parse_arena(std::string input) -> json_result<json_document> {
     }
     doc.root_ = std::move(*result);
     return doc;
+}
+
+// PostgreSQL jsonb binary wire format (jsonb_send / jsonb_recv, i.e. a binary-mode result or COPY BINARY):
+// one version byte, currently 1, followed by the value as ordinary JSON text. Postgres's on-disk jsonb layout
+// never reaches a client. Text-mode results carry plain JSON text and go to parse() directly.
+inline constexpr std::uint8_t pg_jsonb_wire_version = 1;
+
+auto parse_pg_jsonb(std::string_view wire) -> json_result<json_value> {
+    if (wire.empty()) {
+        return std::unexpected(json_error{json_error_code::empty_input, "jsonb: empty wire value", 0, 0});
+    }
+    if (static_cast<std::uint8_t>(wire.front()) != pg_jsonb_wire_version) {
+        return std::unexpected(json_error{json_error_code::unsupported_jsonb_version,
+                                          "jsonb: unsupported wire version " +
+                                              std::to_string(static_cast<std::uint8_t>(wire.front())),
+                                          0, 0});
+    }
+    return parse(wire.substr(1));
 }
 
 // ============================================================================
