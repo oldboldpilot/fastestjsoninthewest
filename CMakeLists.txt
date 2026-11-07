@@ -41,6 +41,14 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/ToolchainBMIGuard.cmake)
 # ============================================================================
 
 option(USE_FETCHCONTENT_LOGGER "Use FetchContent to fetch cpp23-logger instead of submodule" OFF)
+# The ISA floor is the x86-64 floor only on x86-64. On AArch64 (Apple silicon, arm64 Linux)
+# `-march=x86-64-v3` is a hard error, so it is not a floor there but a refusal to build; the floor
+# is the target triple's own default CPU, named by no flag (a BMI then records no extra feature).
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64|x64)$")
+    set(FASTJSON_ISA_FLOOR -march=x86-64-v3 -mtune=generic)
+else()
+    set(FASTJSON_ISA_FLOOR "")
+endif()
 option(ENABLE_NATIVE_OPTIMIZATIONS "Enable native CPU optimizations (AVX-512, AVX2, etc) to match parent project" OFF)
 option(ENABLE_OPENMP "Enable OpenMP parallel processing support (legacy)" OFF)
 option(ENABLE_PARALLEL_STL "Enable Parallel STL with Intel TBB (recommended for Clang)" ON)
@@ -533,8 +541,7 @@ if(NOT MSVC OR CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "GNU")
         # native-tuned translation unit cannot load a BMI built at the project baseline (or
         # vice versa) -- that is two incompatible ISA worlds in one build tree. Keep every
         # target on the one baseline the rest of the project uses.
-        -march=x86-64-v3
-        -mtune=generic
+        ${FASTJSON_ISA_FLOOR}
         # THESE TWO OPT-INS RAISE THE BAR FOR EVERY CONSUMER, not just for this target, because
         # this is a module target: clang records the explicit target-feature list in the BMI and
         # refuses to load one naming a feature the consuming translation unit does not also name.
@@ -607,8 +614,7 @@ if(NOT MSVC OR CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "GNU")
     set(MULTIREGISTER_SIMD_FLAGS
         -stdlib=libc++
         # Portable baseline, not native -- see note above; BMIs record target features.
-        -march=x86-64-v3
-        -mtune=generic
+        ${FASTJSON_ISA_FLOOR}
         # NOT `-mavx2 -mfma`. Both are already implied by `-march=x86-64-v3` above, so naming
         # them changes no instruction this target can emit -- but on a MODULE target a redundant
         # `-m<feature>` is not free, because it is EXPORTED AS A REQUIREMENT. Clang records the
@@ -1146,8 +1152,7 @@ endif()
 # (FASTJSON_FORCE_AVX512, ENABLE_NATIVE_OPTIMIZATIONS) because they are above the baseline and
 # raising the floor for everyone would make the artefact unportable.
 set(SIMD_FLAGS
-    -march=x86-64-v3
-    -mtune=generic
+    ${FASTJSON_ISA_FLOOR}
     # NOT `-mavx2 -mfma`. Both are already implied by `-march=x86-64-v3` above, so naming
     # them changes no instruction this target can emit -- but on a MODULE target a redundant
     # `-m<feature>` is not free, because it is EXPORTED AS A REQUIREMENT. Clang records the

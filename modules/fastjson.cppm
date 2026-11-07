@@ -73,7 +73,9 @@ namespace std::pmr {
 #endif
 #endif
 
-#if defined(_MSC_VER) && !defined(__clang__)
+// The double-double binary128 stand-in is used wherever the target has no native __float128:
+// MSVC, and AArch64 (Apple silicon, where clang refuses `__float128` outright).
+#if (defined(_MSC_VER) && !defined(__clang__)) || !defined(__SIZEOF_FLOAT128__)
 /* uint64_t is needed in the global module fragment before import std; runs */
 #include <cstdint>
 #include <type_traits>
