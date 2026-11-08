@@ -11,7 +11,7 @@ module;
 // fail to parse (C3646/C4430/C2061 'int64_t').
 #include <cstdint>
 
-#if defined(_MSC_VER) && !defined(__clang__)
+#if (defined(_MSC_VER) && !defined(__clang__)) || !defined(__SIZEOF_FLOAT128__) // no native __float128 (MSVC, AArch64)
 struct msvc_float128 {
     double val;
     constexpr msvc_float128() noexcept : val(0.0) {}

@@ -1526,7 +1526,11 @@ inline auto process_json_tokens_vnni(const char* data, size_t size)
 
 #endif // x86_64
 
-#else // !FASTJSON_ENABLE_SIMD
+#endif // FASTJSON_ENABLE_SIMD
+
+// The scalar tier: when SIMD is disabled at compile time, AND on every target that is not x86-64
+// (AArch64 included), where the SIMD tiers above are not compiled and these are the only definitions.
+#if !defined(FASTJSON_ENABLE_SIMD) || !(defined(__x86_64__) || defined(_M_X64))
 
 // SIMD capability constants (still needed for API compatibility when SIMD disabled)
 constexpr uint32_t SIMD_SSE2        = 0x002;
@@ -1581,7 +1585,7 @@ inline auto find_escape_position_simd_impl(const char* ptr, const char* end) -> 
     return ptr;
 }
 
-#endif // FASTJSON_ENABLE_SIMD
+#endif // !FASTJSON_ENABLE_SIMD || !x86-64
 
 // ============================================================================
 // Text helpers shared by the parser, json_value serialisation, fastjson::writer and escape_string. One
@@ -1672,7 +1676,7 @@ struct exact_decimal {
     long exponent10 = 0;  // value = digits[0].digits[1..] * 10^exponent10
 };
 
-#if !defined(_WIN32)
+#if !defined(_WIN32) && defined(__SIZEOF_FLOAT128__) // exact binary128 text needs a native __float128
 [[nodiscard]] inline auto exact_decimal_of(unsigned __int128 m, int e) -> exact_decimal {
     std::vector<std::uint32_t> limbs;  // little-endian, base 1e9
     while (m != 0) {
@@ -1767,7 +1771,7 @@ struct exact_decimal {
     return out;
 }
 
-#if !defined(_WIN32)
+#if !defined(_WIN32) && defined(__SIZEOF_FLOAT128__)
 /// Shortest decimal that reads back (through strtold, the parser's own reader) to exactly `v`; 36 significant
 /// digits -- enough to identify any binary128 -- when no shorter one does. `v` must be finite. libc++'s
 /// to_chars(long double) formats at double precision (1e999 printed "inf"), so the digits are built exactly here.
@@ -2728,7 +2732,7 @@ auto json_value::serialize_to_buffer(std::string& buffer, int indent) const -> v
                     buffer += "null";
                 }
             } else if constexpr (std::is_same_v<T, float128_compat>) {
-#if defined(_WIN32)
+#if defined(_WIN32) || !defined(__SIZEOF_FLOAT128__) // the double-double stand-in prints as double
                 const auto d = static_cast<double>(v);
                 if (!std::isfinite(d) || !detail::append_double(buffer, d)) {
                     buffer += "null";
