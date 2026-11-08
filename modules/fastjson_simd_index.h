@@ -11,7 +11,11 @@
 #include <span>
 #include <vector>
 
+// The AVX2 / SSE4.2 scanners below are compiled only under __AVX2__ / __SSE4_2__, so the x86
+// intrinsics header is needed only on x86; on AArch64 it is a hard #error.
+#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
 #include <immintrin.h>
+#endif
 
 namespace fastjson {
 
