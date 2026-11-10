@@ -1361,19 +1361,22 @@ __attribute__((target("sse2"))) static auto match_literal_sse2(std::span<const c
         return false;
     }
 
-    // For small literals (4, 5 chars), use single SSE load and compare
-    if (len <= 16) {
+    // Use 16-byte SSE load only when >= 16 bytes remain in input and stage literal
+    // into a 16-byte buffer to prevent out-of-bounds reads on short .rodata literals.
+    if (len <= 16 && pos + 16 <= data.size()) {
+        alignas(16) char literal_buf[16]{};
+        std::memcpy(literal_buf, literal, len);
         __m128i chunk = _mm_loadu_si128(reinterpret_cast<const __m128i*>(data.data() + pos));
-        __m128i expected = _mm_loadu_si128(reinterpret_cast<const __m128i*>(literal));
+        __m128i expected = _mm_load_si128(reinterpret_cast<const __m128i*>(literal_buf));
         __m128i cmp = _mm_cmpeq_epi8(chunk, expected);
-        int mask = _mm_movemask_epi8(cmp);
+        unsigned int mask = static_cast<unsigned int>(_mm_movemask_epi8(cmp));
 
         // Check only the first 'len' bytes
-        int len_mask = (1 << len) - 1;
+        unsigned int len_mask = (len == 16) ? 0xFFFFu : ((1u << len) - 1u);
         return (mask & len_mask) == len_mask;
     }
 
-    // Fallback for longer strings
+    // Bounds-safe fallback near end-of-buffer or for longer strings
     return std::string_view(data.data() + pos, len) == std::string_view(literal, len);
 }
 
@@ -1998,20 +2001,35 @@ auto parser::parse_number() -> json_result<json_value> {
 
         uint128_compat result = 0;
         bool overflow = false;
+        const uint128_compat k_umax     = static_cast<uint128_compat>(~static_cast<uint128_compat>(0));
+        const uint128_compat k_umax_div = k_umax / static_cast<uint128_compat>(10);
+        const unsigned       k_umax_mod = static_cast<unsigned>(k_umax % 10u);
+        const uint128_compat k_smax     = k_umax / static_cast<uint128_compat>(2);  // INT128_MAX magnitude
+
         while (*p >= '0' && *p <= '9') {
-            uint128_compat prev = result;
-            result = result * 10 + (*p - '0');
-            if (result < prev) { overflow = true; break; }
+            const unsigned digit = static_cast<unsigned>(*p - '0');
+            if (result > k_umax_div || (!(result < k_umax_div) && digit > k_umax_mod)) {
+                overflow = true;
+                break;
+            }
+            result = result * static_cast<uint128_compat>(10) + static_cast<uint128_compat>(digit);
             p++;
         }
 
         if (!overflow) {
             if (neg) {
-                // Return signed 128-bit
-                return json_value{static_cast<int128_compat>(-static_cast<int128_compat>(result))};
+                if (!(result > k_smax)) {
+                    return json_value{static_cast<int128_compat>(-static_cast<int128_compat>(result))};
+                }
+                if (!(result > k_smax + static_cast<uint128_compat>(1))) {
+                    // Exactly |INT128_MIN|: avoid UB from negating INT128_MIN in signed arithmetic.
+                    return json_value{static_cast<int128_compat>(
+                        -static_cast<int128_compat>(k_smax) - static_cast<int128_compat>(1))};
+                }
+                // Magnitude exceeds |INT128_MIN|: fall through to double parsing.
             } else {
                 // For very large positive numbers, use unsigned if it exceeds signed range
-                if (result > static_cast<uint128_compat>(std::numeric_limits<int128_compat>::max())) {
+                if (result > k_smax) {
                     return json_value{result};  // uint128_compat
                 }
                 return json_value{static_cast<int128_compat>(result)};
@@ -3243,8 +3261,12 @@ auto json_value::serialize_to_buffer(std::string& buffer, int indent) const -> v
                 bool neg = false;
                 uint128_compat uv;
                 if constexpr (std::is_same_v<T, json_int_128>) {
-                    if (v < 0) { neg = true; uv = (uint128_compat)-v; }
-                    else uv = (uint128_compat)v;
+                    if (v < 0) {
+                        neg = true;
+                        uv = static_cast<uint128_compat>(0) - static_cast<uint128_compat>(v);
+                    } else {
+                        uv = static_cast<uint128_compat>(v);
+                    }
                 } else uv = v;
                 while (uv > 0) { *--p = '0' + (uv % 10); uv /= 10; }
                 if (neg) *--p = '-';

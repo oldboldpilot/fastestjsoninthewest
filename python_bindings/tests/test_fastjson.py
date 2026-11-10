@@ -46,8 +46,21 @@ def test_linq_query():
     assert result == [20.0, 30.0]
 
 def test_vectors():
-    """Test numeric vector binding - SKIPPED: Int64Vector not in current API."""
-    pytest.skip("Int64Vector not exposed in current Python bindings")
+    """Test zero-copy typed numeric and string vector bindings."""
+    nums = fastjson.Int64Vector([10, 20, 30])
+    nums.append(40)
+    assert len(nums) == 4
+    assert nums[0] == 10
+    assert nums[3] == 40
+    assert nums.sum() == 100
+    assert nums.to_list() == [10, 20, 30, 40]
+    assert nums.to_json() == "[10,20,30,40]"
+
+    floats = fastjson.Float64Vector([1.5, 2.5])
+    assert floats.sum() == 4.0
+
+    strings = fastjson.StringVector(["alpha", "beta"])
+    assert strings.to_list() == ["alpha", "beta"]
 
 def test_mustache_rendering():
     """Test Mustache template rendering."""

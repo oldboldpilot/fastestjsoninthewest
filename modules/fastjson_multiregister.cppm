@@ -377,22 +377,32 @@ auto parser::parse_number() -> json_result<json_value> {
         uint128_compat result = 0;
         bool overflow = false;
         const char* end = number_str.data() + number_str.size();
-        
+        const uint128_compat k_umax     = static_cast<uint128_compat>(~static_cast<uint128_compat>(0));
+        const uint128_compat k_umax_div = k_umax / static_cast<uint128_compat>(10);
+        const unsigned       k_umax_mod = static_cast<unsigned>(k_umax % 10u);
+        const uint128_compat k_smax     = k_umax / static_cast<uint128_compat>(2);
+
         while (p < end && *p >= '0' && *p <= '9') {
-            uint128_compat prev = result;
-            result = result * 10 + (*p - '0');
-            if (result < prev) { 
-                overflow = true; 
-                break; 
+            const unsigned digit = static_cast<unsigned>(*p - '0');
+            if (result > k_umax_div || (!(result < k_umax_div) && digit > k_umax_mod)) {
+                overflow = true;
+                break;
             }
+            result = result * static_cast<uint128_compat>(10) + static_cast<uint128_compat>(digit);
             p++;
         }
 
         if (!overflow) {
             if (neg) {
-                return json_value{static_cast<int128_compat>(-static_cast<int128_compat>(result))};
+                if (!(result > k_smax)) {
+                    return json_value{static_cast<int128_compat>(-static_cast<int128_compat>(result))};
+                }
+                if (!(result > k_smax + static_cast<uint128_compat>(1))) {
+                    return json_value{static_cast<int128_compat>(
+                        -static_cast<int128_compat>(k_smax) - static_cast<int128_compat>(1))};
+                }
             } else {
-                if (result > static_cast<uint128_compat>(std::numeric_limits<int128_compat>::max())) {
+                if (result > k_smax) {
                     return json_value{result}; // uint128_compat
                 }
                 return json_value{static_cast<int128_compat>(result)};

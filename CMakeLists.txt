@@ -12,16 +12,36 @@ cmake_minimum_required(VERSION 3.28)
 # Or via environment: CC=/custom/clang CXX=/custom/clang++ cmake ...
 
 # Only configure compiler paths when building standalone (not as submodule)
-# and when the toolchain exists
-if(NOT CMAKE_CXX_COMPILER AND EXISTS "/opt/clang-21/bin/clang++")
-    # Default toolchain paths (can be overridden)
-    set(CLANG_DEFAULT_PATH "/opt/clang-21/bin" CACHE STRING "Default path for Clang binaries")
-    set(LIBCXX_DEFAULT_INCLUDE "/opt/clang-21/include/c++/v1" CACHE STRING "Default path for libc++ headers")
-    set(LIBCXX_DEFAULT_LIB "/opt/clang-21/lib" CACHE STRING "Default path for libc++ libraries")
-
-    # Set compilers using the configurable paths
-    set(CMAKE_CXX_COMPILER "${CLANG_DEFAULT_PATH}/clang++")
-    set(CMAKE_C_COMPILER "${CLANG_DEFAULT_PATH}/clang")
+# and when the toolchain exists. Clang 23 is the official toolchain.
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR AND NOT CMAKE_CXX_COMPILER AND NOT WIN32)
+    set(_fj_env_cxx "$ENV{CXX}")
+    if(NOT _fj_env_cxx)
+        foreach(_fj_candidate
+            "/home/linuxbrew/.linuxbrew/bin/clang++"
+            "/opt/clang-23/bin/clang++"
+            "/usr/lib/llvm-23/bin/clang++"
+            "/usr/bin/clang++-23"
+            "/opt/homebrew/opt/llvm/bin/clang++"
+            "/usr/local/opt/llvm/bin/clang++"
+        )
+            if(EXISTS "${_fj_candidate}")
+                get_filename_component(_fj_real_cxx "${_fj_candidate}" REALPATH)
+                get_filename_component(_fj_bin_dir "${_fj_real_cxx}" DIRECTORY)
+                get_filename_component(_fj_llvm_root "${_fj_bin_dir}" DIRECTORY)
+                set(CLANG_DEFAULT_PATH "${_fj_bin_dir}" CACHE STRING "Default path for Clang binaries")
+                set(LIBCXX_DEFAULT_INCLUDE "${_fj_llvm_root}/include/c++/v1" CACHE STRING "Default path for libc++ headers")
+                set(LIBCXX_DEFAULT_LIB "${_fj_llvm_root}/lib" CACHE STRING "Default path for libc++ libraries")
+                set(CMAKE_CXX_COMPILER "${_fj_candidate}")
+                get_filename_component(_fj_cand_dir "${_fj_candidate}" DIRECTORY)
+                if(EXISTS "${_fj_cand_dir}/clang-23")
+                    set(CMAKE_C_COMPILER "${_fj_cand_dir}/clang-23")
+                elseif(EXISTS "${_fj_cand_dir}/clang")
+                    set(CMAKE_C_COMPILER "${_fj_cand_dir}/clang")
+                endif()
+                break()
+            endif()
+        endforeach()
+    endif()
 endif()
 
 project(FastestJSONInTheWest
@@ -289,8 +309,8 @@ else()
 endif()
 
 # Find clang-tidy using configurable path
-find_program(CLANG_TIDY_EXE NAMES clang-tidy-21 clang-tidy
-    PATHS ${CLANG_DEFAULT_PATH} /usr/local/bin /usr/bin
+find_program(CLANG_TIDY_EXE NAMES clang-tidy-23 clang-tidy clang-tidy-22
+    PATHS ${CLANG_DEFAULT_PATH} /home/linuxbrew/.linuxbrew/bin /usr/local/bin /usr/bin
     DOC "Path to clang-tidy executable")
 
 # ============================================================================

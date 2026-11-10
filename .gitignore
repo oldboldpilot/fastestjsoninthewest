@@ -135,6 +135,10 @@ __pycache__/
 *$py.class
 *.pyc
 .python-version
+.venv/
+.pytest_cache/
+.benchmarks/
+*.egg-info/
 
 # Rust
 target/

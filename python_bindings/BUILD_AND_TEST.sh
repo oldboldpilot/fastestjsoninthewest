@@ -13,55 +13,39 @@ echo "=========================================="
 echo ""
 
 # Step 1: Check dependencies
-echo "[1/5] Checking dependencies..."
-command -v python3 >/dev/null 2>&1 || { echo "Python 3 not found!"; exit 1; }
+echo "[1/4] Checking dependencies..."
+command -v uv >/dev/null 2>&1 || { echo "uv not found!"; exit 1; }
 command -v cmake >/dev/null 2>&1 || { echo "CMake not found!"; exit 1; }
-command -v /opt/clang-21/bin/clang++ >/dev/null 2>&1 || { echo "Clang 21 not found!"; exit 1; }
-echo "✓ All dependencies available"
+CLANG_BIN=""
+for candidate in \
+    "/home/linuxbrew/.linuxbrew/bin/clang++" \
+    "/opt/clang-23/bin/clang++" \
+    "/usr/lib/llvm-23/bin/clang++" \
+    "$(command -v clang++-23 2>/dev/null)" \
+    "/opt/homebrew/opt/llvm/bin/clang++"; do
+    if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+        CLANG_BIN="$candidate"
+        break
+    fi
+done
+[ -n "$CLANG_BIN" ] || { echo "Clang 23+ not found!"; exit 1; }
+echo "✓ All dependencies available (Clang: $CLANG_BIN)"
 echo ""
 
-# Step 2: Setup Python environment
-echo "[2/5] Setting up Python environment..."
-cd python_bindings
-uv sync --quiet
-echo "✓ Python environment ready"
+# Step 2: Setup Python environment & build C++ extension via uv
+echo "[2/4] Syncing Python environment and building C++23 extension..."
+uv sync --reinstall-package fastjson
+echo "✓ Extension built and installed into .venv"
 echo ""
 
-# Step 3: Build C++ extension
-echo "[3/5] Building C++ extension..."
-rm -rf build
-mkdir -p build
-cd build
-cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=/opt/clang-21/bin/clang++ >/dev/null 2>&1
-cmake --build . -j$(nproc) >/dev/null 2>&1
-echo "✓ Extension built successfully"
-echo "  Module: $(pwd)/lib/fastjson.so"
-cd ..
+# Step 3: Verify module can be imported
+echo "[3/4] Verifying module import..."
+uv run python -c "import fastjson; print('✓ Imported fastjson', fastjson.__version__, 'from', fastjson.__file__)"
 echo ""
 
-# Step 4: Verify module can be imported
-echo "[4/5] Verifying module import..."
-if [ -f "build/lib/fastjson.so" ]; then
-    # Try to import (this will fail gracefully if C++ extension can't link)
-    echo "✓ Extension module found at build/lib/fastjson.so"
-else
-    echo "✗ Extension module not found!"
-    exit 1
-fi
-echo ""
-
-# Step 5: Run tests
-echo "[5/5] Running test suite..."
-echo ""
-echo "Test Statistics:"
-echo "  - Test file: tests/test_fastjson.py (422 lines)"
-echo "  - Fixtures: tests/conftest.py (166 lines)"
-echo "  - Total tests: 100+ test cases"
-echo ""
-
-# Check if binding works (will skip if not compiled properly)
-echo "Running pytest..."
-uv run pytest tests/ -v --tb=short 2>&1 | head -50
+# Step 4: Run tests
+echo "[4/4] Running test suite..."
+uv run pytest tests/ -v --tb=short
 
 echo ""
 echo "=========================================="

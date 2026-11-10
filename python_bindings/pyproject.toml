@@ -20,6 +20,7 @@ classifiers = [
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
   "Topic :: Software Development :: Libraries :: Python Modules",
   "Operating System :: POSIX :: Linux",
 ]
@@ -35,7 +36,7 @@ Repository = "https://github.com/oldboldpilot/fastestjsoninthewest"
 [tool.scikit-build]
 cmake.version = ">=3.28"
 cmake.build-type = "Release"
-wheel.license-files = ["LICENSE*"]
+wheel.license-files = []
 
 [tool.pytest.ini_options]
 minversion = "7.0"
@@ -44,6 +45,8 @@ testpaths = ["tests"]
 
 [dependency-groups]
 dev = [
+    "nanobind>=2.4.0",
     "pytest>=9.0.2",
     "pytest-benchmark>=5.2.3",
+    "scikit-build-core>=0.5.0",
 ]

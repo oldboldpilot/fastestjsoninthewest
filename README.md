@@ -133,13 +133,15 @@ FastestJSONInTheWest provides two high-performance front-ends built on top of th
   - Optimized number parsing
   - Automatic runtime detection
 
-### Python Bindings (v3.0)
-- **Nanobind**: Next-gen Python bindings (replaced pybind11)
-  - `loads()` / `dumps()` — drop-in replacement for stdlib `json`
-  - `load()` / `dump()` — file I/O
-  - `prettify()` — parse + pretty-print
-  - `simd_info()` — runtime SIMD capability detection
-- **85 regression tests** passing (nanobind test suite)
+### Python Bindings
+- **Nanobind**: High-performance C++23 Python bindings powered by nanobind
+  - `loads()` / `dumps()` / `loads_file()` / `TurboParser` — fused-tiled SIMD parser & serializer (strict RFC 8259 validation, exact 64-bit and 128-bit integer precision, GIL-free)
+  - `parse()` / `parse_parallel()` / `parse_file()` / `prettify()` — Copy-on-Write `JSONValue` DOM with parallel execution
+  - `parse_pg_jsonb()` / `loads_pg_jsonb()` / `dumps_pg_jsonb()` — PostgreSQL binary jsonb (0x01 wire format) adapters
+  - `query()` / `JSONQuery` — lazy single-pass transducer LINQ queries (`where()`, `select()`, `group_by()`, `order_by()`, `sum()`)
+  - `Int64Vector` / `UInt64Vector` / `Float64Vector` / `StringVector` — zero-copy C++ typed vectors
+  - `get_simd_capabilities()` / `render_template()` — runtime SIMD detection & Mustache templating
+- **75 pytest tests passing** (0 skipped), verified under AddressSanitizer + UndefinedBehaviorSanitizer
 
 ## 📊 Performance Targets
 
@@ -153,7 +155,7 @@ FastestJSONInTheWest provides two high-performance front-ends built on top of th
 ## 🛠️ Building
 
 ### Requirements
-- **Clang 21+** (C++23 modules support)
+- **Clang 23+** (official C++23 modules compiler, e.g., `clang++-23` or `/home/linuxbrew/.linuxbrew/bin/clang++`)
 - **OpenMP** (parallel processing)
 - **CMake 3.28+**
 - **Ninja** (recommended build system)
@@ -170,10 +172,10 @@ cd FastestJSONInTheWest
 # Create build directory
 mkdir build && cd build
 
-# Configure with CMake
+# Configure with CMake (Clang 23+ official compiler)
 cmake -G Ninja \
       -DCMAKE_BUILD_TYPE=Release \
-      -DCMAKE_CXX_COMPILER=/opt/clang-21/bin/clang++ \
+      -DCMAKE_CXX_COMPILER=/home/linuxbrew/.linuxbrew/bin/clang++ \
       ..
 
 # Build everything

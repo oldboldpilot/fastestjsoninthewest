@@ -57,9 +57,9 @@ int main() {
 }
 ```
 
-## Python Bindings (v5.0 — Python 3.14)
+## Python Bindings (FastJSON Python — Python 3.11+)
 
-**Version:** 5.0.0 · **Runtime:** Python 3.14.2 · **Package:** nanobind 2.11.0 · **Manager:** uv
+**Runtime:** Python 3.11+ (verified on Python 3.13 and Python 3.14) · **Package:** nanobind · **Compiler:** Clang 23+ · **Manager:** uv
 
 ### `fastjson` Module
 
@@ -67,60 +67,140 @@ int main() {
 import fastjson
 ```
 
-#### Core Parsing
+#### 1. SIMD TurboDOM Parser & Serializer
+
+High-speed native Python parsing via fused-tiled SIMD with released GIL, exact 64-bit and 128-bit integer fidelity, and strict RFC 8259 validation:
+
+- `loads()` / `parse_turbo()`: Parse `str`, `bytes`, `bytearray`, or `memoryview` directly into native Python objects.
+- `loads_file()`: Read and parse a JSON file directly into native Python objects with released GIL.
+- `TurboParser`: Reusable zero-allocation parser class with `max_depth` configuration and methods `loads()` and `loads_file()`.
+- `dumps()`: Serialize Python objects or `JSONValue` to compact or indented JSON text (parameters: obj, indent, ensure_ascii, allow_nan).
+- `dumps_bytes()`: Serialize Python objects or `JSONValue` to UTF-8 JSON bytes.
+- `stringify()`: Serialize `JSONValue` or Python objects to compact JSON text.
+- `prettify()`: Serialize `JSONValue` or Python objects to indented JSON text.
+
 ```python
-# Parse JSON string (releases GIL)
-val = fastjson.parse('{"key": "value"}')
+# Direct SIMD TurboDOM parse into native Python objects
+data = fastjson.loads('{"name": "Speedy", "value": 42, "huge": 170141183460469231731687303715884105727}')
 
-# Parse from file (releases GIL)
-val = fastjson.parse_file("path/to/file.json")
+# Reusable TurboParser
+parser = fastjson.TurboParser(max_depth=128)
+obj = parser.loads(b'{"key": [1, 2, 3]}')
 
-# SIMD capabilities
+# Serialization
+compact_json = fastjson.dumps(data)
+pretty_json = fastjson.prettify(data, indent=2)
+```
+
+#### 2. Copy-on-Write DOM Parser (`JSONValue`)
+
+- `parse()`: Parse `str` or `bytes` into a `JSONValue` DOM object (GIL-free).
+- `parse_parallel()`: Multi-threaded parallel parse of large JSON strings (num_threads parameter, GIL-free).
+- `parse_file()`: Parse a JSON file directly into a `JSONValue` (GIL-free).
+
+`JSONValue` API:
+- Factories: `object()`, `array()`, `from_python()`
+- Type checks: `is_null()`, `is_bool()`, `is_number()`, `is_int_128()`, `is_uint_128()`, `is_number_128()`, `is_string()`, `is_array()`, `is_object()`, `empty()`
+- Accessors: `as_bool()`, `as_float()`, `as_int()`, `as_string()`
+- Container operations: `contains()`, `get()`, `keys()`, `values()`, `items()`, `append()`, `copy()`, `clear()`, `__len__`, `__getitem__`, `__setitem__`, `__delitem__`
+- Python conversion: `to_python()`, `to_python_parallel()`
+- Serialization: `stringify()`, `prettify()`, `to_json()`
+
+```python
+val = fastjson.parse('{"id": 100, "scores": [98.5, 91.0]}')
+assert val.is_object()
+assert val["id"].as_int() == 100
+scores = val["scores"].to_python()
+```
+
+#### 3. PostgreSQL Binary jsonb Wire Adapter
+
+Direct zero-copy conversion for PostgreSQL binary network wire format (0x01 version header byte followed by UTF-8 encoded JSON payload):
+
+- `PG_JSONB_WIRE_VERSION`: Constant integer 1 (0x01).
+- `parse_pg_jsonb()`: Parse PostgreSQL wire bytes into a `JSONValue`.
+- `loads_pg_jsonb()`: Parse PostgreSQL wire bytes directly into native Python objects via TurboDOM.
+- `dumps_pg_jsonb()`: Serialize Python objects or `JSONValue` into PostgreSQL binary jsonb wire bytes.
+
+```python
+# PostgreSQL binary jsonb wire serialization & deserialization
+wire = fastjson.dumps_pg_jsonb({"account_id": 98765, "active": True})
+py_data = fastjson.loads_pg_jsonb(wire)
+jv = fastjson.parse_pg_jsonb(wire)
+```
+
+#### 4. Zero-Copy C++ Typed Vectors
+
+Bound C++ opaque vectors avoiding Python object boxing overhead for bulk numeric data:
+
+- `Int64Vector`: Fast 64-bit signed integer vector with `append()`, `to_list()`, `to_json()`, and C++-accelerated `sum()`.
+- `UInt64Vector`: Fast 64-bit unsigned integer vector with `append()`, `to_list()`, `to_json()`, and C++-accelerated `sum()`.
+- `Float64Vector`: Fast 64-bit floating-point vector with `append()`, `to_list()`, `to_json()`, and C++-accelerated `sum()`.
+- `StringVector`: Fast UTF-8 string vector with `append()`, `to_list()`, and `to_json()`.
+
+```python
+v = fastjson.Int64Vector()
+for n in range(1, 101):
+    v.append(n)
+assert v.sum() == 5050
+json_repr = v.to_json()
+```
+
+#### 5. Lazy Transducer LINQ Queries (`JSONQuery`)
+
+Push-transducer query pipeline via `query()` accepting either a `JSONValue` array or Python list:
+
+- Transforms and filtering: `where()`, `filter()`, `select()`, `map()`, `take()`, `skip()`, `take_while()`, `skip_while()`, `reverse()`, `order_by()`, `order_by_descending()`, `distinct()`, `distinct_by()`, `prefix_sum()`, `scan()`, `concat()`, `union_with()`, `zip()`
+- Aggregations and materialization: `first()`, `last()`, `single()`, `find()`, `find_index()`, `any()`, `all()`, `count()`, `empty()`, `reduce()`, `aggregate()`, `sum()`, `min()`, `max()`, `average()`, `group_by()`, `for_each()`, `to_values()`, `to_list()`
+
+```python
+items = fastjson.parse('[{"name": "Widget A", "price": 25.0}, {"name": "Widget B", "price": 45.0}]')
+total_cost = (fastjson.query(items)
+              .where(lambda x: x["price"].as_float() > 20.0)
+              .sum(lambda x: x["price"].as_float()))
+```
+
+#### 6. Mustache Templating
+
+High-speed C++ Mustache template rendering with `render_template()`:
+- Accepts either a `JSONValue` DOM object or native Python `dict`.
+- Supports variable interpolation, sections, inverted sections, and array iteration.
+
+```python
+tmpl = "Users: {{#users}}{{name}} ({{role}}) {{/users}}"
+data = {"users": [{"name": "Ada", "role": "admin"}, {"name": "Bob", "role": "user"}]}
+rendered = fastjson.render_template(tmpl, data)
+```
+
+#### 7. SIMD Capabilities & Concurrency Control
+
+- Hardware detection: `get_simd_capabilities()`, `SIMDCapabilities`
+- Level selection: `SIMDLevel`, `is_simd_level_available()`, `get_effective_simd_level()`, `simd_level_name()`, `SIMD_WATERFALL_ORDER`
+- Concurrency pool: `set_num_threads()`, `get_num_threads()`
+
+```python
 caps = fastjson.get_simd_capabilities()
-# <SIMDCapabilities: AVX2, 256 bytes/iter, avx512=no, avx2=yes>
+effective = fastjson.get_effective_simd_level(fastjson.SIMDLevel.AUTO)
 ```
 
-#### LINQ Queries
-```python
-query = fastjson.query(val)
-result = (query
-    .where(lambda x: x["age"].as_int() > 10)
-    .select(lambda x: x["name"].as_string())
-    .to_list())
-```
+#### 8. GPU Acceleration Interface
 
-#### Mustache Templating
-```python
-# Variables, sections ({{#}}/{{/}}), inverted ({{^}}/{{/}}), array iteration
-result = fastjson.render_template(
-    '{{#items}}{{name}} {{/items}}',
-    fastjson.parse('{"items":[{"name":"A"},{"name":"B"}]}')
-)  # → 'A B '
-```
+Graceful detection and execution interface:
+- Types: `GPUBackend`, `GPUInfo`, `GPUParseConfig`, `GPUParseResult`
+- Functions: `detect_gpu_backend()`, `is_gpu_available()`, `get_gpu_info()`, `parse_on_gpu()`, `gpu_matrix_multiply()`
 
-#### 128-bit Integer Support
-128-bit integers are automatically converted to/from native Python `int` without precision loss.
+#### Building and Testing
 
-#### Building (uv + nanobind)
 ```bash
 cd python_bindings
-uv venv .venv --python python3.14
-uv pip install nanobind pytest numpy
-NANOBIND_CMAKE_DIR=$(.venv/bin/python -c "import nanobind; print(nanobind.cmake_dir())")
-mkdir build && cd build
-cmake .. -GNinja \
-  -DCMAKE_CXX_COMPILER=/opt/clang-21/bin/clang++ \
-  -DPython_EXECUTABLE=$(pwd)/../.venv/bin/python \
-  -DCMAKE_PREFIX_PATH="$NANOBIND_CMAKE_DIR" \
-  -DCMAKE_BUILD_TYPE=Release
-ninja -j$(nproc)
-```
 
-#### Test Results
-```bash
-cd python_bindings
-PYTHONPATH=build .venv/bin/pytest tests/ -v
-# 53 passed, 1 skipped (Int64Vector not yet exposed) — Python 3.14.2
+# Sync dependencies and build with uv (Clang 23+ auto-detected by CMake)
+uv sync
+uv pip install -e . --no-build-isolation
+
+# Run test suite
+uv run pytest tests/ -v
+# 75 passed, 0 skipped (verified clean under Release and AddressSanitizer + UndefinedBehaviorSanitizer)
 ```
 
 ---
