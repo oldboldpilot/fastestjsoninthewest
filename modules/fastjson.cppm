@@ -3931,6 +3931,18 @@ public:
 auto ondemand_document::parse(std::string input) -> json_result<ondemand_document> {
     ondemand_document doc;
     doc.input_ = std::move(input);
+    // The lazy accessors walk a structural tape that assumes a well-formed document; indexing a malformed one
+    // ("[1,", "[1]]", an unterminated string, invalid UTF-8) used to succeed and hand out values from it. The
+    // input is validated by THE grammar (the same parser, into a scratch arena that is dropped at once).
+    // 842565b added this check; the 54288ec sync from the private repository dropped it again (the
+    // conformance gate's ondemand section went 7 red on every scan tier).
+    {
+        std::pmr::monotonic_buffer_resource scratch;
+        parser check(doc.input_, &scratch);
+        if (auto valid = check.parse(); !valid) {
+            return std::unexpected(valid.error());
+        }
+    }
     doc.tape_ = build_structural_index(
         std::span<const char>(doc.input_.data(), doc.input_.size()));
     if (doc.tape_.empty()) {
