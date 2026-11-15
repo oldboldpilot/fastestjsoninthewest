@@ -2,13 +2,13 @@
 
 ## Testing Summary
 
-✅ **All current unit, regression, and correctness tests pass 100%** (ctest, October 2026), verified under NASA human-spaceflight-grade testing rigor and full Rule 59 sanitizer suites across AddressSanitizer, MemorySanitizer, and ThreadSanitizer.
+✅ **All eleven CTest cases pass in Release and under AddressSanitizer + UBSan** (November 2026). MemorySanitizer and ThreadSanitizer each leave cases red outside fastjson code (uninstrumented libc++; a tbbmalloc exit race that the unchanged baseline shows too); see the sanitizer section below.
 
 ---
 
 ## Current Test Suite & CTest Inventory (October 2026)
 
-All 3 CMake test targets (ctest) pass 100%:
+Eleven CTest cases (Release, November 2026: 11/11 pass):
 
 1. **`test_turbo_correctness`** (`tests/test_turbo_correctness.cpp`):
    - **7,430 assertions across 26 sections** passing (0 failures).
@@ -35,6 +35,13 @@ All 3 CMake test targets (ctest) pass 100%:
 3. **`check_docs_claims`** (`tools/check_docs_claims.py`):
    - Static documentation gate verifying that all cited code identifiers, flags, and file paths exist in tracked source files.
 
+4. **test_prefix_recognizer** (`tests/test_prefix_recognizer.cpp`), one case per string-scan tier (scalar, avx2, best):
+   - 370,009 checks per tier: `prefix_recognizer::complete()` against `parse()` on a hand corpus, every prefix of valid documents and 20,000 random documents with 5 mutations each; chunking (one push = byte steps = every two-chunk split); viability (every accepted prefix can be finished from `expects()` alone); events; eight threads sharing one state; the committed SMT scripts in `tests/proofs/prefix_structural` equal what the table generates.
+
+5. **test_fastjson_conformance** (`tests/conformance/fastjson_conformance_test.cpp`), one case per tier: 559 checks; every input it parses (258) is also checked against `prefix_recognizer`.
+
+6. **`test_pg_jsonb`** and **`check_no_secrets`**.
+
 ---
 
 ## Rule 59 Sanitizer Verification (`CMakeLists.txt`)
@@ -44,17 +51,17 @@ FastestJSONInTheWest provides first-class support for Rule 59 sanitizers configu
 1. **AddressSanitizer + LeakSanitizer + UndefinedBehaviorSanitizer (`-DENABLE_ASAN=ON`)**:
    - Compiler flags: `-fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer`
    - Link flags: `-fsanitize=address,undefined`
-   - Verification: **3/3 `ctest` PASS (0 errors, 0 leaks, 0 undefined behaviors)** with `ASAN_OPTIONS=detect_leaks=1`.
+   - Verification: **11/11 `ctest` PASS (0 errors, 0 leaks, 0 undefined behaviors)** (Debug, November 2026).
 
 2. **MemorySanitizer with Origin Tracking (`-DENABLE_MSAN=ON`)**:
    - Compiler flags: `-fsanitize=memory`, `-fsanitize-memory-track-origins`, `-fno-sanitize-memory-use-after-dtor`, `-fno-omit-frame-pointer`
    - Compatibility headers & shims: uses `cmake/msan_libcxx_compat.h` and `cmake/msan_libcxx_shim.cpp` to provide MSan interceptors and origin unpoisoning for prebuilt `libc++.so.1` standard library routines.
-   - Verification: **3/3 `ctest` PASS (0 uninitialized memory reads, 0 warnings)**.
+   - Verification: the original three tests PASS, and `prefix_recognizer`'s checks run with 0 warnings. The six tier cases of test_prefix_recognizer and test_fastjson_conformance report warnings inside the uninstrumented prebuilt libc++ (`std::istreambuf_iterator` reading the SMT scripts, `std::pmr::monotonic_buffer_resource` released by `ondemand_document`).
 
 3. **ThreadSanitizer (`-DENABLE_TSAN=ON`)**:
    - Compiler flags: `-fsanitize=thread -fno-omit-frame-pointer`
    - Link flags: `-fsanitize=thread`
-   - Verification: **3/3 `ctest` PASS (0 data races)** on all multi-threaded parsing and parallel LINQ operations.
+   - Verification: 10/11 `ctest` PASS. test_linq_prefix_sum reports a race inside tbbmalloc at process exit whenever the build has produced `libtbbmalloc.so` (libtbb then loads it); the unchanged baseline fails identically after a full build.
 
 ---
 

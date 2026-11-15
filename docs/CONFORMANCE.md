@@ -1,8 +1,14 @@
 # fastjson conformance: what is accepted, what a number is, how to write JSON
 
-Gate: `tests/conformance/fastjson_conformance_test.cpp` (no external framework). Sensen registers it as
-test_fastjson_conformance_scalar, test_fastjson_conformance_avx2 and test_fastjson_conformance_best, one ctest case per string-scan tier (`FASTJSON_SIMD`), and
-every tier must give the same answers.
+Gate: `tests/conformance/fastjson_conformance_test.cpp` (no external framework). This repository's own CTest and
+sensen's both register it as test_fastjson_conformance_scalar, test_fastjson_conformance_avx2 and
+test_fastjson_conformance_best, one ctest case per string-scan tier (`FASTJSON_SIMD`), and every tier must give the
+same answers.
+
+Every input the suite hands to `parse()` is also fed to `prefix_recognizer`, whole and byte by byte, and its
+`complete()` must give the same answer (258 of 258 inputs). The recognizer's own differential gate is
+`tests/test_prefix_recognizer.cpp` (README: Incremental prefix recognition): it is the same rules read
+incrementally, so everything below holds for a prefix the moment it can no longer be completed.
 
 ## Parsing is strict (RFC 8259)
 

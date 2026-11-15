@@ -1369,6 +1369,22 @@ target_link_libraries(test_pg_jsonb PRIVATE fastjson)
 target_compile_options(test_pg_jsonb PRIVATE ${TEST_COMPILE_FLAGS})
 target_link_options(test_pg_jsonb PRIVATE ${TEST_LINK_FLAGS})
 
+# prefix_recognizer against parse() (agreement, chunking, viability, events, the structural SMT obligations,
+# concurrency, speed) and the conformance suite, which also checks the recognizer on every input it parses.
+# Top level only: sensen builds the conformance source under this very target name, and a superproject's
+# target namespace is not this repository's to fill.
+if(PROJECT_IS_TOP_LEVEL)
+    add_executable(test_prefix_recognizer tests/test_prefix_recognizer.cpp)
+    target_link_libraries(test_prefix_recognizer PRIVATE fastjson)
+    target_compile_options(test_prefix_recognizer PRIVATE ${TEST_COMPILE_FLAGS})
+    target_link_options(test_prefix_recognizer PRIVATE ${TEST_LINK_FLAGS})
+
+    add_executable(test_fastjson_conformance tests/conformance/fastjson_conformance_test.cpp)
+    target_link_libraries(test_fastjson_conformance PRIVATE fastjson)
+    target_compile_options(test_fastjson_conformance PRIVATE ${TEST_COMPILE_FLAGS})
+    target_link_options(test_fastjson_conformance PRIVATE ${TEST_LINK_FLAGS})
+endif()
+
 if(ENABLE_PARALLEL_STL AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/prefix_sum_test.cpp")
     add_executable(test_linq_prefix_sum tests/prefix_sum_test.cpp)
     target_link_libraries(test_linq_prefix_sum PRIVATE TBB::tbb Threads::Threads $<TARGET_NAME_IF_EXISTS:std_module>)
@@ -1395,6 +1411,22 @@ if(PROJECT_IS_TOP_LEVEL)
 
     add_test(NAME test_pg_jsonb COMMAND test_pg_jsonb)
     set_tests_properties(test_pg_jsonb PROPERTIES TIMEOUT 60)
+
+    # ONE RUN PER STRING-SCAN TIER. The recognizer's bulk string path and parse() both scan through the tier
+    # FASTJSON_SIMD selects, so agreement is proven on each tier, not on whichever one this host picks. The SMT
+    # scripts under tests/proofs/prefix_structural must equal what the current table generates.
+    foreach(_fj_tier scalar avx2 best)
+        add_test(NAME test_prefix_recognizer_${_fj_tier}
+                 COMMAND test_prefix_recognizer ${_fj_tier} ${CMAKE_CURRENT_SOURCE_DIR}/tests/proofs/prefix_structural)
+        add_test(NAME test_fastjson_conformance_${_fj_tier} COMMAND test_fastjson_conformance ${_fj_tier})
+        if(_fj_tier STREQUAL "best")
+            set(_fj_env "")
+        else()
+            set(_fj_env "FASTJSON_SIMD=${_fj_tier}")
+        endif()
+        set_tests_properties(test_prefix_recognizer_${_fj_tier} test_fastjson_conformance_${_fj_tier}
+                             PROPERTIES ENVIRONMENT "${_fj_env}" TIMEOUT 600 LABELS "json;prefix")
+    endforeach()
 
     if(TARGET test_linq_prefix_sum)
         add_test(NAME test_linq_prefix_sum COMMAND test_linq_prefix_sum)

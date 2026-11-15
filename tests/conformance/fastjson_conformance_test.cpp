@@ -54,12 +54,18 @@ auto check(bool ok, std::string_view what) -> void {
     return out;
 }
 
+// Every input this suite hands to parse() is also put to fastjson::prefix_recognizer (runPrefixAgreement): the
+// conformance corpus is the recognizer's differential corpus, so a case added here is checked on both.
+std::vector<std::string> g_corpus;
+
 auto expectError(std::string_view input, std::string_view why) -> void {
+    g_corpus.emplace_back(input);
     const auto r = fastjson::parse(input);
     check(!r.has_value(), std::format("{}: parse(\"{}\") must be an error", why, shown(input)));
 }
 
 auto expectString(std::string_view input, std::string_view want, std::string_view why) -> void {
+    g_corpus.emplace_back(input);
     const auto r = fastjson::parse(input);
     if (!r.has_value()) {
         check(false, std::format("{}: parse(\"{}\") failed: {}", why, shown(input), r.error().message));
@@ -120,6 +126,7 @@ auto runStrings() -> void {
 // ---- numbers ------------------------------------------------------------------------------------------------
 
 [[nodiscard]] auto parsed(std::string_view text) -> std::optional<fastjson::json_value> {
+    g_corpus.emplace_back(text);
     auto r = fastjson::parse(text);
     if (!r) { return std::nullopt; }
     return std::move(r).value();
@@ -459,6 +466,32 @@ auto runConcurrent() -> void {
     check(!want.empty(), "the single-thread text is non-empty");
 }
 
+// ---- prefix recognizer ------------------------------------------------------------------------------------
+
+// complete() iff parse() accepts, for the whole input fed at once and byte by byte, on every corpus input.
+auto runPrefixAgreement() -> void {
+    std::size_t agreed = 0;
+    for (const auto& text : g_corpus) {
+        const bool parse_ok = fastjson::parse(text).has_value();
+        fastjson::prefix_recognizer whole;
+        const bool whole_ok = whole.push(text).has_value() && whole.complete();
+        fastjson::prefix_recognizer bytes;
+        bool bytes_ok = true;
+        for (const char c : text) {
+            if (!bytes.step(c)) {
+                bytes_ok = false;
+                break;
+            }
+        }
+        bytes_ok = bytes_ok && bytes.complete();
+        check(parse_ok == whole_ok && parse_ok == bytes_ok,
+              std::format("prefix_recognizer agrees with parse() on \"{}\" (parse {}, push {}, step {})", shown(text),
+                          parse_ok, whole_ok, bytes_ok));
+        agreed += parse_ok == whole_ok && parse_ok == bytes_ok ? 1 : 0;
+    }
+    std::println("prefix_recognizer: {} of {} conformance inputs agree with parse()", agreed, g_corpus.size());
+}
+
 }  // namespace
 
 auto main(int argc, char** argv) -> int {
@@ -470,6 +503,7 @@ auto main(int argc, char** argv) -> int {
     runOndemand();
     runWriter();
     runConcurrent();
+    runPrefixAgreement();
     std::println("fastjson_conformance [{} / scan tier {}]: {} checks, {} failed", tier, fastjson::string_scan_tier(),
                  g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;

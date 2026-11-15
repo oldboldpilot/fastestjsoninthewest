@@ -1592,29 +1592,55 @@ inline auto find_escape_position_simd_impl(const char* ptr, const char* end) -> 
 // implementation each (DRY): the escaping that to_string() applies is the escaping the streaming writer applies.
 // ============================================================================
 
+/// The four JSON whitespace bytes (RFC 8259 section 2). The parser's skip_whitespace and prefix_recognizer both
+/// ask this one predicate, so the two can never disagree on what separates tokens.
+[[nodiscard]] constexpr auto is_json_whitespace(char c) noexcept -> bool {
+    return c == ' ' || c == '\t' || c == '\n' || c == '\r';
+}
+
+/// What a UTF-8 lead byte promises (RFC 3629): the sequence length (0 = not a lead byte, 1 = ASCII) and the
+/// range its SECOND byte must fall in. The narrowed ranges are the whole of UTF-8's exceptions: E0 (no overlong
+/// 3-byte forms), ED (no UTF-16 surrogates), F0 (no overlong 4-byte forms) and F4 (nothing above U+10FFFF).
+/// Every later continuation byte is 0x80..0xBF.
+struct utf8_lead {
+    std::uint8_t length;
+    std::uint8_t second_lo;
+    std::uint8_t second_hi;
+};
+
+[[nodiscard]] constexpr auto utf8_lead_of(unsigned char b0) noexcept -> utf8_lead {
+    if (b0 < 0x80) { return {1, 0, 0}; }
+    if (b0 >= 0xC2 && b0 <= 0xDF) { return {2, 0x80, 0xBF}; }
+    if (b0 == 0xE0) { return {3, 0xA0, 0xBF}; }  // overlong below
+    if (b0 == 0xED) { return {3, 0x80, 0x9F}; }  // UTF-16 surrogates above
+    if (b0 >= 0xE1 && b0 <= 0xEF) { return {3, 0x80, 0xBF}; }
+    if (b0 == 0xF0) { return {4, 0x90, 0xBF}; }  // overlong below
+    if (b0 == 0xF4) { return {4, 0x80, 0x8F}; }  // above U+10FFFF
+    if (b0 >= 0xF1 && b0 <= 0xF3) { return {4, 0x80, 0xBF}; }
+    return {0, 0, 0};  // 0x80..0xC1 (continuation or overlong 2-byte lead), 0xF5..0xFF
+}
+
+/// utf8_lead_of for every byte, built once at compile time: the one UTF-8 table the whole-document validator
+/// (utf8_sequence_length / utf8_valid) and the incremental prefix_recognizer both read.
+inline constexpr std::array<utf8_lead, 256> utf8_lead_table = [] {
+    std::array<utf8_lead, 256> t{};
+    for (unsigned b = 0; b < 256; ++b) { t[b] = utf8_lead_of(static_cast<unsigned char>(b)); }
+    return t;
+}();
+
 /// Length of the well-formed UTF-8 sequence starting at `p` (1..4), or 0 when it is not one (RFC 3629: no
 /// overlongs, no UTF-16 surrogates, nothing above U+10FFFF, no truncated sequence).
 [[nodiscard]] inline auto utf8_sequence_length(std::string_view s, size_t i) noexcept -> size_t {
     const auto b0 = static_cast<unsigned char>(s[i]);
-    if (b0 < 0x80) { return 1; }
-    const size_t left = s.size() - i;
-    const auto cont = [&](size_t k) { return k < left && (static_cast<unsigned char>(s[i + k]) & 0xC0U) == 0x80U; };
-    if (b0 >= 0xC2 && b0 <= 0xDF) { return cont(1) ? 2 : 0; }
-    if (b0 >= 0xE0 && b0 <= 0xEF) {
-        if (!cont(1) || !cont(2)) { return 0; }
-        const auto b1 = static_cast<unsigned char>(s[i + 1]);
-        if (b0 == 0xE0 && b1 < 0xA0) { return 0; }  // overlong
-        if (b0 == 0xED && b1 > 0x9F) { return 0; }  // UTF-16 surrogate
-        return 3;
+    const utf8_lead lead = utf8_lead_table[b0];
+    if (lead.length <= 1) { return lead.length; }
+    if (s.size() - i < lead.length) { return 0; }  // truncated
+    const auto b1 = static_cast<unsigned char>(s[i + 1]);
+    if (b1 < lead.second_lo || b1 > lead.second_hi) { return 0; }
+    for (size_t k = 2; k < lead.length; ++k) {
+        if ((static_cast<unsigned char>(s[i + k]) & 0xC0U) != 0x80U) { return 0; }
     }
-    if (b0 >= 0xF0 && b0 <= 0xF4) {
-        if (!cont(1) || !cont(2) || !cont(3)) { return 0; }
-        const auto b1 = static_cast<unsigned char>(s[i + 1]);
-        if (b0 == 0xF0 && b1 < 0x90) { return 0; }  // overlong
-        if (b0 == 0xF4 && b1 > 0x8F) { return 0; }  // above U+10FFFF
-        return 4;
-    }
-    return 0;  // 0x80..0xC1 lead, 0xF5..0xFF
+    return lead.length;
 }
 
 /// True when every byte of `s` belongs to a well-formed UTF-8 sequence. ASCII is skipped eight bytes at a time.
@@ -2990,9 +3016,14 @@ inline auto analyze_number_precision(const char* start, const char* end) -> numb
     return info;
 }
 
+/// The longest number token parse() can accept: the widest reader (parse_float128) takes at most this many
+/// characters, the 64-bit and 128-bit integer readers fewer. prefix_recognizer refuses a number the moment no
+/// continuation of it can fit.
+inline constexpr std::size_t max_number_length = 100;
+
 // Parse float128_compat from string using Clang's native support
 inline auto parse_float128(const char* str, size_t length) -> std::optional<float128_compat> {
-    if (length == 0 || length > 100) {
+    if (length == 0 || length > max_number_length) {
         return std::nullopt;
     }
 
@@ -3106,6 +3137,10 @@ inline auto parse_uint128(const char* str, size_t length) -> std::optional<uint1
 // Parser Class Definition
 // ============================================================================
 
+/// The deepest nesting parse() accepts: a value may begin only while fewer than this many containers are open.
+/// prefix_recognizer enforces the same bound, so the two agree on every document.
+inline constexpr std::size_t max_nesting_depth = 1000;
+
 class parser {
 public:
     explicit parser(std::string_view input);
@@ -3145,7 +3180,7 @@ private:
     size_t column_;
     size_t depth_;
     std::pmr::memory_resource* arena_ = nullptr;  // nullptr = use default heap
-    static constexpr size_t max_depth_ = 1000;
+    static constexpr size_t max_depth_ = max_nesting_depth;
 };
 
 // ============================================================================
@@ -3297,56 +3332,12 @@ auto parser::parse_boolean() -> json_result<json_value> {
     return std::unexpected(make_error(json_error_code::invalid_literal, "Invalid boolean literal"));
 }
 
-auto parser::parse_number() -> json_result<json_value> {
-    const char* start = current_;
-
-    // Handle negative sign
-    if (peek() == '-') {
-        advance();
-    }
-
-    // Handle integer part
-    if (peek() == '0') {
-        advance();
-    } else if (peek() >= '1' && peek() <= '9') {
-        advance();
-        while (peek() >= '0' && peek() <= '9') {
-            advance();
-        }
-    } else {
-        return std::unexpected(
-            make_error(json_error_code::invalid_number, "Invalid number format"));
-    }
-
-    // Handle fractional part
-    bool plain_integer = true;
-    if (peek() == '.') {
-        plain_integer = false;
-        advance();
-        if (!(peek() >= '0' && peek() <= '9')) {
-            return std::unexpected(
-                make_error(json_error_code::invalid_number, "Invalid decimal number"));
-        }
-        while (peek() >= '0' && peek() <= '9') {
-            advance();
-        }
-    }
-
-    // Handle exponent
-    if (peek() == 'e' || peek() == 'E') {
-        plain_integer = false;
-        advance();
-        if (peek() == '+' || peek() == '-') {
-            advance();
-        }
-        if (!(peek() >= '0' && peek() <= '9')) {
-            return std::unexpected(make_error(json_error_code::invalid_number, "Invalid exponent"));
-        }
-        while (peek() >= '0' && peek() <= '9') {
-            advance();
-        }
-    }
-
+// The VALUE of a number token whose grammar is already checked (RFC 8259: -?(0|[1-9]d*)(.d+)?([eE][+-]?d+)?), or the
+// reason no representation holds it. `plain_integer` says the token has no fraction and no exponent. ONE function
+// for parser::parse_number and prefix_recognizer: a number the recognizer lets end is exactly a number parse()
+// keeps, because both ask this.
+inline auto number_from_text(const char* start, const char* end, bool plain_integer)
+    -> std::expected<json_value, std::string_view> {
     // INTEGER FAST PATH. A token of at most 15 digits (and an optional '-') with no fraction or exponent is below 2^53,
     // so the double is EXACT and the strtod + to_chars round trip below can only ever hand back the same value: the
     // grammar above forbids leading zeros, so the digits are what `to_chars(..., fixed)` would print, and "-0" yields
@@ -3356,10 +3347,10 @@ auto parser::parse_number() -> json_result<json_value> {
         const char* digits = start;
         const bool negative = (*digits == '-');
         if (negative) ++digits;
-        const size_t digit_count = static_cast<size_t>(current_ - digits);
+        const size_t digit_count = static_cast<size_t>(end - digits);
         if (digit_count <= 15) {
             std::uint64_t acc = 0;
-            for (const char* d = digits; d < current_; ++d) {
+            for (const char* d = digits; d < end; ++d) {
                 acc = acc * 10U + static_cast<std::uint64_t>(*d - '0');
             }
             const double exact = static_cast<double>(acc);
@@ -3368,8 +3359,8 @@ auto parser::parse_number() -> json_result<json_value> {
     }
 
     // Analyze precision requirements
-    size_t length = current_ - start;
-    auto precision_info = analyze_number_precision(start, current_);
+    size_t length = end - start;
+    auto precision_info = analyze_number_precision(start, end);
 
     // Adaptive precision parsing strategy:
     // 1. Try 64-bit parsing first (fast path)
@@ -3429,14 +3420,14 @@ auto parser::parse_number() -> json_result<json_value> {
             ++num_start;
         }
 
-        auto result = parse_int128(num_start, current_ - num_start, precision_info.is_negative);
+        auto result = parse_int128(num_start, end - num_start, precision_info.is_negative);
         if (result) {
             return json_value{*result};
         }
 
         // If signed parsing failed, try unsigned for positive numbers
         if (!precision_info.is_negative) {
-            auto uresult = parse_uint128(num_start, current_ - num_start);
+            auto uresult = parse_uint128(num_start, end - num_start);
             if (uresult) {
                 return json_value{*uresult};
             }
@@ -3452,11 +3443,66 @@ auto parser::parse_number() -> json_result<json_value> {
     // All parsing attempts failed. A number no representation can hold is an ERROR -- never a NaN or an
     // infinity standing in for it (JSON has neither, and a caller cannot tell the substitute from data).
     if (precision_info.is_integer) {
-        return std::unexpected(
-            make_error(json_error_code::invalid_number, "Integer value exceeds 128-bit range"));
+        return std::unexpected(std::string_view{"Integer value exceeds 128-bit range"});
     }
-    return std::unexpected(
-        make_error(json_error_code::invalid_number, "Number is outside the representable range"));
+    return std::unexpected(std::string_view{"Number is outside the representable range"});
+}
+
+auto parser::parse_number() -> json_result<json_value> {
+    const char* start = current_;
+
+    // Handle negative sign
+    if (peek() == '-') {
+        advance();
+    }
+
+    // Handle integer part
+    if (peek() == '0') {
+        advance();
+    } else if (peek() >= '1' && peek() <= '9') {
+        advance();
+        while (peek() >= '0' && peek() <= '9') {
+            advance();
+        }
+    } else {
+        return std::unexpected(
+            make_error(json_error_code::invalid_number, "Invalid number format"));
+    }
+
+    // Handle fractional part
+    bool plain_integer = true;
+    if (peek() == '.') {
+        plain_integer = false;
+        advance();
+        if (!(peek() >= '0' && peek() <= '9')) {
+            return std::unexpected(
+                make_error(json_error_code::invalid_number, "Invalid decimal number"));
+        }
+        while (peek() >= '0' && peek() <= '9') {
+            advance();
+        }
+    }
+
+    // Handle exponent
+    if (peek() == 'e' || peek() == 'E') {
+        plain_integer = false;
+        advance();
+        if (peek() == '+' || peek() == '-') {
+            advance();
+        }
+        if (!(peek() >= '0' && peek() <= '9')) {
+            return std::unexpected(make_error(json_error_code::invalid_number, "Invalid exponent"));
+        }
+        while (peek() >= '0' && peek() <= '9') {
+            advance();
+        }
+    }
+
+    auto value = number_from_text(start, current_, plain_integer);
+    if (!value) {
+        return std::unexpected(make_error(json_error_code::invalid_number, std::string(value.error())));
+    }
+    return std::move(*value);
 }
 
 auto parser::parse_string() -> json_result<json_value> {
@@ -3714,8 +3760,7 @@ auto parser::skip_whitespace() -> void {
     // on OpenAI-shaped stream deltas this call was 9.6% of total parse time (perf, AVX-512 host). A byte that is not
     // one of the four JSON whitespace characters leaves `current_` where it is, exactly as the kernel's result would.
     if (current_ >= end_) return;
-    const auto first = static_cast<unsigned char>(*current_);
-    if (first != ' ' && first != '\t' && first != '\n' && first != '\r') return;
+    if (!detail::is_json_whitespace(*current_)) return;
     size_t remaining = end_ - current_;
     const char* new_pos = ::fastjson::skip_whitespace_simd(current_, remaining);
 
@@ -3824,6 +3869,799 @@ auto parse_arena(std::string input) -> json_result<json_document> {
     doc.root_ = std::move(*result);
     return doc;
 }
+
+// ============================================================================
+// prefix_recognizer -- incremental (push) recognition of JSON PREFIXES
+// ============================================================================
+//
+// parse() answers "is this buffer a JSON document?". Grammar-constrained decoding asks something else after every
+// candidate token: "are the bytes so far still the start of SOME document parse() accepts, and what may come
+// next?" That needs resumable state, and prefix_recognizer is it: a pushdown recognizer whose whole state is a
+// fixed-size, trivially copyable value (no heap, ~0.25 KiB), so a decoder copies one committed state and tries
+// thousands of candidate continuations against it.
+//
+// THE CONTRACT (tests/test_prefix_recognizer.cpp gates every line of it against parse() itself, on every SIMD tier):
+//   * complete() is true iff parse() accepts the bytes fed so far: the same UTF-8 rules (utf8_lead_table), the same
+//     escapes and surrogate pairs (unicode::), the same number grammar AND range (number_from_text decides both,
+//     for both), the same whitespace (detail::is_json_whitespace) and the same depth bound (max_nesting_depth).
+//   * push() refuses a byte iff no continuation of the bytes before it is a document parse() accepts, so a decoder
+//     that keeps the recognizer happy can always still finish. A refused byte leaves the state as it was before it.
+//   * the structural layer is ONE table (prefix_structural_table) over byte classes (prefix_class_table); the test
+//     emits it as SMT-LIB and tests/proofs/prefix_structural.smt2 is that proof (no ']' without an open array, no
+//     trailing comma, no ':' outside a member, nothing but whitespace after the document, no dead state).
+//
+// Author: Olumuyiwa Oluwasanmi
+
+/// What the bytes fed so far leave the recognizer waiting for.
+enum class prefix_expect : std::uint8_t {
+    value,             ///< a value must begin (top level, after ':' or after ',' in an array)
+    value_or_close,    ///< just after '[': a value or ']'
+    key,               ///< after ',' in an object: a member name
+    key_or_close,      ///< just after '{': a member name or '}'
+    colon,             ///< after a member name: ':'
+    comma_or_close,    ///< after a member value or an element: ',' or the container's close
+    end,               ///< the document is whole: only whitespace may follow
+    string_body,       ///< inside a string or member name: content, '\\' or the closing quote
+    escape,            ///< just after '\\'
+    unicode_escape,    ///< inside the four hex digits of \uXXXX (either half of a surrogate pair)
+    surrogate_pair,    ///< after a high surrogate: "\\u" and a low surrogate must follow
+    utf8_continuation, ///< inside a multi-byte UTF-8 sequence
+    number,            ///< inside a number
+    literal,           ///< inside true, false or null
+};
+
+/// expects(): the state as a caller needs it, without reading bytes.
+struct prefix_expectation {
+    prefix_expect what{prefix_expect::value};
+    bool in_key{false};     ///< the string states belong to a member name, not to a value
+    bool in_object{false};  ///< the innermost open container is an object (false at the top level)
+    bool may_end{false};    ///< number: the text so far is a whole number parse() keeps; a delimiter may follow
+    char close{'\0'};       ///< the byte that closes the innermost container ('}' or ']'), '\0' at the top level
+    std::size_t depth{0};   ///< open containers
+};
+
+/// What one byte did (step()). A bit set: a byte can end one token and act on its own, e.g. the ']' of "[1]"
+/// carries number_end | array_end, and the ',' of {"a":1,"b":2} carries number_end | value_separator.
+enum class prefix_event : std::uint32_t {
+    none = 0,
+    whitespace = 1U << 0,
+    object_begin = 1U << 1,
+    object_end = 1U << 2,
+    array_begin = 1U << 3,
+    array_end = 1U << 4,
+    key_begin = 1U << 5,        ///< the opening quote of a member name
+    key_end = 1U << 6,          ///< the closing quote of a member name
+    name_separator = 1U << 7,   ///< ':'
+    value_separator = 1U << 8,  ///< ','
+    string_begin = 1U << 9,     ///< the opening quote of a string value
+    string_end = 1U << 10,      ///< its closing quote
+    number_begin = 1U << 11,    ///< the first byte of a number (also `content`)
+    number_end = 1U << 12,      ///< the number ended just BEFORE this byte (numbers have no closing byte)
+    true_begin = 1U << 13,      ///< the 't' of true (also `content`)
+    false_begin = 1U << 14,     ///< the 'f' of false (also `content`)
+    null_begin = 1U << 15,      ///< the 'n' of null (also `content`)
+    literal_end = 1U << 16,     ///< the last byte of true/false/null (also `content`)
+    content = 1U << 17,         ///< a byte of a token's text: string/name body (escapes raw), number, literal
+};
+
+[[nodiscard]] constexpr auto operator|(prefix_event a, prefix_event b) noexcept -> prefix_event {
+    return static_cast<prefix_event>(static_cast<std::uint32_t>(a) | static_cast<std::uint32_t>(b));
+}
+
+constexpr auto operator|=(prefix_event& a, prefix_event b) noexcept -> prefix_event& {
+    a = a | b;
+    return a;
+}
+
+/// True when `set` carries every bit of `e`.
+[[nodiscard]] constexpr auto has_event(prefix_event set, prefix_event e) noexcept -> bool {
+    return (static_cast<std::uint32_t>(set) & static_cast<std::uint32_t>(e)) == static_cast<std::uint32_t>(e) &&
+           e != prefix_event::none;
+}
+
+/// What the document's top-level value may be. `object` is the OpenAI `json_object` contract.
+enum class prefix_root : std::uint8_t { any_value, object };
+
+/// Why a byte was refused. Cheap on purpose: a decoder refuses most of the vocabulary at every step, so no message
+/// string is built until somebody asks for one.
+struct prefix_error {
+    json_error_code code{json_error_code::invalid_syntax};
+    std::size_t offset{0};  ///< index, in the chunk handed to push()/feed(), of the refused byte
+
+    [[nodiscard]] auto message() const noexcept -> std::string_view {
+        switch (code) {
+            case json_error_code::extra_tokens: return "only whitespace may follow the document";
+            case json_error_code::max_depth_exceeded: return "maximum nesting depth exceeded";
+            case json_error_code::invalid_literal: return "malformed true/false/null";
+            case json_error_code::invalid_number: return "no number parse() accepts can continue this one";
+            case json_error_code::invalid_string: return "control byte, bad escape or bad \\u digit in a string";
+            case json_error_code::invalid_unicode: return "invalid UTF-8 or unpaired UTF-16 surrogate";
+            default: return "this byte cannot continue a JSON document here";
+        }
+    }
+};
+
+/// The number being read, as number(): its text so far and the digit count of each part.
+struct prefix_number {
+    std::string_view text;
+    std::size_t int_digits{0};
+    std::size_t frac_digits{0};
+    std::size_t exp_digits{0};
+};
+
+// ---- the structural table ---------------------------------------------------------------------------------------
+
+/// The byte classes the structural layer distinguishes.
+enum class prefix_class : std::uint8_t {
+    whitespace,
+    open_object,
+    close_object,
+    open_array,
+    close_array,
+    colon,
+    comma,
+    quote,
+    number_start,   ///< '-' or a digit
+    literal_start,  ///< 't', 'f' or 'n'
+    other,
+};
+inline constexpr std::size_t prefix_class_count = 11;
+
+/// The structural states: what may follow, and inside which kind of container. `after_value` is never a state;
+/// as a transition target it means "a value is done: comma_or_close of the container now on top, or top_end".
+enum class prefix_structural : std::uint8_t {
+    top_value,
+    top_end,
+    array_first,   ///< after '['
+    array_value,   ///< after ',' in an array
+    array_next,    ///< after an element
+    object_first,  ///< after '{'
+    object_key,    ///< after ',' in an object
+    object_colon,  ///< after a member name
+    object_value,  ///< after ':'
+    object_next,   ///< after a member value
+    after_value,
+};
+inline constexpr std::size_t prefix_structural_count = 10;
+
+enum class prefix_action : std::uint8_t {
+    reject,
+    skip,  ///< whitespace
+    open_object,
+    open_array,
+    close_object,
+    close_array,
+    begin_key,
+    begin_string,
+    begin_number,
+    begin_literal,
+    name_separator,
+    value_separator,
+};
+
+/// One cell of the table: what the byte does, and the structural state it leads to (for a token, the state
+/// entered when the token ends).
+struct prefix_transition {
+    prefix_action action{prefix_action::reject};
+    prefix_structural next{prefix_structural::top_value};
+};
+
+inline constexpr std::array<prefix_class, 256> prefix_class_table = [] {
+    std::array<prefix_class, 256> t{};
+    for (unsigned b = 0; b < 256; ++b) {
+        const auto c = static_cast<char>(b);
+        prefix_class k = prefix_class::other;
+        if (detail::is_json_whitespace(c)) {
+            k = prefix_class::whitespace;
+        } else if (c == '{') {
+            k = prefix_class::open_object;
+        } else if (c == '}') {
+            k = prefix_class::close_object;
+        } else if (c == '[') {
+            k = prefix_class::open_array;
+        } else if (c == ']') {
+            k = prefix_class::close_array;
+        } else if (c == ':') {
+            k = prefix_class::colon;
+        } else if (c == ',') {
+            k = prefix_class::comma;
+        } else if (c == '"') {
+            k = prefix_class::quote;
+        } else if (c == '-' || (c >= '0' && c <= '9')) {
+            k = prefix_class::number_start;
+        } else if (c == 't' || c == 'f' || c == 'n') {
+            k = prefix_class::literal_start;
+        }
+        t[b] = k;
+    }
+    return t;
+}();
+
+inline constexpr std::array<std::array<prefix_transition, prefix_class_count>, prefix_structural_count>
+    prefix_structural_table = [] {
+        using S = prefix_structural;
+        using A = prefix_action;
+        using C = prefix_class;
+        std::array<std::array<prefix_transition, prefix_class_count>, prefix_structural_count> t{};
+        const auto at = [&t](S s, C c) -> prefix_transition& {
+            return t[static_cast<std::size_t>(s)][static_cast<std::size_t>(c)];
+        };
+        for (std::size_t s = 0; s < prefix_structural_count; ++s) {
+            for (std::size_t c = 0; c < prefix_class_count; ++c) {
+                t[s][c] = {A::reject, static_cast<S>(s)};
+            }
+            t[s][static_cast<std::size_t>(C::whitespace)] = {A::skip, static_cast<S>(s)};
+        }
+        // A value may begin wherever one is due.
+        for (const S s : {S::top_value, S::array_first, S::array_value, S::object_value}) {
+            at(s, C::open_object) = {A::open_object, S::object_first};
+            at(s, C::open_array) = {A::open_array, S::array_first};
+            at(s, C::quote) = {A::begin_string, S::after_value};
+            at(s, C::number_start) = {A::begin_number, S::after_value};
+            at(s, C::literal_start) = {A::begin_literal, S::after_value};
+        }
+        at(S::array_first, C::close_array) = {A::close_array, S::after_value};  // []
+        at(S::array_next, C::comma) = {A::value_separator, S::array_value};
+        at(S::array_next, C::close_array) = {A::close_array, S::after_value};
+        at(S::object_first, C::quote) = {A::begin_key, S::object_colon};
+        at(S::object_first, C::close_object) = {A::close_object, S::after_value};  // {}
+        at(S::object_key, C::quote) = {A::begin_key, S::object_colon};
+        at(S::object_colon, C::colon) = {A::name_separator, S::object_value};
+        at(S::object_next, C::comma) = {A::value_separator, S::object_key};
+        at(S::object_next, C::close_object) = {A::close_object, S::after_value};
+        return t;
+    }();
+
+// ---- the recognizer ---------------------------------------------------------------------------------------------
+
+class prefix_recognizer {
+public:
+    prefix_recognizer() noexcept = default;
+    explicit prefix_recognizer(prefix_root root) noexcept : root_object_(root == prefix_root::object) {}
+
+    /// Consume `chunk`. On success every byte is consumed; on error the bytes before error().offset are consumed
+    /// and the state is exactly what they left (the refused byte changed nothing).
+    auto push(std::string_view chunk) -> std::expected<void, prefix_error> {
+        const char* const data = chunk.data();
+        const std::size_t n = chunk.size();
+        std::size_t i = 0;
+        std::size_t bytewise_until = 0;  // a run the bulk check refused is walked byte by byte to find the byte
+        while (i < n) {
+            if (mode_ == mode::string && i >= bytewise_until && n - i >= kBulkMin) {
+                // STRING BODIES IN BULK, through the parser's own SIMD string scan: the run up to the next quote,
+                // backslash or control byte needs only a UTF-8 check. A sequence cut by the chunk's end is left to
+                // the byte path, which carries it into the next chunk.
+                const char* const p = data + i;
+                const char* const stop = detail::find_string_end_simd_impl(p, data + n);
+                const auto run = static_cast<std::size_t>(stop - p);
+                const std::size_t whole = stop == data + n ? utf8_whole_prefix(p, run) : run;
+                if (whole > 0) {
+                    if (detail::utf8_valid(std::string_view{p, whole})) {
+                        i += whole;
+                        continue;
+                    }
+                    bytewise_until = i + whole;
+                }
+            }
+            prefix_event ev = prefix_event::none;
+            if (const auto e = consume(static_cast<unsigned char>(data[i]), ev)) {
+                return std::unexpected(prefix_error{*e, i});
+            }
+            ++i;
+        }
+        return {};
+    }
+
+    /// The state after `chunk`, leaving this one untouched: how a decoder tries a candidate token.
+    [[nodiscard]] auto feed(std::string_view chunk) const -> std::expected<prefix_recognizer, prefix_error> {
+        prefix_recognizer next = *this;
+        if (auto r = next.push(chunk); !r) {
+            return std::unexpected(r.error());
+        }
+        return next;
+    }
+
+    /// Consume one byte and say what it did. On error nothing changed.
+    auto step(char c) -> std::expected<prefix_event, prefix_error> {
+        prefix_event ev = prefix_event::none;
+        if (const auto e = consume(static_cast<unsigned char>(c), ev)) {
+            return std::unexpected(prefix_error{*e, 0});
+        }
+        return ev;
+    }
+
+    /// parse() would accept exactly the bytes fed so far.
+    [[nodiscard]] auto complete() const noexcept -> bool {
+        if (mode_ == mode::structural) {
+            return state_ == prefix_structural::top_end;
+        }
+        return mode_ == mode::number && depth_ == 0 && number_may_end();
+    }
+
+    /// The top-level value has begun (a byte other than leading whitespace was consumed).
+    [[nodiscard]] auto started() const noexcept -> bool {
+        return mode_ != mode::structural || state_ != prefix_structural::top_value;
+    }
+
+    [[nodiscard]] auto depth() const noexcept -> std::size_t { return depth_; }
+
+    /// The structural state: where the recognizer is between tokens, or, inside a token, where it goes when the
+    /// token ends.
+    [[nodiscard]] auto structural() const noexcept -> prefix_structural { return state_; }
+
+    [[nodiscard]] auto expects() const noexcept -> prefix_expectation {
+        prefix_expectation x;
+        x.depth = depth_;
+        x.in_object = depth_ > 0 && is_object(depth_ - 1U);
+        x.close = depth_ == 0 ? '\0' : (x.in_object ? '}' : ']');
+        x.in_key = key_;
+        switch (mode_) {
+            case mode::structural:
+                x.what = structural_expect(state_);
+                break;
+            case mode::string: x.what = prefix_expect::string_body; break;
+            case mode::escape: x.what = prefix_expect::escape; break;
+            case mode::unicode: x.what = prefix_expect::unicode_escape; break;
+            case mode::surrogate_backslash:
+            case mode::surrogate_u: x.what = prefix_expect::surrogate_pair; break;
+            case mode::utf8: x.what = prefix_expect::utf8_continuation; break;
+            case mode::number:
+                x.what = prefix_expect::number;
+                x.may_end = number_may_end();
+                break;
+            case mode::literal: x.what = prefix_expect::literal; break;
+        }
+        return x;
+    }
+
+    /// The number being read (empty text outside a number). The view lives as long as this recognizer.
+    [[nodiscard]] auto number() const noexcept -> prefix_number {
+        if (mode_ != mode::number) {
+            return {};
+        }
+        return {std::string_view{number_.data(), number_len_}, int_digits_, frac_digits_, exp_digits_};
+    }
+
+    /// Bytes that identify the state: two recognizers with equal keys accept exactly the same continuations, so a
+    /// decoder may key a per-state cache (a token mask) by it. Only live state is written: the nesting bits up to
+    /// depth() and the number text up to its length.
+    [[nodiscard]] auto state_key() const -> std::string {
+        std::string k;
+        k.reserve(16 + depth_ / 8U + number_len_);
+        k.push_back(static_cast<char>(mode_));
+        k.push_back(static_cast<char>(state_));
+        k.push_back(static_cast<char>((key_ ? 1U : 0U) | (root_object_ ? 2U : 0U)));
+        k.push_back(static_cast<char>(depth_ & 0xFFU));
+        k.push_back(static_cast<char>(depth_ >> 8U));
+        for (std::size_t d = 0; d < depth_; d += 8) {
+            std::uint8_t byte = 0;
+            for (std::size_t j = 0; j < 8 && d + j < depth_; ++j) {
+                byte = static_cast<std::uint8_t>(byte | (is_object(d + j) ? (1U << j) : 0U));
+            }
+            k.push_back(static_cast<char>(byte));
+        }
+        // Only the fields the current mode reads: a field a finished token left behind must not split one state
+        // into many cache entries.
+        switch (mode_) {
+            case mode::structural:
+            case mode::string:
+            case mode::escape:
+            case mode::surrogate_backslash:
+            case mode::surrogate_u: break;
+            case mode::unicode:
+                k.push_back(static_cast<char>(sub_));
+                k.push_back(static_cast<char>(aux_));
+                k.push_back(static_cast<char>(unit_ & 0xFFU));
+                k.push_back(static_cast<char>(unit_ >> 8U));
+                break;
+            case mode::utf8:
+                k.push_back(static_cast<char>(sub_));
+                k.push_back(static_cast<char>(utf8_lo_));
+                k.push_back(static_cast<char>(utf8_hi_));
+                break;
+            case mode::number:
+                k.push_back(static_cast<char>(sub_));
+                k.push_back(static_cast<char>(exp_negative_ ? 1 : 0));
+                k.append(number_.data(), number_len_);
+                break;
+            case mode::literal:
+                k.push_back(static_cast<char>(aux_));
+                k.push_back(static_cast<char>(sub_));
+                break;
+        }
+        return k;
+    }
+
+    [[nodiscard]] friend auto operator==(const prefix_recognizer& a, const prefix_recognizer& b) -> bool {
+        return a.state_key() == b.state_key();
+    }
+
+private:
+    enum class mode : std::uint8_t {
+        structural, string, escape, unicode, surrogate_backslash, surrogate_u, utf8, number, literal,
+    };
+    enum class part : std::uint8_t { minus, zero, integer, dot, fraction, exponent_mark, exponent_sign, exponent };
+
+    static constexpr std::size_t kBulkMin = 16;
+    static constexpr std::array<std::string_view, 3> kLiterals{"true", "false", "null"};
+    static constexpr std::size_t kStackWords = (max_nesting_depth + 63) / 64;
+
+    using error_or_ok = std::optional<json_error_code>;
+
+    [[nodiscard]] static constexpr auto structural_expect(prefix_structural s) noexcept -> prefix_expect {
+        switch (s) {
+            case prefix_structural::top_value:
+            case prefix_structural::array_value:
+            case prefix_structural::object_value: return prefix_expect::value;
+            case prefix_structural::array_first: return prefix_expect::value_or_close;
+            case prefix_structural::object_first: return prefix_expect::key_or_close;
+            case prefix_structural::object_key: return prefix_expect::key;
+            case prefix_structural::object_colon: return prefix_expect::colon;
+            case prefix_structural::array_next:
+            case prefix_structural::object_next: return prefix_expect::comma_or_close;
+            case prefix_structural::top_end:
+            case prefix_structural::after_value: return prefix_expect::end;
+        }
+        return prefix_expect::end;
+    }
+
+    /// The longest prefix of the run [p, p+run) that does not end inside a UTF-8 sequence the run cuts short.
+    [[nodiscard]] static auto utf8_whole_prefix(const char* p, std::size_t run) noexcept -> std::size_t {
+        for (std::size_t k = 1; k <= 3 && k <= run; ++k) {
+            const auto b = static_cast<unsigned char>(p[run - k]);
+            if ((b & 0xC0U) == 0x80U) {
+                continue;  // a continuation byte: its lead is further back
+            }
+            return detail::utf8_lead_table[b].length > k ? run - k : run;
+        }
+        return run;
+    }
+
+    [[nodiscard]] auto is_object(std::size_t d) const noexcept -> bool {
+        return ((objects_[d >> 6U] >> (d & 63U)) & 1U) != 0;
+    }
+
+    auto set_container(std::size_t d, bool object) noexcept -> void {
+        const std::uint64_t bit = std::uint64_t{1} << (d & 63U);
+        objects_[d >> 6U] = object ? (objects_[d >> 6U] | bit) : (objects_[d >> 6U] & ~bit);
+    }
+
+    /// `after_value` resolved against the container now on top.
+    [[nodiscard]] auto resolve(prefix_structural next) const noexcept -> prefix_structural {
+        if (next != prefix_structural::after_value) {
+            return next;
+        }
+        if (depth_ == 0) {
+            return prefix_structural::top_end;
+        }
+        return is_object(depth_ - 1U) ? prefix_structural::object_next : prefix_structural::array_next;
+    }
+
+    [[nodiscard]] auto number_accepted(std::size_t len, bool plain_integer) const -> bool {
+        return number_from_text(number_.data(), number_.data() + len, plain_integer).has_value();
+    }
+
+    [[nodiscard]] auto number_may_end() const -> bool {
+        const auto p = static_cast<part>(sub_);
+        if (p != part::zero && p != part::integer && p != part::fraction && p != part::exponent) {
+            return false;
+        }
+        return number_accepted(number_len_, p == part::zero || p == part::integer);
+    }
+
+    /// Can a number whose text is number_[0, len) and which stands in part `p` still become one parse() keeps?
+    /// Every case is decided by length and number_from_text, never by a second reading of number range:
+    ///   integer: ".0" makes any integer a float the widest reader holds, so it lives while ".0" still fits, or
+    ///            if it is already kept as it stands;
+    ///   '-', '.', 'e', sign: one more digit completes it, so it lives while one more byte fits;
+    ///   fraction: no exponent, so the value is below 10^max_number_length and always held;
+    ///   exponent: a negative one only shrinks the value; a positive one only grows as digits arrive, so it lives
+    ///            exactly while the text so far is kept.
+    [[nodiscard]] auto number_viable(std::size_t len, part p) const -> bool {
+        switch (p) {
+            case part::zero:
+            case part::integer: return len + 2 <= max_number_length || number_accepted(len, true);
+            case part::minus:
+            case part::dot:
+            case part::exponent_mark:
+            case part::exponent_sign: return len + 1 <= max_number_length;
+            case part::fraction: return true;
+            case part::exponent: return exp_negative_ || number_accepted(len, false);
+        }
+        return false;
+    }
+
+    auto consume(unsigned char c, prefix_event& ev) -> error_or_ok {
+        switch (mode_) {
+            case mode::structural: return structural_byte(c, ev);
+            case mode::string: return string_byte(c, ev);
+            case mode::escape: return escape_byte(c, ev);
+            case mode::unicode: return unicode_byte(c, ev);
+            case mode::surrogate_backslash:
+                if (c != '\\') { return json_error_code::invalid_unicode; }
+                mode_ = mode::surrogate_u;
+                ev |= prefix_event::content;
+                return std::nullopt;
+            case mode::surrogate_u:
+                if (c != 'u') { return json_error_code::invalid_unicode; }
+                mode_ = mode::unicode;
+                aux_ = 1;  // the low half
+                sub_ = 0;
+                unit_ = 0;
+                ev |= prefix_event::content;
+                return std::nullopt;
+            case mode::utf8:
+                if (c < utf8_lo_ || c > utf8_hi_) { return json_error_code::invalid_unicode; }
+                utf8_lo_ = 0x80;
+                utf8_hi_ = 0xBF;
+                if (--sub_ == 0) { mode_ = mode::string; }
+                ev |= prefix_event::content;
+                return std::nullopt;
+            case mode::number: return number_byte(c, ev);
+            case mode::literal: return literal_byte(c, ev);
+        }
+        return json_error_code::invalid_syntax;
+    }
+
+    auto structural_byte(unsigned char c, prefix_event& ev) -> error_or_ok {
+        const prefix_transition t =
+            prefix_structural_table[static_cast<std::size_t>(state_)][static_cast<std::size_t>(prefix_class_table[c])];
+        switch (t.action) {
+            case prefix_action::reject:
+                return state_ == prefix_structural::top_end ? json_error_code::extra_tokens
+                                                            : json_error_code::invalid_syntax;
+            case prefix_action::skip:
+                ev |= prefix_event::whitespace;
+                return std::nullopt;
+            case prefix_action::begin_key:
+                mode_ = mode::string;
+                key_ = true;
+                state_ = t.next;
+                ev |= prefix_event::key_begin;
+                return std::nullopt;
+            case prefix_action::name_separator:
+                state_ = t.next;
+                ev |= prefix_event::name_separator;
+                return std::nullopt;
+            case prefix_action::value_separator:
+                state_ = t.next;
+                ev |= prefix_event::value_separator;
+                return std::nullopt;
+            case prefix_action::close_object:
+            case prefix_action::close_array:
+                --depth_;
+                state_ = resolve(t.next);
+                ev |= t.action == prefix_action::close_object ? prefix_event::object_end : prefix_event::array_end;
+                return std::nullopt;
+            case prefix_action::open_object:
+            case prefix_action::open_array:
+            case prefix_action::begin_string:
+            case prefix_action::begin_number:
+            case prefix_action::begin_literal: break;
+        }
+        // A VALUE begins. parse_value refuses one once max_nesting_depth containers are open, scalar or not.
+        if (depth_ >= max_nesting_depth) {
+            return json_error_code::max_depth_exceeded;
+        }
+        if (root_object_ && depth_ == 0 && t.action != prefix_action::open_object) {
+            return json_error_code::invalid_syntax;
+        }
+        switch (t.action) {
+            case prefix_action::open_object:
+            case prefix_action::open_array:
+                set_container(depth_, t.action == prefix_action::open_object);
+                ++depth_;
+                state_ = t.next;
+                ev |= t.action == prefix_action::open_object ? prefix_event::object_begin : prefix_event::array_begin;
+                return std::nullopt;
+            case prefix_action::begin_string:
+                mode_ = mode::string;
+                key_ = false;
+                state_ = resolve(t.next);
+                ev |= prefix_event::string_begin;
+                return std::nullopt;
+            case prefix_action::begin_number: {
+                const part p = c == '-' ? part::minus : (c == '0' ? part::zero : part::integer);
+                number_[0] = static_cast<char>(c);
+                number_len_ = 1;
+                int_digits_ = p == part::minus ? 0 : 1;
+                frac_digits_ = 0;
+                exp_digits_ = 0;
+                exp_negative_ = false;
+                sub_ = static_cast<std::uint8_t>(p);
+                mode_ = mode::number;
+                state_ = resolve(t.next);
+                ev |= prefix_event::number_begin | prefix_event::content;
+                return std::nullopt;
+            }
+            case prefix_action::begin_literal:
+                aux_ = c == 't' ? 0 : (c == 'f' ? 1 : 2);
+                sub_ = 1;
+                mode_ = mode::literal;
+                state_ = resolve(t.next);
+                ev |= (aux_ == 0 ? prefix_event::true_begin
+                                 : (aux_ == 1 ? prefix_event::false_begin : prefix_event::null_begin)) |
+                      prefix_event::content;
+                return std::nullopt;
+            default: return json_error_code::invalid_syntax;
+        }
+    }
+
+    auto string_byte(unsigned char c, prefix_event& ev) -> error_or_ok {
+        if (c == '"') {
+            mode_ = mode::structural;
+            ev |= key_ ? prefix_event::key_end : prefix_event::string_end;
+            key_ = false;
+            return std::nullopt;
+        }
+        if (c == '\\') {
+            mode_ = mode::escape;
+            ev |= prefix_event::content;
+            return std::nullopt;
+        }
+        if (c < 0x20) {
+            return json_error_code::invalid_string;
+        }
+        if (c >= 0x80) {
+            const detail::utf8_lead lead = detail::utf8_lead_table[c];
+            if (lead.length == 0) {
+                return json_error_code::invalid_unicode;
+            }
+            mode_ = mode::utf8;
+            sub_ = static_cast<std::uint8_t>(lead.length - 1U);
+            utf8_lo_ = lead.second_lo;
+            utf8_hi_ = lead.second_hi;
+        }
+        ev |= prefix_event::content;
+        return std::nullopt;
+    }
+
+    auto escape_byte(unsigned char c, prefix_event& ev) -> error_or_ok {
+        switch (c) {
+            case '"':
+            case '\\':
+            case '/':
+            case 'b':
+            case 'f':
+            case 'n':
+            case 'r':
+            case 't': mode_ = mode::string; break;
+            case 'u':
+                mode_ = mode::unicode;
+                aux_ = 0;  // the first (or only) half
+                sub_ = 0;
+                unit_ = 0;
+                break;
+            default: return json_error_code::invalid_string;
+        }
+        ev |= prefix_event::content;
+        return std::nullopt;
+    }
+
+    /// One hex digit of \uXXXX. Refused as soon as no completion of the digits can be decoded: a first half that can
+    /// only be a lone low surrogate, or a second half that can no longer be a low surrogate.
+    auto unicode_byte(unsigned char c, prefix_event& ev) -> error_or_ok {
+        const int d = unicode::parse_hex_digit(static_cast<char>(c));
+        if (d < 0) {
+            return aux_ == 0 ? json_error_code::invalid_string : json_error_code::invalid_unicode;
+        }
+        const auto unit = static_cast<std::uint32_t>((unit_ << 4U) | static_cast<unsigned>(d));
+        const auto read = static_cast<unsigned>(sub_ + 1U);
+        const unsigned shift = 4U * (4U - read);
+        const std::uint32_t lo = unit << shift;
+        const std::uint32_t hi = lo | ((1U << shift) - 1U);
+        if (aux_ == 0 ? (unicode::is_low_surrogate(lo) && unicode::is_low_surrogate(hi))
+                      : (hi < unicode::SURROGATE_LOW_START || lo > unicode::SURROGATE_LOW_END)) {
+            return json_error_code::invalid_unicode;
+        }
+        unit_ = static_cast<std::uint16_t>(unit);
+        sub_ = static_cast<std::uint8_t>(read);
+        if (read == 4) {
+            mode_ = aux_ == 0 && unicode::is_high_surrogate(unit) ? mode::surrogate_backslash : mode::string;
+        }
+        ev |= prefix_event::content;
+        return std::nullopt;
+    }
+
+    auto number_byte(unsigned char c, prefix_event& ev) -> error_or_ok {
+        const auto p = static_cast<part>(sub_);
+        const bool digit = c >= '0' && c <= '9';
+        const bool mark = c == 'e' || c == 'E';
+        std::optional<part> next;
+        switch (p) {
+            case part::minus:
+                if (digit) { next = c == '0' ? part::zero : part::integer; }
+                break;
+            case part::zero:
+                if (c == '.') { next = part::dot; } else if (mark) { next = part::exponent_mark; }
+                break;
+            case part::integer:
+                if (digit) { next = part::integer; } else if (c == '.') { next = part::dot; } else if (mark) { next = part::exponent_mark; }
+                break;
+            case part::dot:
+                if (digit) { next = part::fraction; }
+                break;
+            case part::fraction:
+                if (digit) { next = part::fraction; } else if (mark) { next = part::exponent_mark; }
+                break;
+            case part::exponent_mark:
+                if (c == '+' || c == '-') { next = part::exponent_sign; } else if (digit) { next = part::exponent; }
+                break;
+            case part::exponent_sign:
+            case part::exponent:
+                if (digit) { next = part::exponent; }
+                break;
+        }
+        if (next.has_value()) {
+            const std::size_t len = number_len_ + 1U;
+            if (len > max_number_length) {
+                return json_error_code::invalid_number;
+            }
+            const bool was_negative = exp_negative_;
+            number_[number_len_] = static_cast<char>(c);  // beyond number_len_: harmless until committed
+            if (*next == part::exponent_sign) {
+                exp_negative_ = c == '-';
+            }
+            if (!number_viable(len, *next)) {
+                exp_negative_ = was_negative;
+                return json_error_code::invalid_number;
+            }
+            number_len_ = static_cast<std::uint8_t>(len);
+            sub_ = static_cast<std::uint8_t>(*next);
+            if (digit) {
+                const part q = *next;
+                if (q == part::zero || q == part::integer) { ++int_digits_; }
+                else if (q == part::fraction) { ++frac_digits_; }
+                else { ++exp_digits_; }
+            }
+            ev |= prefix_event::content;
+            return std::nullopt;
+        }
+        // `c` does not continue the number: the number ends before it, if it can end at all.
+        if (!number_may_end()) {
+            return json_error_code::invalid_number;
+        }
+        mode_ = mode::structural;
+        ev |= prefix_event::number_end;
+        if (auto e = structural_byte(c, ev)) {
+            mode_ = mode::number;  // refused: nothing changed, the number has not ended
+            return e;
+        }
+        return std::nullopt;
+    }
+
+    auto literal_byte(unsigned char c, prefix_event& ev) -> error_or_ok {
+        const std::string_view word = kLiterals[aux_];
+        if (static_cast<char>(c) != word[sub_]) {
+            return json_error_code::invalid_literal;
+        }
+        ++sub_;
+        ev |= prefix_event::content;
+        if (sub_ == word.size()) {
+            mode_ = mode::structural;
+            ev |= prefix_event::literal_end;
+        }
+        return std::nullopt;
+    }
+
+    std::array<std::uint64_t, kStackWords> objects_{};  ///< bit d: the container at depth d is an object
+    std::array<char, max_number_length> number_{};       ///< the number being read
+    std::uint16_t depth_{0};
+    std::uint16_t unit_{0};  ///< the \u code unit being read
+    prefix_structural state_{prefix_structural::top_value};
+    mode mode_{mode::structural};
+    std::uint8_t sub_{0};  ///< number part | literal position | hex digits read | UTF-8 bytes still due
+    std::uint8_t aux_{0};  ///< literal kind | 1 while reading the low half of a surrogate pair
+    std::uint8_t utf8_lo_{0x80};
+    std::uint8_t utf8_hi_{0xBF};
+    std::uint8_t number_len_{0};
+    std::uint8_t int_digits_{0};
+    std::uint8_t frac_digits_{0};
+    std::uint8_t exp_digits_{0};
+    bool key_{false};
+    bool exp_negative_{false};
+    bool root_object_{false};
+};
 
 // PostgreSQL jsonb binary wire format (jsonb_send / jsonb_recv, i.e. a binary-mode result or COPY BINARY):
 // one version byte, currently 1, followed by the value as ordinary JSON text. Postgres's on-disk jsonb layout

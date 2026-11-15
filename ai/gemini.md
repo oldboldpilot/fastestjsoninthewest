@@ -58,9 +58,9 @@ High-performance C++23 JSON parser with **8x multi-register SIMD** acceleration 
   - Dedicated regression test suites (`test_regressions_found_during_audit`): 5 suites covering `find_field` guard-page OOB, escaped-quote false matches, cross-key spans, `s1_stream::refill` unclosed string underflow, `bkt_stk` depth overflow, and `-0.0` / 8-digit boundary.
   - Multithreaded concurrency (`test_multithreaded_concurrent_parsing`): 8 threads × 40 iterations.
 - **Rule 59 Sanitizers (`CMakeLists.txt`)**:
-  - AddressSanitizer + LeakSanitizer + UndefinedBehaviorSanitizer (`-DENABLE_ASAN=ON`): 3/3 `ctest` PASS (0 errors, 0 leaks).
-  - MemorySanitizer with origin tracking (`-DENABLE_MSAN=ON`, using `cmake/msan_libcxx_compat.h` and `cmake/msan_libcxx_shim.cpp`): 3/3 `ctest` PASS (0 warnings).
-  - ThreadSanitizer (`-DENABLE_TSAN=ON`): 3/3 `ctest` PASS (0 data races).
+  - AddressSanitizer + LeakSanitizer + UndefinedBehaviorSanitizer (`-DENABLE_ASAN=ON`): 11/11 `ctest` PASS (0 errors, 0 leaks).
+  - MemorySanitizer with origin tracking (`-DENABLE_MSAN=ON`, using `cmake/msan_libcxx_compat.h` and `cmake/msan_libcxx_shim.cpp`): the original 3 tests PASS and `prefix_recognizer`'s checks are clean; the six new tier cases warn inside uninstrumented libc++ (`std::istreambuf_iterator`, `std::pmr::monotonic_buffer_resource`).
+  - ThreadSanitizer (`-DENABLE_TSAN=ON`): 10/11 `ctest` PASS; test_linq_prefix_sum reports a tbbmalloc exit race once `libtbbmalloc.so` is built, identically on the unchanged baseline.
 
 ## Core API
 
@@ -96,6 +96,7 @@ auto arena_doc = fastjson::parse_arena(std::move(json_string));
 - `json_value` — AST node (eager parse result)
 - `json_document` — owns input + arena + root value (arena parse)
 - `ondemand_document` — owns input + structural tape (lazy parse)
+- `prefix_recognizer` — incremental JSON PREFIX recognition for constrained decoding: `push(chunk)`, `feed(chunk)` (trial on a copy), `step(byte)` -> `prefix_event`, `complete()` (true iff `parse()` accepts), `expects()` -> `prefix_expectation`; a fixed 248-byte copyable state. One structural table (`prefix_structural_table`), proved by the SMT obligations in `tests/proofs/prefix_structural`
 
 ## File Locations
 - **Core module**: `modules/fastjson.cppm`
@@ -109,6 +110,8 @@ auto arena_doc = fastjson::parse_arena(std::move(json_string));
 - **Turbo benchmark**: `benchmarks/turbo_benchmark.cpp`
 - **Comparative benchmark**: `benchmarks/fastjson_vs_simdjson.cpp`
 - **Turbo correctness tests**: `tests/test_turbo_correctness.cpp` (7,430 assertions across 26 sections)
+- **Prefix recognizer differential gate**: `tests/test_prefix_recognizer.cpp` (370,009 checks per string-scan tier against `parse()`; `--emit-smt` regenerates `tests/proofs/prefix_structural`)
+- **Conformance gate**: `tests/conformance/fastjson_conformance_test.cpp` (559 checks per tier; every input also checked against `prefix_recognizer`)
 - **Claims checker**: `tools/check_docs_claims.py`
 
 ## Architecture Notes

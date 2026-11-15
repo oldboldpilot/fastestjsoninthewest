@@ -76,6 +76,11 @@ FastestJSONInTheWest provides two high-performance front-ends built on top of th
 - **PostgreSQL `jsonb`**: `parse_pg_jsonb()` reads binary-mode `jsonb` values (`jsonb_send` wire format: version byte `0x01` + JSON text)
   - Text-mode `jsonb` results are plain JSON text: pass them to `parse()` directly
   - SQLite JSONB (a separate binary encoding) is not supported; select `json(col)` instead
+- **Incremental prefix recognition (`fastjson::prefix_recognizer`)**: feed JSON a chunk or a byte at a time and ask
+  whether it is still the start of a document `parse()` accepts, and what may come next -- the question
+  grammar-constrained decoding asks after every candidate token. `complete()` is true exactly when `parse()` accepts
+  (same UTF-8 table, escapes, surrogate pairs, number grammar and range, depth bound); the state is a fixed 248-byte
+  value, copied in ~6 ns. See [Incremental prefix recognition](#-incremental-prefix-recognition).
 - **Zero-Copy Strings**: `string_view` for unescaped JSON strings (no heap allocation)
   - COW semantics via `json_string_data` — only allocates on mutation
 - **SIMD Acceleration**: Multi-platform support
@@ -94,9 +99,9 @@ FastestJSONInTheWest provides two high-performance front-ends built on top of th
   - Dedicated regression test suites (`test_regressions_found_during_audit`): 5 regression suites covering `find_field` guard-page OOB read, `find_field` escaped-quote key prefix false match, `find_field` cross-key span match, `s1_stream::refill` unclosed final string underflow, `bkt_stk` depth overflow, and `-0.0` / 8-digit integer boundary.
   - Multithreaded concurrent parsing (`test_multithreaded_concurrent_parsing`): 8 threads × 40 iterations concurrently parsing and querying across `iterate()`, `parse()`, and `dom_parser`.
 - **Rule 59 Sanitizer Support (`CMakeLists.txt`)**:
-  - `-DENABLE_ASAN=ON`: AddressSanitizer + LeakSanitizer + UndefinedBehaviorSanitizer (`-fsanitize=address,undefined -fno-sanitize-recover=undefined`, `ASAN_OPTIONS=detect_leaks=1`) — **3/3 `ctest` PASS (0 errors, 0 leaks)**.
-  - `-DENABLE_MSAN=ON`: MemorySanitizer with origin tracking (`-fsanitize=memory -fsanitize-memory-track-origins`, using `cmake/msan_libcxx_compat.h` and `cmake/msan_libcxx_shim.cpp` for prebuilt `libc++.so.1` compatibility) — **3/3 `ctest` PASS (0 warnings)**.
-  - `-DENABLE_TSAN=ON`: ThreadSanitizer (`-fsanitize=thread`) — **3/3 `ctest` PASS (0 data races)**.
+  - `-DENABLE_ASAN=ON`: AddressSanitizer + LeakSanitizer + UndefinedBehaviorSanitizer (`-fsanitize=address,undefined -fno-sanitize-recover=undefined`, `ASAN_OPTIONS=detect_leaks=1`) — **11/11 `ctest` PASS (0 errors, 0 leaks)**, Debug, November 2026.
+  - `-DENABLE_MSAN=ON`: MemorySanitizer with origin tracking (`-fsanitize=memory -fsanitize-memory-track-origins`, using `cmake/msan_libcxx_compat.h` and `cmake/msan_libcxx_shim.cpp` for prebuilt `libc++.so.1` compatibility) — the three original tests PASS; `prefix_recognizer`'s checks run clean (0 warnings on 369,992 checks per tier). The six tier cases of test_prefix_recognizer and test_fastjson_conformance still report MSan warnings inside the UNINSTRUMENTED prebuilt libc++ (`std::istreambuf_iterator` reading the committed SMT scripts; `std::pmr::monotonic_buffer_resource` released by `ondemand_document`), not in fastjson code.
+  - `-DENABLE_TSAN=ON`: ThreadSanitizer (`-fsanitize=thread`) — 10/11 `ctest` PASS (0 data races in fastjson code). test_linq_prefix_sum fails the same way on the unchanged baseline: once a full build produces `libtbbmalloc.so`, libtbb loads it and TSan reports a race inside tbbmalloc at process exit (an earlier single-target build had no tbbmalloc and passed).
 
 ### Unicode Support
 - **UTF-8**: Native support (default)
@@ -1862,13 +1867,71 @@ fastjson.set_thread_count(8)
 
 See [QUICKSTART.md](QUICKSTART.md) for comprehensive Python usage examples.
 
+## 🧩 Incremental prefix recognition
+
+`fastjson::prefix_recognizer` (module `fastjson`) recognizes JSON PREFIXES incrementally. `parse()` answers "is this
+buffer a document?"; a constrained decoder asks, after every candidate token, "is the output so far still the start of
+some document `parse()` accepts, and what may come next?" -- which needs resumable state.
+
+```cpp
+import fastjson;
+
+fastjson::prefix_recognizer committed{fastjson::prefix_root::object};  // or prefix_root::any_value (default)
+committed.push(R"({"tags":["a")");                                      // std::expected<void, prefix_error>
+
+// Try candidates without touching the committed state: feed() returns the advanced copy.
+for (std::string_view token : {",", "]", ",]", "}"}) {
+    if (auto next = committed.feed(token)) { /* admissible: *next is the state after it */ }
+}
+
+auto ev = committed.step(',');            // one byte: std::expected<prefix_event, prefix_error>
+committed.expects().what;                 // prefix_expect::value -- an element must follow (no trailing comma)
+committed.complete();                     // true iff parse() accepts the bytes fed so far
+```
+
+- **Contract.** `complete()` is true iff `parse()` accepts the bytes fed so far: both read one UTF-8 table
+  (`utf8_lead_table`), one whitespace class, `unicode::` for escapes and surrogate pairs, `max_nesting_depth`,
+  `max_number_length` and `number_from_text`, which decides a number's value AND range for `parse()` too. A byte is
+  refused iff no continuation could ever be accepted (`[1,]` is refused at its closing bracket, `"\uDC` at the
+  letter C since only a lone low surrogate can follow, a positive exponent the moment no reader can hold it), and a refused byte leaves the state unchanged; `prefix_error` carries
+  the `json_error_code` and the byte's offset in the chunk, with no string built until `message()` is asked.
+- **State.** A fixed-size, trivially copyable value (248 bytes: a 1000-level container bit stack and the number being
+  read), so a decoder copies one committed state per candidate. `state_key()` and `operator==` identify states that
+  accept exactly the same continuations (two string bodies at the same nesting are one state), which keys a per-state
+  token-mask cache.
+- **What comes next.** `expects()` returns a `prefix_expectation`: `what` (`value`, `value_or_close`, `key`,
+  `key_or_close`, `colon`, `comma_or_close`, `end`, `string_body`, `escape`, `unicode_escape`, `surrogate_pair`,
+  `utf8_continuation`, `number`, `literal`), `in_key`, `in_object`, `close` (the innermost container's closing bracket), `depth`, and for a number
+  `may_end`. `number()` gives the number's text and its integer, fraction and exponent digit counts.
+- **Events.** `step()` returns a `prefix_event` bit set saying what the byte did (`object_begin`, `key_begin`,
+  `key_end`, `name_separator`, `number_begin`, `number_end`, `true_begin`, `literal_end`, `content`, ...). A schema
+  layer is built on these without reading JSON characters itself (sensen's constrained decoding is).
+- **One structural table.** Between tokens the recognizer is `prefix_structural_table` over byte classes
+  (`prefix_class_table`). `tests/proofs/prefix_structural/*.smt2` are eleven SMT obligations generated from that
+  table (no array close outside an array, no trailing comma, a colon only after a member name, only whitespace after the
+  document, no dead state, the container-kind invariant, ...); each is UNSAT (proved) under `sen reason smt`, and the
+  test fails if the committed scripts drift from the table.
+- **Speed** (Release, AVX-512 host, one core): state copy 5.8-7.1 ns at depth 1 to 1000; a candidate trial (copy +
+  `push` of a 1-4 byte token) 39-45 ns; `push` of an 8 MiB document ~44 MB/s (`parse()` of the same: ~32 MB/s).
+  String bodies go through the parser's SIMD string scan in bulk; all three tiers are measured by
+  `test_prefix_recognizer`.
+
 ## 🧪 Testing
+
+**Prefix recognizer** (`tests/test_prefix_recognizer.cpp`): `complete()` agrees with `parse()` on a hand corpus of
+every grammar corner, on every prefix of valid documents and on 20,000 random documents with 5 random mutations each;
+one push, byte-by-byte steps and every two-chunk split reach the same state; every accepted prefix can still be
+finished (a completion built from `expects()` alone parses); events, the SMT scripts, eight threads sharing one state.
+Registered as test_prefix_recognizer_scalar, test_prefix_recognizer_avx2 and test_prefix_recognizer_best, one per
+string-scan tier.
 
 **Conformance** (`tests/conformance/fastjson_conformance_test.cpp`, see [docs/CONFORMANCE.md](docs/CONFORMANCE.md)):
 strict RFC 8259 parsing (invalid UTF-8, lone surrogates, truncation and out-of-range numbers are errors, never a
 partial value), `is_number()` for every numeric representation, checked number reads (`get_int64` / `get_uint64` /
 `get_double`), valid output for every value (`to_string`, `to_json`, `escape_string`) and the call-order streaming
-`fastjson::writer`; run on every string-scan tier.
+`fastjson::writer`; run on every string-scan tier (test_fastjson_conformance_scalar, test_fastjson_conformance_avx2,
+test_fastjson_conformance_best). Every
+input it hands to `parse()` is also put to `prefix_recognizer`, which must agree.
 
 ```bash
 # Run all tests
@@ -2033,11 +2096,14 @@ The repository maintains rigorous testing standards including NASA human-spacefl
 |------------|--------------------|--------|
 | `test_turbo_correctness` | 7,430 assertions across 26 sections | ✅ 100% Passing (0 failures) |
 | `test_linq_prefix_sum` | Comprehensive prefix sum & scan tests | ✅ 100% Passing |
+| test_prefix_recognizer (3 tiers) | 370,009 checks per tier: `prefix_recognizer` against `parse()` | ✅ 100% Passing |
+| test_fastjson_conformance (3 tiers) | 559 checks per tier, 258 inputs also checked against `prefix_recognizer` | ✅ 100% Passing |
+| `test_pg_jsonb` | PostgreSQL jsonb wire format | ✅ 100% Passing |
 | `check_docs_claims` | Static documentation claim gate | ✅ 100% Passing |
 | Python bindings | Nanobind test suite | ✅ Passing |
-| **Sanitizers (ASan + LSan + UBSan)** | `-DENABLE_ASAN=ON` | ✅ 3/3 `ctest` PASS (0 errors, 0 leaks) |
-| **Sanitizers (MSan)** | `-DENABLE_MSAN=ON` | ✅ 3/3 `ctest` PASS (0 warnings) |
-| **Sanitizers (TSan)** | `-DENABLE_TSAN=ON` | ✅ 3/3 `ctest` PASS (0 data races) |
+| **Sanitizers (ASan + LSan + UBSan)** | `-DENABLE_ASAN=ON` | ✅ 11/11 `ctest` PASS (0 errors, 0 leaks) |
+| **Sanitizers (MSan)** | `-DENABLE_MSAN=ON` | ⚠️ original 3 PASS; recognizer checks clean; 6 new tier cases warn inside uninstrumented libc++ (see above) |
+| **Sanitizers (TSan)** | `-DENABLE_TSAN=ON` | ⚠️ 10/11 PASS; test_linq_prefix_sum: tbbmalloc exit race, red on the baseline too |
 
 ### Running Tests
 
