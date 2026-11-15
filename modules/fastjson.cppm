@@ -4277,9 +4277,33 @@ namespace writer_detail {
 /// an object without a key, two keys in a row, a mismatched or missing close, a second top-level value, a NaN or
 /// infinite number, text that is not UTF-8, raw() text that is not exactly one JSON value) is recorded, every
 /// later call is ignored, and finish() returns that error instead of text.
+///
+/// LAYOUT. The default is compact (`,` and `:`). `layout()` chooses another one, so text that must equal what
+/// another serializer writes byte for byte can still come from fastjson: `writer_layout::python()` is Python's
+/// `json.dumps` default (`, ` and `: `), `writer_layout::python_indent(2)` is `json.dumps(..., indent=2)` (a newline
+/// and the depth's indent before every member, element and closing bracket of a non-empty container; `,` between
+/// items; an empty container stays `{}` / `[]`). Separators may hold only `,` / `:` and spaces.
+struct writer_layout {
+    std::string_view item_separator = ",";
+    std::string_view key_separator = ":";
+    int indent = -1;  // < 0: one line; >= 0: one member or element per line, indented this many spaces per level
+
+    [[nodiscard]] static constexpr auto compact() noexcept -> writer_layout { return writer_layout{}; }
+    [[nodiscard]] static constexpr auto python() noexcept -> writer_layout { return writer_layout{", ", ": ", -1}; }
+    [[nodiscard]] static constexpr auto python_indent(int spaces) noexcept -> writer_layout {
+        return writer_layout{",", ": ", spaces};
+    }
+};
+
 class writer {
 public:
     writer() = default;
+
+    /// Chooses the layout (see writer_layout); must be called before anything is written.
+    template <class Self> auto layout(this Self&& self, writer_layout chosen) -> Self&& {
+        self.set_layout(chosen);
+        return std::forward<Self>(self);
+    }
 
     template <class Self> auto begin_object(this Self&& self) -> Self&& {
         self.open(frame_kind::object, '{');
@@ -4379,6 +4403,33 @@ private:
     std::vector<frame> stack_;
     std::optional<json_error> error_;
     bool root_written_ = false;
+    std::string item_sep_ = ",";
+    std::string key_sep_ = ":";
+    int indent_ = -1;
+
+    [[nodiscard]] static auto separator_ok(std::string_view sep, char punct) noexcept -> bool {
+        return std::ranges::count(sep, punct) == 1 && std::ranges::all_of(sep, [punct](char c) { return c == punct || c == ' '; });
+    }
+    auto set_layout(writer_layout chosen) -> void {
+        if (error_) { return; }
+        if (root_written_ || !out_.empty()) {
+            fail("writer: layout() after something was written");
+            return;
+        }
+        if (!separator_ok(chosen.item_separator, ',') || !separator_ok(chosen.key_separator, ':')) {
+            fail("writer: a layout separator may hold only its one ',' or ':' and spaces");
+            return;
+        }
+        item_sep_ = std::string{chosen.item_separator};
+        key_sep_ = std::string{chosen.key_separator};
+        indent_ = chosen.indent;
+    }
+    // A newline and the indent of the current depth (indented layouts only).
+    auto break_line() -> void {
+        if (indent_ < 0) { return; }
+        out_ += '\n';
+        out_.append(static_cast<size_t>(indent_) * stack_.size(), ' ');
+    }
 
     auto fail(std::string message, json_error_code code = json_error_code::invalid_writer_sequence) -> void {
         if (!error_) { error_ = json_error{code, std::move(message), 0, 0}; }
@@ -4403,8 +4454,9 @@ private:
             top.awaiting_value = false;
             return true;
         }
-        if (top.has_items) { out_ += ','; }
+        if (top.has_items) { out_ += item_sep_; }
         top.has_items = true;
+        break_line();
         return true;
     }
     auto open(frame_kind kind, char bracket) -> void {
@@ -4423,7 +4475,9 @@ private:
             fail("writer: a key without a value");
             return;
         }
+        const bool had_items = stack_.back().has_items;
         stack_.pop_back();
+        if (had_items) { break_line(); }
         out_ += bracket;
     }
     auto write_key(std::string_view name) -> void {
@@ -4441,11 +4495,12 @@ private:
             fail("writer: a key is not UTF-8", json_error_code::invalid_unicode);
             return;
         }
-        if (top.has_items) { out_ += ','; }
+        if (top.has_items) { out_ += item_sep_; }
         top.has_items = true;
         top.awaiting_value = true;
+        break_line();
         detail::append_json_string(out_, name);
-        out_ += ':';
+        out_ += key_sep_;
     }
     auto write_string(std::string_view text) -> void {
         if (!detail::utf8_valid(text)) {
