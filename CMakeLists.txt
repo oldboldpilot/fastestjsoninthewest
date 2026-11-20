@@ -1379,6 +1379,17 @@ if(PROJECT_IS_TOP_LEVEL)
     target_compile_options(test_prefix_recognizer PRIVATE ${TEST_COMPILE_FLAGS})
     target_link_options(test_prefix_recognizer PRIVATE ${TEST_LINK_FLAGS})
 
+    # The top-level member index (index_members / index_elements) against parse().
+    add_executable(test_member_index tests/test_member_index.cpp)
+    target_link_libraries(test_member_index PRIVATE fastjson)
+    target_compile_options(test_member_index PRIVATE ${TEST_COMPILE_FLAGS})
+    target_link_options(test_member_index PRIVATE ${TEST_LINK_FLAGS})
+
+    add_executable(member_index_benchmark benchmarks/member_index_benchmark.cpp)
+    target_link_libraries(member_index_benchmark PRIVATE fastjson)
+    target_compile_options(member_index_benchmark PRIVATE ${TEST_COMPILE_FLAGS})
+    target_link_options(member_index_benchmark PRIVATE ${TEST_LINK_FLAGS})
+
     add_executable(test_fastjson_conformance tests/conformance/fastjson_conformance_test.cpp)
     target_link_libraries(test_fastjson_conformance PRIVATE fastjson)
     target_compile_options(test_fastjson_conformance PRIVATE ${TEST_COMPILE_FLAGS})
@@ -1419,12 +1430,13 @@ if(PROJECT_IS_TOP_LEVEL)
         add_test(NAME test_prefix_recognizer_${_fj_tier}
                  COMMAND test_prefix_recognizer ${_fj_tier} ${CMAKE_CURRENT_SOURCE_DIR}/tests/proofs/prefix_structural)
         add_test(NAME test_fastjson_conformance_${_fj_tier} COMMAND test_fastjson_conformance ${_fj_tier})
+        add_test(NAME test_member_index_${_fj_tier} COMMAND test_member_index ${_fj_tier})
         if(_fj_tier STREQUAL "best")
             set(_fj_env "")
         else()
             set(_fj_env "FASTJSON_SIMD=${_fj_tier}")
         endif()
-        set_tests_properties(test_prefix_recognizer_${_fj_tier} test_fastjson_conformance_${_fj_tier}
+        set_tests_properties(test_prefix_recognizer_${_fj_tier} test_fastjson_conformance_${_fj_tier} test_member_index_${_fj_tier}
                              PROPERTIES ENVIRONMENT "${_fj_env}" TIMEOUT 600 LABELS "json;prefix")
     endforeach()
 

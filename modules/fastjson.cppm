@@ -5395,6 +5395,274 @@ private:
     }
 };
 
+// ============================================================================
+// Member index: the top level of an object (or array) in ONE pass, without materialising a value.
+// ============================================================================
+
+/// One member of an indexed object, or one element of an indexed array: where it sits in the input.
+///
+/// Offsets are into the text that was indexed, which must outlive the index. `value_end` is npos when the pass
+/// stopped before this value ended (see member_index::stopped_at), so a span is never a guess.
+struct indexed_member {
+    /// The bytes between the key's quotes, AS WRITTEN: an escape is not decoded (see unescaped_key). Empty for an element.
+    std::string_view key{};
+    /// Offset of the key's opening quote (the member as a whole starts here); npos for an element.
+    std::size_t key_begin{std::string_view::npos};
+    /// Offset of the first byte of the value, after the colon and any whitespace.
+    std::size_t value_begin{std::string_view::npos};
+    /// Offset one past the last byte of the value (no trailing whitespace): the value is [value_begin, value_end).
+    std::size_t value_end{std::string_view::npos};
+    /// The key is written with a backslash escape.
+    bool key_escaped{false};
+
+    /// The value's text, or an empty view when its end was never reached.
+    [[nodiscard]] auto value_in(std::string_view input) const noexcept -> std::string_view {
+        if (value_end == std::string_view::npos || value_begin > value_end || value_end > input.size()) { return {}; }
+        return input.substr(value_begin, value_end - value_begin);
+    }
+    /// The key with its escapes decoded (the parser's own string decoder). An error when an escape is not JSON.
+    [[nodiscard]] auto unescaped_key() const -> json_result<std::string>;
+};
+
+/// THE TOP LEVEL OF A JSON OBJECT OR ARRAY, INDEXED IN ONE PASS.
+///
+/// index_members / index_elements walk the container once and list each member in input order, DUPLICATES
+/// INCLUDED (a json_object folds them into one entry; this keeps every one). A value is never built: a member is
+/// its key, its key's offset and its value's byte span [value_begin, value_end), and what is inside a nested value
+/// is only walked, never kept.
+///
+/// WHAT IT VALIDATES (the grammar of RFC 8259 and of parse(), minus the CONTENT of leaves): every key is a
+/// terminated string followed by a colon and a value, every member is followed by a comma or the closing bracket,
+/// every container closes with its OWN kind, nesting stays within max_depth, and nothing but whitespace follows the
+/// container. WHAT IT LEAVES TO THE READER OF A VALUE is the content of a leaf: a bare token is delimited (it ends at
+/// whitespace or a structural byte) but not checked against the number/literal grammar, and a string's bytes are
+/// not checked for UTF-8, raw control bytes or the shape of its escapes. This is the contract of the OnDemand
+/// readers (a value is validated when it is read): parse() the value's span, and `null-1`, `007` or an invalid
+/// escape is an error there. So an index and a parse of the same text agree on every STRUCTURAL error, and the
+/// index never turns a leaf's content into a reason to stop.
+///
+/// WHEN THE PASS STOPS. The first structural error ends the walk: complete() is false, stopped_at() is the offset
+/// of the byte the walk could not accept (the input's size when it ran out), and the members read before it are
+/// kept. A stopped index is a report, not a document: do not trust what lies beyond stopped_at.
+///
+/// SPEED. Whitespace, string interiors and the bare tokens between structural bytes are crossed with the same
+/// SIMD kernels the parser uses (AVX-512 / AVX2 / scalar, chosen at run time; FASTJSON_SIMD caps the tier). An index
+/// reused through index_members_into / index_elements_into keeps its buffers, so a steady-state call allocates nothing.
+class member_index {
+public:
+    /// The members, in input order.
+    [[nodiscard]] auto members() const noexcept -> std::span<const indexed_member> { return members_; }
+    /// The input, after leading whitespace, opens the kind of container that was asked for (object, or array).
+    [[nodiscard]] auto opened() const noexcept -> bool { return opened_; }
+    /// The walk reached the container's own closing bracket, with only whitespace after it.
+    [[nodiscard]] auto complete() const noexcept -> bool { return complete_; }
+    /// Where the walk stopped when it did not complete; npos otherwise.
+    [[nodiscard]] auto stopped_at() const noexcept -> std::size_t { return stopped_at_; }
+    /// Some key is written with a backslash escape.
+    [[nodiscard]] auto any_key_escaped() const noexcept -> bool { return any_key_escaped_; }
+    /// How many members have exactly this key AS WRITTEN (an escaped spelling is a different key here).
+    [[nodiscard]] auto count(std::string_view raw_key) const noexcept -> std::size_t {
+        return static_cast<std::size_t>(std::ranges::count_if(members_, [&](const indexed_member& m) { return m.key == raw_key; }));
+    }
+    /// The first member with exactly this key as written, or nullptr.
+    [[nodiscard]] auto find(std::string_view raw_key) const noexcept -> const indexed_member* {
+        const auto it = std::ranges::find_if(members_, [&](const indexed_member& m) { return m.key == raw_key; });
+        return it == members_.end() ? nullptr : &*it;
+    }
+
+private:
+    friend struct member_index_walker;
+
+    std::vector<indexed_member> members_;
+    std::vector<std::uint8_t> frames_;  // scratch: one byte per open container (bit 0: object, bits 1-2: where in it)
+    std::size_t stopped_at_{std::string_view::npos};
+    bool opened_{false};
+    bool complete_{false};
+    bool any_key_escaped_{false};
+};
+
+/// How deep a container may nest before the walk gives up (the document's own root counts as one level).
+inline constexpr std::size_t member_index_default_depth = 128;
+
+/// The one walk behind index_members_into and index_elements_into (the two differ only in the opening bracket and in
+/// whether a top-level value has a key).
+struct member_index_walker {
+template <bool Object>
+static auto walk(member_index& out, std::string_view input, std::size_t max_depth) -> void {
+    out.members_.clear();
+    out.frames_.clear();
+    out.stopped_at_ = std::string_view::npos;
+    out.opened_ = out.complete_ = out.any_key_escaped_ = false;
+
+    constexpr auto npos = std::string_view::npos;
+    const char* const base = input.data();
+    const std::size_t n = input.size();
+    std::size_t i = 0;
+
+    // Frame byte: bit 0 = is an object; bits 1-2 = At.
+    enum At : std::uint8_t { First = 0, Key = 1, Value = 2, After = 3 };
+    const auto frame = [](bool object, At at) -> std::uint8_t { return static_cast<std::uint8_t>((object ? 1U : 0U) | (static_cast<unsigned>(at) << 1U)); };
+    const auto skip = [&] {
+        if (i < n && !detail::is_json_whitespace(base[i])) { return; }
+        if (i < n) { i = static_cast<std::size_t>(skip_whitespace_simd(base + i, n - i) - base); }
+    };
+    const auto stop = [&] { out.stopped_at_ = i; };
+    // The offset just past the closing quote of the string whose OPENING quote is at `from`, or npos when it is never
+    // closed. A backslash takes the byte after it, so an escaped quote does not end the string.
+    const auto string_end = [&](std::size_t from, bool& escaped) -> std::size_t {
+        const char* p = base + from + 1;
+        const char* const e = base + n;
+        while (p < e) {
+            p = find_string_end_simd(p, static_cast<std::size_t>(e - p));
+            if (p == e) { break; }
+            if (*p == '"') { return static_cast<std::size_t>(p - base) + 1; }
+            if (*p == '\\') {
+                escaped = true;
+                if (p + 1 >= e) { break; }
+                p += 2;
+            } else {
+                ++p;  // a raw control byte: the content of a string, not this walk's concern
+            }
+        }
+        return npos;
+    };
+    const auto ends_a_token = [](char c) {
+        return detail::is_json_whitespace(c) || c == ',' || c == '}' || c == ']' || c == '{' || c == '[' || c == '"' || c == ':';
+    };
+
+    skip();
+    if (i >= n || base[i] != (Object ? '{' : '[')) { return; }
+    out.opened_ = true;
+    ++i;
+    out.frames_.push_back(frame(Object, First));
+    out.members_.reserve(16);
+
+    // A top-level value has just been consumed up to `i`.
+    const auto close_value = [&] { out.members_.back().value_end = i; };
+
+    while (!out.frames_.empty()) {
+        skip();
+        if (i >= n) { return stop(); }
+        const std::uint8_t top = out.frames_.back();
+        const bool object = (top & 1U) != 0;
+        const auto at = static_cast<At>(top >> 1U);
+        const char c = base[i];
+        const bool at_top_level = out.frames_.size() == 1;
+
+        if (object && (at == First || at == Key)) {
+            if (c == '}' && at == First) {
+                out.frames_.pop_back();
+                ++i;
+                if (out.frames_.size() == 1) { close_value(); }
+                continue;
+            }
+            if (c != '"') { return stop(); }
+            bool escaped = false;
+            const std::size_t after = string_end(i, escaped);
+            if (after == npos) { return stop(); }  // unterminated
+            const std::size_t key_open = i;
+            i = after;
+            skip();
+            if (i >= n || base[i] != ':') { return stop(); }  // a key with no colon
+            ++i;
+            skip();
+            if (at_top_level) {
+                out.any_key_escaped_ = out.any_key_escaped_ || escaped;
+                out.members_.push_back(indexed_member{.key = std::string_view{base + key_open + 1, after - key_open - 2},
+                                                      .key_begin = key_open,
+                                                      .value_begin = i,
+                                                      .value_end = npos,
+                                                      .key_escaped = escaped});
+            }
+            out.frames_.back() = frame(true, Value);
+            continue;
+        }
+
+        if (at == After) {
+            if (c == ',') {
+                out.frames_.back() = frame(object, object ? Key : Value);
+                ++i;
+            } else if ((object && c == '}') || (!object && c == ']')) {
+                out.frames_.pop_back();
+                ++i;
+                if (out.frames_.size() == 1) { close_value(); }
+            } else {
+                return stop();
+            }
+            continue;
+        }
+
+        // A value is expected: after a colon, after a comma in a list, or first in a list.
+        if (!object && at == First && c == ']') {
+            out.frames_.pop_back();
+            ++i;
+            if (out.frames_.size() == 1) { close_value(); }
+            continue;
+        }
+        if constexpr (!Object) {
+            if (at_top_level) {
+                out.members_.push_back(indexed_member{.key = {}, .key_begin = npos, .value_begin = i, .value_end = npos, .key_escaped = false});
+            }
+        }
+        out.frames_.back() = frame(object, After);  // a nested container below has its own frame; this one waits for a comma
+        if (c == '"') {
+            bool escaped = false;
+            const std::size_t after = string_end(i, escaped);
+            if (after == npos) { return stop(); }
+            i = after;
+            if (at_top_level) { close_value(); }
+        } else if (c == '{' || c == '[') {
+            if (out.frames_.size() >= max_depth) { return stop(); }
+            out.frames_.push_back(frame(c == '{', First));
+            ++i;
+        } else {
+            std::size_t j = i;
+            while (j < n && !ends_a_token(base[j])) { ++j; }
+            if (j == i) { return stop(); }  // a delimiter where a value belongs: `{"a":}`, `[1,]`
+            i = j;
+            if (at_top_level) { close_value(); }
+        }
+    }
+    skip();
+    if (i != n) { return stop(); }  // something after the closing bracket
+    out.complete_ = true;
+}
+};
+
+/// Indexes the top level of the JSON OBJECT that `input` opens (after leading whitespace) into `out`, reusing
+/// its buffers. opened() is false when the input does not open an object. See member_index.
+inline auto index_members_into(member_index& out, std::string_view input, std::size_t max_depth = member_index_default_depth) -> void {
+    member_index_walker::walk<true>(out, input, max_depth);
+}
+
+/// The same for the elements of the JSON ARRAY that `input` opens: each element's key is empty and its span is the value.
+inline auto index_elements_into(member_index& out, std::string_view input, std::size_t max_depth = member_index_default_depth) -> void {
+    member_index_walker::walk<false>(out, input, max_depth);
+}
+
+/// index_members_into for a caller that indexes once: returns a fresh index.
+[[nodiscard]] inline auto index_members(std::string_view input, std::size_t max_depth = member_index_default_depth) -> member_index {
+    member_index out;
+    index_members_into(out, input, max_depth);
+    return out;
+}
+
+/// index_elements_into for a caller that indexes once: returns a fresh index.
+[[nodiscard]] inline auto index_elements(std::string_view input, std::size_t max_depth = member_index_default_depth) -> member_index {
+    member_index out;
+    index_elements_into(out, input, max_depth);
+    return out;
+}
+
+inline auto indexed_member::unescaped_key() const -> json_result<std::string> {
+    if (!key_escaped) { return std::string{key}; }
+    // The key's own quotes are the bytes either side of it in the input it came from.
+    auto parsed = parse(std::string_view{key.data() - 1, key.size() + 2});
+    if (!parsed) { return std::unexpected(parsed.error()); }
+    if (!parsed->is_string()) { return std::unexpected(json_error{json_error_code::invalid_string, "indexed key is not a string", 0, 0}); }
+    return std::string{parsed->as_string()};
+}
+
 // Literals implementation
 inline namespace literals {
 auto operator""_json(const char* str, std::size_t len) -> json_result<json_value> {

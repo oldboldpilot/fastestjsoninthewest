@@ -40,7 +40,9 @@ Eleven CTest cases (Release, November 2026: 11/11 pass):
 
 5. **test_fastjson_conformance** (`tests/conformance/fastjson_conformance_test.cpp`), one case per tier: 559 checks; every input it parses (258) is also checked against `prefix_recognizer`.
 
-6. **`test_pg_jsonb`** and **`check_no_secrets`**.
+6. **test_member_index** (`tests/test_member_index.cpp`), one case per string-scan tier (scalar, avx2, best): 143,879 checks; `index_members` / `index_elements` against `parse()`: spans, duplicates, escaped keys, 22 hand-written structural stops with the exact byte each stops at, leaves (`null-1`, `007`, a raw control byte, invalid UTF-8) that must NOT stop the index and that `parse()` of the span refuses, 6,000 random documents (every span parses to a value `parse()` holds, no strict prefix completes) and 4,000 mutants (what `parse()` accepts completes), strings at every offset across the SIMD block edges, a 1 MiB string and 20,000 members, the depth limit, a reused index, eight threads.
+
+7. **`test_pg_jsonb`** and **`check_no_secrets`**.
 
 ---
 

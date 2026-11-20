@@ -10,6 +10,13 @@ Every input the suite hands to `parse()` is also fed to `prefix_recognizer`, who
 `tests/test_prefix_recognizer.cpp` (README: Incremental prefix recognition): it is the same rules read
 incrementally, so everything below holds for a prefix the moment it can no longer be completed.
 
+The top-level member index (`index_members` / `index_elements`, README: Top-level member index) is the structural half of
+this grammar without the leaves: it stops on exactly the structural errors below (a missing colon, a trailing comma, a
+mismatched bracket, trailing garbage, truncation, nesting past its limit) and leaves a leaf's content (number grammar,
+literals, UTF-8, control bytes, escapes) to `parse()` of the member's span. `tests/test_member_index.cpp` holds the two to
+each other: everything `parse()` accepts completes in the index, and a span of a completed index parses to what `parse()`
+holds for that key.
+
 ## Parsing is strict (RFC 8259)
 
 `fastjson::parse(text)` returns the value or a `json_error` (with fields `code`, `message`, `line`, `column`). It never returns a partial

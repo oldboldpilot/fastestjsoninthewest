@@ -97,6 +97,7 @@ auto arena_doc = fastjson::parse_arena(std::move(json_string));
 - `json_document` — owns input + arena + root value (arena parse)
 - `ondemand_document` — owns input + structural tape (lazy parse)
 - `prefix_recognizer` — incremental JSON PREFIX recognition for constrained decoding: `push(chunk)`, `feed(chunk)` (trial on a copy), `step(byte)` -> `prefix_event`, `complete()` (true iff `parse()` accepts), `expects()` -> `prefix_expectation`; a fixed 248-byte copyable state. One structural table (`prefix_structural_table`), proved by the SMT obligations in `tests/proofs/prefix_structural`
+- `member_index` (`index_members`, `index_elements`) — the top level of an object or array in ONE pass, without materialising a value: each member's key as written (`unescaped_key()` decodes), byte span `[value_begin, value_end)` (`value_in(input)`), order and every duplicate. Validates the structure of the whole container (keys, colons, commas, matching bracket kinds, depth, nothing after it) and leaves the content of leaves to whoever parses a span; the pass stops at the first structural error (`complete()`, `stopped_at()`)
 
 ## File Locations
 - **Core module**: `modules/fastjson.cppm`
@@ -111,6 +112,7 @@ auto arena_doc = fastjson::parse_arena(std::move(json_string));
 - **Comparative benchmark**: `benchmarks/fastjson_vs_simdjson.cpp`
 - **Turbo correctness tests**: `tests/test_turbo_correctness.cpp` (7,430 assertions across 26 sections)
 - **Prefix recognizer differential gate**: `tests/test_prefix_recognizer.cpp` (370,009 checks per string-scan tier against `parse()`; `--emit-smt` regenerates `tests/proofs/prefix_structural`)
+- **Member index gate**: `tests/test_member_index.cpp` (per string-scan tier; spans, duplicates, exact stop offsets, leaves, agreement with `parse()`, SIMD block edges, depth, reuse, threads) and `benchmarks/member_index_benchmark.cpp`
 - **Conformance gate**: `tests/conformance/fastjson_conformance_test.cpp` (559 checks per tier; every input also checked against `prefix_recognizer`)
 - **Claims checker**: `tools/check_docs_claims.py`
 

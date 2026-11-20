@@ -81,6 +81,10 @@ FastestJSONInTheWest provides two high-performance front-ends built on top of th
   grammar-constrained decoding asks after every candidate token. `complete()` is true exactly when `parse()` accepts
   (same UTF-8 table, escapes, surrogate pairs, number grammar and range, depth bound); the state is a fixed 248-byte
   value, copied in ~6 ns. See [Incremental prefix recognition](#-incremental-prefix-recognition).
+- **Top-level member index (`fastjson::index_members`, `index_elements`)**: one pass over an object (or array) that lists
+  each member's key (as written, and decoded on request), its byte span `[value_begin, value_end)` in the input, its order
+  and every duplicate, without building a value. It validates the structure of the whole container and leaves the content of
+  leaves to whoever reads a span. See [Top-level member index](#-top-level-member-index).
 - **Zero-Copy Strings**: `string_view` for unescaped JSON strings (no heap allocation)
   - COW semantics via `json_string_data` — only allocates on mutation
 - **SIMD Acceleration**: Multi-platform support
@@ -1866,6 +1870,53 @@ fastjson.set_thread_count(8)
 ```
 
 See [QUICKSTART.md](QUICKSTART.md) for comprehensive Python usage examples.
+
+## 🗂 Top-level member index
+
+`fastjson::index_members(text)` (module `fastjson`) answers "which members does this object have, in what order, and where
+is each value?" in ONE pass, without materialising a value. `parse()` gives the values and folds duplicates into one entry
+and decodes keys; a reader that must see the request as the caller WROTE it (a gateway that sizes a budget from the body,
+a signature check, a rewrite that keeps every other byte) needs the offsets and the duplicates instead.
+
+```cpp
+import fastjson;
+
+const std::string_view body = R"({"model":"m","max\u005ftokens":5,"model":"n","list":[1,{"a":"]"}]})";
+auto index = fastjson::index_members(body);          // fastjson::member_index
+index.complete();                                    // structure validated end to end
+for (const auto& member : index.members()) {         // input order, duplicates included
+    member.key;                                      // bytes between the quotes, AS WRITTEN: max\u005ftokens
+    member.key_escaped;                              // true for that one
+    member.key_begin;                                // offset of the key's opening quote
+    member.value_in(body);                           // the value's text: 5, "n", [1,{"a":"]"}]
+    member.unescaped_key();                          // std::expected<std::string, json_error>: max_tokens
+}
+index.count("model");                                // 2 (by the key as written)
+fastjson::parse(index.find("list")->value_in(body)); // a span is a document: read it with the strict parser
+fastjson::index_elements("[ \"a\", [1], {} ]");       // the same for an array: elements, spans, no keys
+fastjson::index_members_into(index, body);           // reuse one index: a steady-state call allocates nothing
+```
+
+- **What it validates.** The structure of the whole container, at every depth: every key a terminated string followed by a
+  colon and a value, every member followed by a comma or the closing bracket, every container closed by its OWN kind,
+  nothing but whitespace after the container, nesting within `max_depth` (default 128, the root counts as one).
+- **What it leaves to the reader.** The CONTENT of a leaf: a bare token is delimited (it ends at whitespace or a structural
+  byte) but not checked against the number or literal grammar, and a string's bytes are not checked for UTF-8, raw control
+  bytes or the shape of its escapes. That is the contract of the lazy readers: a value is validated when it is read, so
+  `fastjson::parse(member.value_in(body))` refuses `null-1`, `007` or `"\q"` and the index never stops on one. An index
+  and a `parse()` of the same text therefore agree on every structural error, and `parse()` accepts only what the index
+  completes.
+- **When it stops.** The first structural error ends the pass: `complete()` is false, `stopped_at()` is the byte it could not
+  accept (the input's size when it ran out) and the members read before it are kept; a member whose value was not
+  reached has no span (`value_in` returns an empty view). `opened()` is false when the input does not open the requested
+  container kind.
+- **Speed.** Whitespace, string interiors and the bare tokens between structural bytes are crossed with the parser's own
+  SIMD kernels (AVX-512 8x zmm, AVX2 8x ymm, scalar; `FASTJSON_SIMD` caps the tier). `benchmarks/member_index_benchmark.cpp`
+  against `parse()` on a chat-request body (one long padded string): measured on an AVX2 host (16 threads, no AVX-512), median of 5, a padding string with an escape every ~90 bytes: 1 KiB 1.2 us against 10.7 us (9.3x), 1 MiB 620 us against 6.5 ms (10.4x, 1.69 GB/s), 8 MiB 4.9 ms against 53.7 ms (10.9x). A padding string with no escapes crosses at memory speed (sensen's gateway admits a 1 MiB request in 54 us against 896 us for the scalar walk it replaced).
+- **Gate.** `tests/test_member_index.cpp`, one ctest case per string-scan tier (scalar, avx2, best; sensen registers the same source for its own build): spans and duplicates, 22 hand-written stops
+  with the exact byte each stops at, leaves the index must not stop on, agreement with `parse()` on random documents and
+  mutants (every span parses to the value `parse()` holds, no strict prefix completes, everything `parse()` accepts
+  completes), strings at every SIMD block edge, arrays, the depth limit, reuse, eight threads.
 
 ## 🧩 Incremental prefix recognition
 
