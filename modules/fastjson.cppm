@@ -1836,6 +1836,19 @@ namespace fastjson::detail {
 /// Returns false, appending nothing, if the text could not be formed (the caller decides what that means).
 [[nodiscard]] inline auto append_double(std::string& out, double v) -> bool {
     std::array<char, 64> buf{};  // the longest shortest-round-trip double is 24 characters
+    // std::to_chars(double) picks whichever of fixed and scientific is shorter, so 300000 came out as "3e+05" (and
+    // 1000000 as "1e+06"), which strict consumers of integers refuse. A nonzero whole value below 2^53 is exact as
+    // an int64, so it is written as that integer: the same value, read back exactly. Zero keeps to_chars' form
+    // ("0", and "-0" for negative zero); every other value keeps the shortest round-trip form.
+    constexpr double exact_int_limit = 9007199254740992.0;  // 2^53
+    if (v != 0.0 && v > -exact_int_limit && v < exact_int_limit && v == std::trunc(v)) {
+        const auto [iend, iec] = std::to_chars(buf.data(), buf.data() + buf.size(), static_cast<std::int64_t>(v));
+        if (iec != std::errc{}) {
+            return false;
+        }
+        out.append(buf.data(), iend);
+        return true;
+    }
     const auto [end, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), v);
     if (ec != std::errc{}) {
         return false;

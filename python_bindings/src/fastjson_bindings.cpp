@@ -892,7 +892,10 @@ inline void append_double_json(std::string& out, double d, bool allow_nan) {
         return;
     }
     char buf[32];
-    auto [ptr, ec] = std::to_chars(buf, buf + sizeof(buf), d);
+    // A whole value below 2^53 is written as its integer digits (300000.0, not to_chars' shorter "3e+05").
+    const bool whole = d != 0.0 && d > -9007199254740992.0 && d < 9007199254740992.0 && d == std::trunc(d);
+    auto [ptr, ec] = whole ? std::to_chars(buf, buf + sizeof(buf), static_cast<long long>(d))
+                           : std::to_chars(buf, buf + sizeof(buf), d);
     if (ec != std::errc{}) {
         out.append("0.0", 3);
         return;

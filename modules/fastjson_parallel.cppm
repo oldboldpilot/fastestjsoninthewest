@@ -3246,7 +3246,10 @@ auto json_value::serialize_to_buffer(std::string& buffer, int indent) const -> v
             else if constexpr (std::is_same_v<T, json_boolean>) buffer += v ? "true" : "false";
             else if constexpr (std::is_same_v<T, json_number>) {
                 char tmp[32];
-                auto [ptr, ec] = std::to_chars(tmp, tmp + sizeof(tmp), v);
+                // A whole value below 2^53 is written as an integer ("300000", not to_chars' shorter "3e+05").
+                const bool whole = v != 0.0 && v > -9007199254740992.0 && v < 9007199254740992.0 && v == std::trunc(v);
+                auto [ptr, ec] = whole ? std::to_chars(tmp, tmp + sizeof(tmp), static_cast<int64_t>(v))
+                                       : std::to_chars(tmp, tmp + sizeof(tmp), v);
                 if (ec == std::errc{}) buffer.append(tmp, ptr - tmp);
                 else buffer += std::to_string(v);
             } else if constexpr (std::is_same_v<T, json_number_128>) {
