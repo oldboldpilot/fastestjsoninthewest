@@ -1107,6 +1107,14 @@ inline auto skip_whitespace_sse2(const char* data, size_t size) -> const char* {
 // Runtime SIMD Dispatcher for Whitespace Skipping
 // --------------------------------------------------------------------------
 inline auto skip_whitespace_simd_impl(const char* data, size_t size) -> const char* {
+    // A SHORT REMAINDER IS ANSWERED SCALAR, WITHOUT THE DISPATCH (see find_string_end_simd_impl): the walk asks this between
+    // every token, and a token boundary is usually a byte or two of whitespace or none at all.
+    if (size < 32) {
+        const char* ptr = data;
+        const char* end = data + size;
+        while (ptr < end && (*ptr == ' ' || *ptr == '\t' || *ptr == '\n' || *ptr == '\r')) ++ptr;
+        return ptr;
+    }
     static const uint32_t caps = detect_simd_capabilities();
 
 #ifdef FASTJSON_TARGET_AVX512
@@ -1256,6 +1264,17 @@ inline auto find_string_end_avx512(const char* start, const char* end) -> const 
 // String End Detection Dispatcher
 // --------------------------------------------------------------------------
 inline auto find_string_end_simd_impl(const char* start, const char* end) -> const char* {
+    // A SHORT REMAINDER IS ANSWERED SCALAR, WITHOUT THE DISPATCH. The kernels below are worth their dispatch for a long run
+    // and are pure overhead for a short one: a request body's keys and values are a handful of bytes each, and a 38-byte
+    // document made seventeen dispatched calls of four to six bytes apiece. The scalar loop is the same rule the kernels
+    // implement (first '"', '\\' or byte below 0x20), so the answer cannot differ; only the route does.
+    if (end - start < 32) {
+        const char* ptr = start;
+        while (ptr < end && *ptr != '"' && *ptr != '\\' && static_cast<unsigned char>(*ptr) >= 0x20) {
+            ++ptr;
+        }
+        return ptr;
+    }
     [[maybe_unused]] static const uint32_t caps = detect_simd_capabilities();
 
 #ifdef FASTJSON_TARGET_AVX512
@@ -1664,10 +1683,9 @@ inline constexpr std::array<utf8_lead, 256> utf8_lead_table = [] {
 
 /// Appends `s` as a quoted JSON string: `"` and `\` escaped, \n \t \r by name, every other byte below 0x20 as
 /// \u00XX, everything else (including UTF-8) verbatim. The caller decides whether invalid UTF-8 is acceptable.
-inline auto append_json_string(std::string& out, std::string_view s) -> void {
+inline auto append_json_string_body(std::string& out, std::string_view s) -> void {
     static constexpr std::array<char, 16> kHex{'0', '1', '2', '3', '4', '5', '6', '7',
                                               '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'};
-    out += '"';
     const char* ptr = s.data();
     const char* const end = s.data() + s.size();
     while (ptr < end) {
@@ -1691,6 +1709,66 @@ inline auto append_json_string(std::string& out, std::string_view s) -> void {
         }
         ++ptr;
     }
+}
+
+/// Appends `s` as a quoted JSON string (see append_json_string_body for the escaping). The caller decides whether
+/// invalid UTF-8 is acceptable.
+inline auto append_json_string(std::string& out, std::string_view s) -> void {
+    out += '"';
+    append_json_string_body(out, s);
+    out += '"';
+}
+
+/// Appends `s`, BYTES FROM OUTSIDE THE PROCESS (a request path, a header, a log line), as a quoted JSON string that is always
+/// valid JSON and valid UTF-8: each byte that is not part of a well-formed UTF-8 sequence is written as \ufffd (one escape per
+/// byte), and so are the characters JSON allows raw but a log reader or a terminal acts on instead of showing -- DEL, the C1
+/// controls U+0080..U+009F, U+2028 and U+2029 (written as their own \uXXXX escape, lowercase hex). Everything else is written
+/// as append_json_string writes it, so for text that is well-formed and contains none of those the two agree byte for byte.
+inline auto append_json_string_untrusted(std::string& out, std::string_view s) -> void {
+    static constexpr std::array<char, 16> kHex{'0', '1', '2', '3', '4', '5', '6', '7',
+                                              '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'};
+    const auto escape_unit = [&out](unsigned unit) {
+        out += "\\u";
+        out += kHex[(unit >> 12U) & 0x0FU];
+        out += kHex[(unit >> 8U) & 0x0FU];
+        out += kHex[(unit >> 4U) & 0x0FU];
+        out += kHex[unit & 0x0FU];
+    };
+    out += '"';
+    std::size_t run = 0;  // [run, i): bytes already known to be written as they are
+    std::size_t i = 0;
+    const auto flush = [&] { append_json_string_body(out, s.substr(run, i - run)); };
+    while (i < s.size()) {
+        const auto b0 = static_cast<unsigned char>(s[i]);
+        std::size_t length = 1;
+        std::optional<unsigned> replaced;  // the escape this sequence is written as, when it is not written as it is
+        if (b0 == 0x7FU) {
+            replaced = 0x7FU;
+        } else if (b0 >= 0x80U) {
+            length = utf8_sequence_length(s, i);
+            if (length == 0) {
+                length = 1;
+                replaced = 0xFFFDU;
+            } else {
+                const auto b1 = static_cast<unsigned char>(s[i + 1]);
+                if (length == 2 && b0 == 0xC2U && b1 <= 0x9FU) {
+                    replaced = b1;  // U+0080..U+009F: C2 80 .. C2 9F
+                } else if (length == 3 && b0 == 0xE2U && b1 == 0x80U &&
+                           (static_cast<unsigned char>(s[i + 2]) == 0xA8U || static_cast<unsigned char>(s[i + 2]) == 0xA9U)) {
+                    replaced = static_cast<unsigned char>(s[i + 2]) == 0xA8U ? 0x2028U : 0x2029U;
+                }
+            }
+        }
+        if (!replaced) {
+            i += length;
+            continue;
+        }
+        flush();
+        escape_unit(*replaced);
+        i += length;
+        run = i;
+    }
+    flush();
     out += '"';
 }
 
@@ -5090,6 +5168,407 @@ auto prettify(const json_value& value, int indent) -> std::string {
     return out;
 }
 
+/// `text`, bytes from outside the process, as a quoted, escaped JSON string. It never fails: a byte that is not UTF-8 is
+/// written as \ufffd, and DEL, the C1 controls, U+2028 and U+2029 as \u escapes (see detail::append_json_string_untrusted).
+/// Where escape_string refuses text that is not UTF-8, this is for text whose provenance the program does not control.
+[[nodiscard]] auto escape_string_untrusted(std::string_view text) -> std::string {
+    std::string out;
+    out.reserve(text.size() + 2);
+    detail::append_json_string_untrusted(out, text);
+    return out;
+}
+
+// ============================================================================
+// decode_one_value -- ONE string or number from a span, without a full strict parse
+// ============================================================================
+//
+// `parse()` answers "is this buffer a JSON document?" and builds a json_value to say so: a heap allocation for the value, a
+// std::string for every string, a std::map for every object. A caller that already knows the span holds exactly one leaf --
+// `index_members` guarantees the span is one complete value, and the caller only wants its text -- pays all of that for one
+// answer. `decode_one_value` is that answer without the value: it validates the span against the same grammar `parse()` uses
+// (the same `detail::utf8_sequence_length`, the same `unicode::parse_unicode_escape`, the same number grammar) and writes the
+// decoded text straight into the caller's string.
+//
+// WHAT IT ACCEPTS: exactly one JSON string, or exactly one JSON number, with no leading or trailing whitespace (a span from
+// `index_members` has none). Anything else -- an object, an array, a literal, a string with a bad escape or a lone surrogate,
+// a number that is not RFC 8259's grammar, text after the value -- is an error, so a caller can never mistake "not a leaf" for
+// a leaf. It is NOT a parser: it does not walk containers, and it is not a replacement for `parse()`.
+
+/// The kind of leaf `decode_one_value` found.
+enum class leaf_kind : std::uint8_t { string, number };
+
+/// One decoded leaf: its kind and its text (a string's decoded content, a number exactly as written).
+struct decoded_leaf {
+    leaf_kind kind{leaf_kind::string};
+    std::string text;
+};
+
+namespace detail {
+
+/// The number grammar of RFC 8259 section 6, over the whole of `s`: -?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?
+[[nodiscard]] inline auto is_json_number(std::string_view s) noexcept -> bool {
+    std::size_t i = 0;
+    const std::size_t n = s.size();
+    if (i < n && s[i] == '-') { ++i; }
+    if (i >= n) { return false; }
+    if (s[i] == '0') {
+        ++i;
+    } else if (s[i] >= '1' && s[i] <= '9') {
+        while (i < n && s[i] >= '0' && s[i] <= '9') { ++i; }
+    } else {
+        return false;
+    }
+    if (i < n && s[i] == '.') {
+        ++i;
+        if (i >= n || s[i] < '0' || s[i] > '9') { return false; }
+        while (i < n && s[i] >= '0' && s[i] <= '9') { ++i; }
+    }
+    if (i < n && (s[i] == 'e' || s[i] == 'E')) {
+        ++i;
+        if (i < n && (s[i] == '+' || s[i] == '-')) { ++i; }
+        if (i >= n || s[i] < '0' || s[i] > '9') { return false; }
+        while (i < n && s[i] >= '0' && s[i] <= '9') { ++i; }
+    }
+    return i == n;
+}
+
+/// The decoded content of the JSON string whose opening quote is `s[0]` and whose closing quote is the last byte of `s`.
+/// The same rules parse_string applies: a clean run is bulk-copied after one UTF-8 check, an escape is decoded by
+/// unicode::parse_unicode_escape (so a surrogate PAIR is one code point and a lone half is an error), and a raw control byte
+/// is refused.
+[[nodiscard]] inline auto decode_json_string(std::string_view s, std::string& out) -> std::optional<json_error> {
+    const auto bad = [](json_error_code code, std::string_view what) {
+        return json_error{code, std::string{what}, 0, 0};
+    };
+    if (s.size() < 2 || s.front() != '"' || s.back() != '"') {
+        return bad(json_error_code::invalid_string, "decode_one_value: not a quoted string");
+    }
+    const char* const begin = s.data() + 1;
+    const char* const end = s.data() + s.size() - 1;  // the closing quote
+    // THE COMMON CASE FIRST: no backslash and no control byte, so the content is the bytes as written. One scan decides it and
+    // one append copies it -- the loop below would call the scan and the UTF-8 check once per run, and a request body's keys
+    // and values are short enough that those calls are the whole cost.
+    const char* p = begin;
+    while (p < end && *p != '\\' && static_cast<unsigned char>(*p) >= 0x20) {
+        ++p;
+    }
+    if (p == end) {
+        if (!utf8_valid(std::string_view{begin, static_cast<std::size_t>(end - begin)})) {
+            return bad(json_error_code::invalid_unicode, "decode_one_value: a string is not UTF-8");
+        }
+        out.append(begin, static_cast<std::size_t>(end - begin));
+        return std::nullopt;
+    }
+    // An escape or a control byte: the run up to it, then the escape, and so on.
+    p = begin;
+    while (p < end) {
+        const char* const stop = find_string_end_simd_impl(p, end);
+        if (stop != p) {
+            if (!utf8_valid(std::string_view{p, static_cast<std::size_t>(stop - p)})) {
+                return bad(json_error_code::invalid_unicode, "decode_one_value: a string is not UTF-8");
+            }
+            out.append(p, static_cast<std::size_t>(stop - p));
+            p = stop;
+            continue;
+        }
+        if (*p != '\\') {
+            return bad(json_error_code::invalid_string, "decode_one_value: control character in string");
+        }
+        ++p;
+        if (p >= end) {
+            return bad(json_error_code::invalid_string, "decode_one_value: unterminated escape");
+        }
+        switch (*p) {
+            case '"': out += '"'; ++p; break;
+            case '\\': out += '\\'; ++p; break;
+            case '/': out += '/'; ++p; break;
+            case 'b': out += '\b'; ++p; break;
+            case 'f': out += '\f'; ++p; break;
+            case 'n': out += '\n'; ++p; break;
+            case 'r': out += '\r'; ++p; break;
+            case 't': out += '\t'; ++p; break;
+            case 'u': {
+                ++p;
+                const auto decoded = unicode::parse_unicode_escape(p, static_cast<std::size_t>(end - p));
+                if (!decoded.success) {
+                    return bad(json_error_code::invalid_unicode, decoded.error != nullptr ? decoded.error : "bad \\u escape");
+                }
+                if (!unicode::encode_utf8(decoded.codepoint, out)) {
+                    return bad(json_error_code::invalid_unicode, "decode_one_value: a code point has no UTF-8 form");
+                }
+                p += decoded.bytes_consumed;
+                break;
+            }
+            default:
+                return bad(json_error_code::invalid_string, "decode_one_value: invalid escape sequence");
+        }
+    }
+    return std::nullopt;
+}
+
+} // namespace detail
+
+/// @brief `span`, which must hold exactly one JSON string or one JSON number, decoded into `out` -- without building a
+///        json_value and without a `json_error` on the success path.
+/// @details The form the request-body reader uses. `decode_one_value` returns `json_result<decoded_leaf>`, and a
+///          `std::expected` whose error type holds a `std::string` is large enough that returning it costs a copy of the whole
+///          thing per leaf; a body of three leaves paid that three times. This writes the text into the caller's string and
+///          answers with the kind (or nothing), so the success path moves two bytes.
+[[nodiscard]] inline auto decode_one_value_into(std::string_view span, std::string& out) -> std::optional<leaf_kind> {
+    if (span.empty()) {
+        return std::nullopt;
+    }
+    if (span.front() == '"') {
+        out.clear();
+        if (detail::decode_json_string(span, out)) {
+            return std::nullopt;
+        }
+        return leaf_kind::string;
+    }
+    if (!detail::is_json_number(span)) {
+        return std::nullopt;
+    }
+    out.assign(span);
+    return leaf_kind::number;
+}
+
+/// @brief `span`, which must hold exactly one JSON string or one JSON number, decoded -- without building a json_value.
+/// @details The fast path for a caller that already has the span of one leaf (`index_members` gives it) and wants its text:
+///          a string's decoded content, or a number exactly as written. The grammar is `parse()`'s, so a span this accepts is
+///          a span `parse()` accepts, and a span it refuses is one `parse()` refuses. No leading or trailing whitespace is
+///          allowed (an indexed span has none). An object, an array, `true`/`false`/`null`, a bad escape, a lone surrogate, a
+///          number outside RFC 8259's grammar and trailing text are all errors.
+[[nodiscard]] inline auto decode_one_value(std::string_view span) -> json_result<decoded_leaf> {
+    decoded_leaf leaf;
+    const auto kind = decode_one_value_into(span, leaf.text);
+    if (!kind) {
+        return std::unexpected(json_error{json_error_code::invalid_number,
+                                          "decode_one_value: not one JSON string or number", 0, 0});
+    }
+    leaf.kind = *kind;
+    return leaf;
+}
+
+// ============================================================================
+// decode_flat_object_into -- the top level of one object, decoded in ONE pass
+// ============================================================================
+//
+// `index_members` + `decode_one_value` per member is two passes over the same bytes and a vector of `indexed_member` between
+// them. A caller that wants every member's TEXT and nothing else -- the request-body reader -- pays for both. This is the
+// fused form: one walk that reads a key, decodes it, reads its value, decodes it, and appends the pair, with no intermediate
+// index and no `json_value`.
+//
+// WHAT IT ACCEPTS is what `index_members` accepts structurally plus what `decode_one_value` accepts per leaf: one object, its
+// keys strings, its values strings or numbers, and nothing but whitespace after the closing brace. A nested object or array is
+// kept as its exact raw substring (the caller's container cannot hold nesting, and dropping it would lose it silently); a
+// literal (`true`, `false`, `null`) is kept as written. A key or a string value with a bad escape, a lone surrogate, a number
+// outside RFC 8259's grammar, a duplicate key (kept, in order), and any structural error are refused.
+
+/// One member of a flat object: its name (escapes decoded) and its value as text.
+struct flat_member {
+    std::string name;
+    std::string text;
+};
+
+namespace detail {
+
+/// The offset just past the closing quote of the string whose opening quote is at `from`, or npos when it is never closed.
+/// A backslash takes the byte after it, so an escaped quote does not end the string.
+[[nodiscard]] inline auto string_end_at(std::string_view s, std::size_t from, bool& escaped) noexcept -> std::size_t {
+    const char* p = s.data() + from + 1;
+    const char* const e = s.data() + s.size();
+    while (p < e) {
+        p = find_string_end_simd_impl(p, e);
+        if (p == e) { break; }
+        if (*p == '"') { return static_cast<std::size_t>(p - s.data()) + 1; }
+        if (*p == '\\') {
+            escaped = true;
+            if (p + 1 >= e) { break; }
+            p += 2;
+        } else {
+            ++p;  // a raw control byte: the content of a string, which decode_json_string refuses
+        }
+    }
+    return std::string_view::npos;
+}
+
+[[nodiscard]] inline auto ends_a_token(char c) noexcept -> bool {
+    return is_json_whitespace(c) || c == ',' || c == '}' || c == ']' || c == '{' || c == '[' || c == '"' || c == ':';
+}
+
+/// The JSON string whose opening quote is at `from`, decoded into `out`, and the offset just past its closing quote (npos when
+/// it is never closed). ONE scan: the end of the string and its content are found together, where string_end_at followed by
+/// decode_json_string walked the same bytes twice.
+/// @details The common case is taken first: no backslash, no control byte and no byte at or above 0x80 -- so the content is the
+///          bytes as written and is already valid UTF-8, and neither the escape loop nor the validator runs. That is what a
+///          request body's keys and values are, and the two calls per short string were the whole cost of a tiny body.
+[[nodiscard]] inline auto decode_string_at(std::string_view s, std::size_t from, std::string& out)
+    -> std::pair<std::size_t, std::optional<json_error>> {
+    const auto bad = [](json_error_code code, std::string_view what) {
+        return std::pair<std::size_t, std::optional<json_error>>{
+            std::string_view::npos, json_error{code, std::string{what}, 0, 0}};
+    };
+    const char* const begin = s.data() + from + 1;
+    const char* const limit = s.data() + s.size();
+    const char* p = begin;
+    while (p < limit && *p != '"' && *p != '\\' && static_cast<unsigned char>(*p) >= 0x20 &&
+           static_cast<unsigned char>(*p) < 0x80) {
+        ++p;
+    }
+    if (p < limit && *p == '"') {
+        out.append(begin, static_cast<std::size_t>(p - begin));
+        return {static_cast<std::size_t>(p - s.data()) + 1, std::nullopt};
+    }
+    // Not the plain case: the general walk, which validates UTF-8 and decodes escapes.
+    bool escaped = false;
+    const auto quoted_end = string_end_at(s, from, escaped);
+    if (quoted_end == std::string_view::npos) {
+        return bad(json_error_code::invalid_string, "decode_flat_object_into: unterminated string");
+    }
+    if (auto error = decode_json_string(s.substr(from, quoted_end - from), out)) {
+        return {std::string_view::npos, std::move(error)};
+    }
+    return {quoted_end, std::nullopt};
+}
+
+} // namespace detail
+
+/// @brief The members of the JSON object `input` holds, handed to `sink` one at a time as they are decoded.
+/// @details The form a caller uses when it has its own container to fill: no vector of `flat_member` is built at all, so there is
+///          nothing to copy out of it. `sink` is called with each member's name and text already decoded, in the order written.
+///          The same grammar and the same errors as `decode_flat_object_into`.
+template <class Sink>
+[[nodiscard]] inline auto decode_flat_object_each(std::string_view input, Sink&& sink) -> std::optional<json_error> {
+    const auto bad = [](json_error_code code, std::string_view what) {
+        return json_error{code, std::string{what}, 0, 0};
+    };
+    constexpr auto npos = std::string_view::npos;
+    const std::size_t n = input.size();
+    std::size_t i = 0;
+    const auto skip = [&] {
+        while (i < n && detail::is_json_whitespace(input[i])) { ++i; }
+    };
+
+    skip();
+    if (i >= n || input[i] != '{') {
+        return bad(json_error_code::invalid_syntax, "decode_flat_object_into: not one JSON object");
+    }
+    ++i;
+    skip();
+    if (i < n && input[i] == '}') {
+        ++i;
+        skip();
+        if (i != n) { return bad(json_error_code::extra_tokens, "decode_flat_object_into: text after the object"); }
+        return std::nullopt;
+    }
+    flat_member member;   // one pair, reused: its two strings keep their capacity from member to member
+    while (true) {
+        skip();
+        if (i >= n || input[i] != '"') {
+            return bad(json_error_code::invalid_syntax, "decode_flat_object_into: a member has no name");
+        }
+        member.name.clear();
+        member.text.clear();
+        const auto [after_key, key_error] = detail::decode_string_at(input, i, member.name);
+        if (key_error) {
+            return key_error;
+        }
+        i = after_key;
+        skip();
+        if (i >= n || input[i] != ':') {
+            return bad(json_error_code::invalid_syntax, "decode_flat_object_into: a member has no colon");
+        }
+        ++i;
+        skip();
+        if (i >= n) {
+            return bad(json_error_code::unexpected_end, "decode_flat_object_into: a member has no value");
+        }
+        const char c = input[i];
+        if (c == '"') {
+            const auto [after_value, value_error] = detail::decode_string_at(input, i, member.text);
+            if (value_error) {
+                return value_error;
+            }
+            i = after_value;
+        } else if (c == '{' || c == '[') {
+            // A nested container: its exact raw substring. Walked with the same string rule, so a '}' inside a string value
+            // is not a terminator, and closed only by its OWN kind.
+            const std::size_t start = i;
+            std::size_t depth = 0;
+            while (i < n) {
+                const char d = input[i];
+                if (d == '"') {
+                    bool nested_escaped = false;
+                    const std::size_t after = detail::string_end_at(input, i, nested_escaped);
+                    if (after == npos) {
+                        return bad(json_error_code::invalid_string, "decode_flat_object_into: unterminated string in a container");
+                    }
+                    i = after;
+                    continue;
+                }
+                if (d == '{' || d == '[') {
+                    ++depth;
+                } else if (d == '}' || d == ']') {
+                    --depth;
+                    if (depth == 0) {
+                        ++i;
+                        break;
+                    }
+                }
+                ++i;
+            }
+            if (depth != 0) {
+                return bad(json_error_code::unexpected_end, "decode_flat_object_into: an unbalanced container");
+            }
+            member.text.assign(input.substr(start, i - start));
+        } else {
+            const std::size_t start = i;
+            while (i < n && !detail::ends_a_token(input[i])) { ++i; }
+            if (i == start) {
+                return bad(json_error_code::invalid_syntax, "decode_flat_object_into: a member has no value");
+            }
+            const auto token = input.substr(start, i - start);
+            if (token == "true" || token == "false" || token == "null") {
+                member.text.assign(token);
+            } else if (detail::is_json_number(token)) {
+                member.text.assign(token);
+            } else {
+                return bad(json_error_code::invalid_number, "decode_flat_object_into: a value is not JSON");
+            }
+        }
+        sink(std::move(member));
+        skip();
+        if (i >= n) {
+            return bad(json_error_code::unexpected_end, "decode_flat_object_into: the object is not closed");
+        }
+        if (input[i] == ',') {
+            ++i;
+            continue;
+        }
+        if (input[i] == '}') {
+            ++i;
+            break;
+        }
+        return bad(json_error_code::invalid_syntax, "decode_flat_object_into: a member is not followed by , or }");
+    }
+    skip();
+    if (i != n) {
+        return bad(json_error_code::extra_tokens, "decode_flat_object_into: text after the object");
+    }
+    return std::nullopt;
+}
+
+/// @brief The members of the JSON object `input` holds, decoded into `out` in one pass (see the comment above).
+/// @details `out` is cleared first and its storage is reused, so a caller that keeps one vector per thread allocates nothing in
+///          the steady state. The error is `invalid_syntax` for anything that is not one object, `invalid_string` /
+///          `invalid_unicode` for a key or string value that is not JSON, and `invalid_number` for a value that is neither a
+///          string, a number, a literal nor a container.
+[[nodiscard]] inline auto decode_flat_object_into(std::string_view input, std::vector<flat_member>& out)
+    -> std::optional<json_error> {
+    out.clear();
+    return decode_flat_object_each(input, [&out](flat_member&& member) { out.push_back(std::move(member)); });
+}
+
 namespace writer_detail {
 // A value is writable as JSON only if every number is finite and every string and key is UTF-8.
 [[nodiscard]] inline auto writable(const json_value& v) -> std::optional<json_error> {
@@ -5191,6 +5670,17 @@ public:
     }
     template <class Self> auto value(this Self&& self, std::string_view text) -> Self&& {
         self.write_string(text);
+        return std::forward<Self>(self);
+    }
+    /// Text from outside the process: written as escape_string_untrusted writes it (a byte that is not UTF-8 becomes \ufffd)
+    /// instead of failing the document as value() does.
+    template <class Self> auto value_untrusted(this Self&& self, std::string_view text) -> Self&& {
+        self.write_string_untrusted(text);
+        return std::forward<Self>(self);
+    }
+    /// A member name from outside the process, written like value_untrusted.
+    template <class Self> auto key_untrusted(this Self&& self, std::string_view name) -> Self&& {
+        self.write_key_text(name, true);
         return std::forward<Self>(self);
     }
     /// A C string. A null pointer is refused (it is not text; write value(nullptr) for JSON null).
@@ -5343,7 +5833,8 @@ private:
         if (had_items) { break_line(); }
         out_ += bracket;
     }
-    auto write_key(std::string_view name) -> void {
+    auto write_key(std::string_view name) -> void { write_key_text(name, false); }
+    auto write_key_text(std::string_view name, bool untrusted) -> void {
         if (error_) { return; }
         if (stack_.empty() || stack_.back().kind != frame_kind::object) {
             fail("writer: key() outside an object");
@@ -5354,7 +5845,7 @@ private:
             fail("writer: two keys in a row");
             return;
         }
-        if (!detail::utf8_valid(name)) {
+        if (!untrusted && !detail::utf8_valid(name)) {
             fail("writer: a key is not UTF-8", json_error_code::invalid_unicode);
             return;
         }
@@ -5362,7 +5853,11 @@ private:
         top.has_items = true;
         top.awaiting_value = true;
         break_line();
-        detail::append_json_string(out_, name);
+        if (untrusted) {
+            detail::append_json_string_untrusted(out_, name);
+        } else {
+            detail::append_json_string(out_, name);
+        }
         out_ += key_sep_;
     }
     auto write_string(std::string_view text) -> void {
@@ -5372,6 +5867,10 @@ private:
         }
         if (!begin_value()) { return; }
         detail::append_json_string(out_, text);
+    }
+    auto write_string_untrusted(std::string_view text) -> void {
+        if (!begin_value()) { return; }
+        detail::append_json_string_untrusted(out_, text);
     }
     auto write_scalar(std::string_view literal) -> void {
         if (!begin_value()) { return; }

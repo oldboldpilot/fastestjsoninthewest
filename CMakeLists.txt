@@ -1374,6 +1374,13 @@ target_link_libraries(test_number_format PRIVATE fastjson)
 target_compile_options(test_number_format PRIVATE ${TEST_COMPILE_FLAGS})
 target_link_options(test_number_format PRIVATE ${TEST_LINK_FLAGS})
 
+# Text from outside the process (escape_string_untrusted, writer::value_untrusted / key_untrusted) and the one-leaf fast
+# path (decode_one_value), which must agree with parse() on every span.
+add_executable(test_escape_untrusted tests/test_escape_untrusted.cpp)
+target_link_libraries(test_escape_untrusted PRIVATE fastjson)
+target_compile_options(test_escape_untrusted PRIVATE ${TEST_COMPILE_FLAGS})
+target_link_options(test_escape_untrusted PRIVATE ${TEST_LINK_FLAGS})
+
 # prefix_recognizer against parse() (agreement, chunking, viability, events, the structural SMT obligations,
 # concurrency, speed) and the conformance suite, which also checks the recognizer on every input it parses.
 # Top level only: sensen builds the conformance source under this very target name, and a superproject's
@@ -1430,6 +1437,9 @@ if(PROJECT_IS_TOP_LEVEL)
 
     add_test(NAME test_number_format COMMAND test_number_format)
     set_tests_properties(test_number_format PROPERTIES TIMEOUT 60)
+
+    add_test(NAME test_escape_untrusted COMMAND test_escape_untrusted)
+    set_tests_properties(test_escape_untrusted PROPERTIES TIMEOUT 60)
 
     # ONE RUN PER STRING-SCAN TIER. The recognizer's bulk string path and parse() both scan through the tier
     # FASTJSON_SIMD selects, so agreement is proven on each tier, not on whichever one this host picks. The SMT
